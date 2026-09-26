@@ -68,8 +68,12 @@ export function setupMap(scene) {
         };
     }
 
+    const COLLIDER_PADDING = 0.15; // Puffer, damit Spieler nicht in Kanten/Ecken hineinclippen
+
     function addBoxCollider(mesh) {
-        colliders.push(new THREE.Box3().setFromObject(mesh));
+        const box = new THREE.Box3().setFromObject(mesh);
+        box.expandByScalar(COLLIDER_PADDING);
+        colliders.push(box);
     }
 
     // Reusable materials
