@@ -15,14 +15,18 @@ app.get('/', (req, res) => {
 });
 
 // Feste Spawnpunkte — entsprechen exakt den "C"-Zonen im Grid von map.js
-// (berechnet aus: x = col*2 - 32, z = row*2 - 10, TILE_SIZE=2, 33x11 Grid)
+// (berechnet aus: x = col*2 - 40, z = row*2 - 12, TILE_SIZE=2, vergrößertes 41x13 Grid)
 const SPAWN_POINTS = [
-    { x: -30, y: 2, z: -8 },
-    { x: 30, y: 2, z: -8 },
-    { x: -20, y: 2, z: 0 },
-    { x: 20, y: 2, z: 0 },
-    { x: -30, y: 2, z: 8 },
-    { x: 30, y: 2, z: 8 }
+    { x: -38, y: 2, z: -10 },
+    { x: 38, y: 2, z: -10 },
+    { x: -24, y: 2, z: -2 },
+    { x: 24, y: 2, z: -2 },
+    { x: -24, y: 2, z: 0 },
+    { x: 24, y: 2, z: 0 },
+    { x: -24, y: 2, z: 2 },
+    { x: 24, y: 2, z: 2 },
+    { x: -38, y: 2, z: 10 },
+    { x: 38, y: 2, z: 10 }
 ];
 
 function getRandomSpawnPoint() {
