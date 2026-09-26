@@ -144,22 +144,37 @@ function updateHealthUI() {
     }
 }
 
-function checkCollisions(oldPosition) {
-    // Spieler als kleine Box (Breite: 1.2, Höhe: 2.0)
-    const playerBox = new THREE.Box3();
-    const playerRadius = 0.6;
+const PLAYER_RADIUS = 0.5; // etwas schmaler als vorher (0.6) -> mehr Spielraum in 1-Tile-Korridoren
 
-    playerBox.min.set(camera.position.x - playerRadius, camera.position.y - 1.5, camera.position.z - playerRadius);
-    playerBox.max.set(camera.position.x + playerRadius, camera.position.y + 0.5, camera.position.z + playerRadius);
+function isColliding() {
+    const playerBox = new THREE.Box3();
+    playerBox.min.set(camera.position.x - PLAYER_RADIUS, camera.position.y - 1.5, camera.position.z - PLAYER_RADIUS);
+    playerBox.max.set(camera.position.x + PLAYER_RADIUS, camera.position.y + 0.5, camera.position.z + PLAYER_RADIUS);
 
     for (let i = 0; i < colliders.length; i++) {
-        if (playerBox.intersectsBox(colliders[i])) {
-            // Bei Kollision Position auf den Stand vor der Bewegung zurücksetzen (Wand/Kiste stoppt Spieler)
-            camera.position.x = oldPosition.x;
-            camera.position.z = oldPosition.z;
-            break;
-        }
+        if (playerBox.intersectsBox(colliders[i])) return true;
     }
+    return false;
+}
+
+function checkCollisions(oldPosition) {
+    if (!isColliding()) return; // keine Überschneidung -> nichts zu tun
+
+    const newX = camera.position.x;
+    const newZ = camera.position.z;
+
+    // Achsen-getrenntes Sliding: zuerst versuchen, nur X zu behalten (Z zurücksetzen)
+    camera.position.z = oldPosition.z;
+    if (!isColliding()) return; // Bewegung entlang X war ok -> Spieler gleitet an der Wand entlang
+
+    // sonst versuchen, nur Z zu behalten (X zurücksetzen)
+    camera.position.x = oldPosition.x;
+    camera.position.z = newZ;
+    if (!isColliding()) return; // Bewegung entlang Z war ok -> Spieler gleitet an der Wand entlang
+
+    // beide Achsen blockiert -> komplett zurücksetzen
+    camera.position.x = oldPosition.x;
+    camera.position.z = oldPosition.z;
 }
 
 function onKeyChange(keyCode, isPressed) {
