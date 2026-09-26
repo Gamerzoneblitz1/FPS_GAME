@@ -47,7 +47,7 @@ function init() {
     // Map laden & Kollisions-/Boden-Objekte speichern
     colliders = setupMap(scene);
     groundMeshes = colliders.groundMeshes || [];
-    weapon = new Weapon(camera, scene);
+    weapon = new Weapon(camera, scene, updateAmmoUI);
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
     document.addEventListener('keyup', (e) => onKeyChange(e.keyCode, false));
@@ -102,7 +102,8 @@ function init() {
 function handleShooting() {
     if (!controls.isLocked) return;
 
-    weapon.shoot();
+    const fired = weapon.shoot();
+    if (!fired) return; // Magazin leer oder wird gerade nachgeladen -> kein Schuss
 
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const intersects = raycaster.intersectObjects(playerMeshesList, true);
@@ -142,6 +143,20 @@ function updateHealthUI() {
         healthVal.innerText = health;
         healthVal.style.color = health > 50 ? '#00ff00' : health > 25 ? '#ffff00' : '#ff0000';
     }
+}
+
+function updateAmmoUI(ammoInMag, reserveAmmo, isReloading) {
+    const ammoVal = document.getElementById('ammo-val');
+    if (!ammoVal) return;
+
+    if (isReloading) {
+        ammoVal.innerText = 'Nachladen…';
+        ammoVal.style.color = '#ffff00';
+        return;
+    }
+
+    ammoVal.innerText = `${ammoInMag} / ${reserveAmmo}`;
+    ammoVal.style.color = ammoInMag === 0 ? '#ff0000' : ammoInMag <= Math.ceil(12 * 0.3) ? '#ffff00' : '#00f0ff';
 }
 
 const PLAYER_RADIUS = 0.5; // etwas schmaler als vorher (0.6) -> mehr Spielraum in 1-Tile-Korridoren
@@ -188,6 +203,9 @@ function onKeyChange(keyCode, isPressed) {
                 velocity.y += 12;
                 canJump = false;
             }
+            break;
+        case 82: // R
+            if (isPressed) weapon.reload();
             break;
     }
 }
