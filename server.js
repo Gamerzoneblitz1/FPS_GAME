@@ -14,13 +14,30 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
+// Feste Spawnpunkte — entsprechen exakt den "C"-Zonen im Grid von map.js
+// (berechnet aus: x = col*2 - 32, z = row*2 - 10, TILE_SIZE=2, 33x11 Grid)
+const SPAWN_POINTS = [
+    { x: -30, y: 2, z: -8 },
+    { x: 30, y: 2, z: -8 },
+    { x: -20, y: 2, z: 0 },
+    { x: 20, y: 2, z: 0 },
+    { x: -30, y: 2, z: 8 },
+    { x: 30, y: 2, z: 8 }
+];
+
+function getRandomSpawnPoint() {
+    const point = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+    return { x: point.x, y: point.y, z: point.z };
+}
+
 const players = {};
 
 io.on('connection', (socket) => {
     console.log('Spieler verbunden:', socket.id);
 
-    // Spieler registrieren inkl. 100 HP
-    players[socket.id] = { x: 0, y: 2, z: 0, health: 100 };
+    // Spieler an einem festen Spawnpunkt registrieren, inkl. 100 HP
+    const spawn = getRandomSpawnPoint();
+    players[socket.id] = { x: spawn.x, y: spawn.y, z: spawn.z, health: 100 };
 
     socket.emit('currentPlayers', players);
     socket.broadcast.emit('newPlayer', { id: socket.id, position: players[socket.id], health: 100 });
@@ -45,13 +62,9 @@ io.on('connection', (socket) => {
             players[targetId].health -= 25; // 25 Schaden pro Treffer
 
             if (players[targetId].health <= 0) {
-                // Respawn bei 0 HP
+                // Respawn bei 0 HP an einem festen Spawnpunkt (statt zufällig irgendwo auf der Karte)
                 players[targetId].health = 100;
-                const respawnPos = {
-                    x: (Math.random() - 0.5) * 80,
-                    y: 2,
-                    z: (Math.random() - 0.5) * 80
-                };
+                const respawnPos = getRandomSpawnPoint();
                 players[targetId].x = respawnPos.x;
                 players[targetId].y = respawnPos.y;
                 players[targetId].z = respawnPos.z;
