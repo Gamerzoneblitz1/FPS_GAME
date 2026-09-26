@@ -7,18 +7,23 @@ const TILE_SIZE = 2.0;
 const WALL_HEIGHT = 4.0;
 
 // # = wall | . = floor | G = neon gate (walk-through) | L = neon pillar (blocks) | C = spawn zone
+// Vergrößerte Version: 41x13 statt 33x11 Tiles (~1.5x mehr Fläche) + eine zusätzliche
+// Raumebene (Zeile 5/7) mit 4 weiteren Spawnpunkten -> insgesamt 10 statt 6 Spawnpunkte,
+// damit sich mehr Spieler über die Karte verteilen können.
 const NEON_VAULT_GRID = [
-    "#################################",
-    "#C......L.......#.......L......C#",
-    "#.###G##########.##########G###.#",
-    "#.#..........#.....#..........#.#",
-    "#.#..L.......#G#.#G#.......L..#.#",
-    "#LG...C...................C...GL#",
-    "#.#..L.......#G#.#G#.......L..#.#",
-    "#.#..........#.....#..........#.#",
-    "#.###G##########.##########G###.#",
-    "#C......L.......#.......L......C#",
-    "#################################"
+    "#".repeat(41),
+    "#C.......L..........#..........L.......C#",
+    "#.###G##############.##############G###.#",
+    "#.#............#.........#............#.#",
+    "#.#.....L......#..G#.#G..#......L.....#.#",
+    "#.#.....C......#.........#......C.....#.#",
+    "#LG.....C.......................C.....GL#",
+    "#.#.....C......#.........#......C.....#.#",
+    "#.#.....L......#..G#.#G..#......L.....#.#",
+    "#.#............#.........#............#.#",
+    "#.###G##############.##############G###.#",
+    "#C.......L..........#..........L.......C#",
+    "#".repeat(41)
 ];
 
 export function setupMap(scene) {
@@ -142,11 +147,11 @@ export function setupMap(scene) {
     });
 
     const cratePositions = [
-        { x: -27, z: -3 }, { x: -27, z: 3 }, // linke Kammer
-        { x: -20, z: -3 }, { x: -20, z: 3 },
-        { x: 20, z: -3 },  { x: 20, z: 3 },  // rechte Kammer
-        { x: 27, z: -3 },  { x: 27, z: 3 },
-        { x: -8, z: 1.4 }, { x: 8, z: -1.4 } // mittlerer Korridor
+        { x: -30, z: -6 }, { x: -24, z: -6 }, { x: -18, z: -6 }, // linke Kammer oben
+        { x: 14, z: -6 },  { x: 20, z: -6 },  { x: 26, z: -6 },  // rechte Kammer oben
+        { x: -30, z: 6 },  { x: -24, z: 6 },  { x: -18, z: 6 },  // linke Kammer unten
+        { x: 14, z: 6 },   { x: 20, z: 6 },   { x: 26, z: 6 },   // rechte Kammer unten
+        { x: -12, z: 1.3 }, { x: -4, z: -1.3 }, { x: 4, z: 1.3 }, { x: 12, z: -1.3 } // mittlerer Korridor
     ];
 
     cratePositions.forEach(({ x, z }) => {
@@ -195,8 +200,10 @@ export function setupMap(scene) {
         scene.add(edgeLight);
     }
 
-    addStaircase(-24, 0, 1, 4, 0.5, 1.0, 3.0);  // linke Kammer, Treppe steigt nach rechts (Richtung Mitte)
-    addStaircase(24, 0, -1, 4, 0.5, 1.0, 3.0);  // rechte Kammer, Treppe steigt nach links (Richtung Mitte)
+    addStaircase(-34, -2, 1, 3, 0.5, 1.0, 2.0);  // links oben
+    addStaircase(34, -2, -1, 3, 0.5, 1.0, 2.0);  // rechts oben
+    addStaircase(-34, 2, 1, 3, 0.5, 1.0, 2.0);   // links unten
+    addStaircase(34, 2, -1, 3, 0.5, 1.0, 2.0);   // rechts unten
 
     // Extra data for main.js: Spawnpunkte + begehbare Flächen für den Bodenraycast
     colliders.spawnPoints = spawnPoints;
