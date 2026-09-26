@@ -1,5 +1,6 @@
-export function createPlayerMesh() {
+export function createPlayerMesh(id) {
     const group = new THREE.Group();
+    group.userData.id = id; // Wichtig für Raycasting-Treffererkennung!
 
     // Beine
     const legsGeo = new THREE.BoxGeometry(0.6, 1, 0.4);
