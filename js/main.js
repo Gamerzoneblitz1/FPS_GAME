@@ -1,6 +1,6 @@
 import { setupMap } from './map.js';
 import { Weapon, createTracer } from './weapon.js';
-import { createPlayerMesh } from './player.js';
+import { createPlayerMesh, updatePlayerAnimations } from './player.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
 
@@ -355,6 +355,8 @@ function animate() {
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
+
+    updatePlayerAnimations(playerMeshesList, delta);
 
     if (controls.isLocked || touchActive) {
         velocity.x -= velocity.x * 10.0 * delta;
