@@ -1,13 +1,9 @@
-// map.js — "Neon Vault Megaplex"
-// Giant Arena (121x33 Tiles / ~242m x 66m) with multiple zones, elevated towers,
-// cover clusters, multi-color sector lighting, and 24 spawn points.
+// map.js — "Neon Vault Megaplex (High FPS Optimized)"
+// Size: 121x33 (~242m x 66m). Optimized via InstancedMesh & Light Budgeting.
 
 const TILE_SIZE = 2.0;
 const WALL_HEIGHT = 5.0;
 
-// Grid Legend:
-// # = Wall | . = Floor | G = Cyan Gate | L = Pink Pillar | E = Green Energy Pillar
-// C = Spawn Point | T = Elevated Tower Spot | H = High Wall
 const NEON_VAULT_GRID = [
     "#".repeat(121),
     "#" + "C.......L.......#.......E.......#.......L.......C".padEnd(59, ".") + "#" + "C.......L.......#.......E.......#.......L.......C".padStart(59, ".") + "#",
@@ -54,31 +50,27 @@ export function setupMap(scene) {
     const halfWidth = (cols * TILE_SIZE) / 2;
     const halfDepth = (rows * TILE_SIZE) / 2;
 
-    // --- Atmospheric World Lighting & Fog ---
+    // --- Atmosphaere ---
     scene.background = new THREE.Color(0x010106);
-    scene.fog = new THREE.FogExp2(0x010106, 0.015);
-    scene.add(new THREE.AmbientLight(0x08081c, 0.6));
+    scene.fog = new THREE.FogExp2(0x010106, 0.012);
+    scene.add(new THREE.AmbientLight(0x101025, 0.8));
 
-    // Directional Cyberpunk Sun / Moon
-    const dirLight = new THREE.DirectionalLight(0x334466, 0.8);
-    dirLight.position.set(50, 100, 50);
+    const dirLight = new THREE.DirectionalLight(0x445577, 0.6);
+    dirLight.position.set(30, 80, 30);
     scene.add(dirLight);
 
-    // --- Floor Setup ---
+    // --- Boden & Decke ---
     const floorGeo = new THREE.PlaneGeometry(cols * TILE_SIZE, rows * TILE_SIZE);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.8, metalness: 0.3 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.8, metalness: 0.2 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
     scene.add(floor);
     groundMeshes.push(floor);
 
-    // Grid Overlay
-    const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, Math.max(cols, rows), 0x00f0ff, 0x0a0a22);
+    const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, 60, 0x00f0ff, 0x0d0d22);
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
 
-    // Ceiling
     const ceiling = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x020205, roughness: 1.0 }));
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = WALL_HEIGHT;
@@ -92,28 +84,33 @@ export function setupMap(scene) {
     }
 
     const COLLIDER_PADDING = 0.15;
-    function addBoxCollider(mesh) {
-        const box = new THREE.Box3().setFromObject(mesh);
-        box.expandByScalar(COLLIDER_PADDING);
+    function addBox3Collider(x, y, z, width, height, depth) {
+        const box = new THREE.Box3();
+        box.setFromCenterAndSize(
+            new THREE.Vector3(x, y, z),
+            new THREE.Vector3(width + COLLIDER_PADDING * 2, height, depth + COLLIDER_PADDING * 2)
+        );
         colliders.push(box);
     }
 
-    // Shared Materials
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x06060e, roughness: 0.8, metalness: 0.2 });
+    // --- Materialien mit starken Emissive-Werten (Ersatz fuer Performance-fressende Punktlichter) ---
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x06060e, roughness: 0.8 });
     const cyanGateMat = new THREE.MeshStandardMaterial({
-        color: 0x0a1018, roughness: 0.3, metalness: 0.5,
-        emissive: 0x00f0ff, emissiveIntensity: 2.5
+        color: 0x0a1018, roughness: 0.2, emissive: 0x00f0ff, emissiveIntensity: 4.0
     });
     const pinkPillarMat = new THREE.MeshStandardMaterial({
-        color: 0x180a10, roughness: 0.2, metalness: 0.5,
-        emissive: 0xff0055, emissiveIntensity: 3.0
+        color: 0x180a10, roughness: 0.2, emissive: 0xff0055, emissiveIntensity: 4.5
     });
     const greenPillarMat = new THREE.MeshStandardMaterial({
-        color: 0x0a180a, roughness: 0.2, metalness: 0.5,
-        emissive: 0x00ff66, emissiveIntensity: 3.0
+        color: 0x0a180a, roughness: 0.2, emissive: 0x00ff66, emissiveIntensity: 4.5
+    });
+    const towerMat = new THREE.MeshStandardMaterial({
+        color: 0x0d0d1a, roughness: 0.3, emissive: 0x00f0ff, emissiveIntensity: 2.0
     });
 
-    // --- Parse Tile Grid ---
+    // Positions-Arrays für InstancedMeshes sammeln
+    const wallPos = [], gatePos = [], pinkPos = [], greenPos = [], towerPos = [];
+
     for (let r = 0; r < rows; r++) {
         const line = NEON_VAULT_GRID[r];
         for (let c = 0; c < cols; c++) {
@@ -121,112 +118,75 @@ export function setupMap(scene) {
             const { x, z } = worldPos(c, r);
 
             if (char === '#') {
-                const wall = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE), wallMat);
-                wall.position.set(x, WALL_HEIGHT / 2, z);
-                wall.castShadow = true;
-                wall.receiveShadow = true;
-                scene.add(wall);
-                addBoxCollider(wall);
-
+                wallPos.push({ x, z });
+                addBox3Collider(x, WALL_HEIGHT / 2, z, TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
             } else if (char === 'G') {
-                const gate = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE * 0.9, WALL_HEIGHT * 0.85, 0.2), cyanGateMat);
-                gate.position.set(x, WALL_HEIGHT / 2, z);
-                scene.add(gate);
-
-                const gateLight = new THREE.PointLight(0x00f0ff, 2.0, 8.0);
-                gateLight.position.set(x, WALL_HEIGHT / 2, z);
-                scene.add(gateLight);
-
+                gatePos.push({ x, z });
             } else if (char === 'L') {
-                const pillar = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE * 0.5, WALL_HEIGHT, TILE_SIZE * 0.5), pinkPillarMat);
-                pillar.position.set(x, WALL_HEIGHT / 2, z);
-                pillar.castShadow = true;
-                pillar.receiveShadow = true;
-                scene.add(pillar);
-                addBoxCollider(pillar);
-
-                const pillarLight = new THREE.PointLight(0xff0055, 3.0, 7.0);
-                pillarLight.position.set(x, WALL_HEIGHT * 0.7, z);
-                scene.add(pillarLight);
-
+                pinkPos.push({ x, z });
+                addBox3Collider(x, WALL_HEIGHT / 2, z, TILE_SIZE * 0.5, WALL_HEIGHT, TILE_SIZE * 0.5);
             } else if (char === 'E') {
-                const pillar = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE * 0.5, WALL_HEIGHT, TILE_SIZE * 0.5), greenPillarMat);
-                pillar.position.set(x, WALL_HEIGHT / 2, z);
-                pillar.castShadow = true;
-                pillar.receiveShadow = true;
-                scene.add(pillar);
-                addBoxCollider(pillar);
-
-                const pillarLight = new THREE.PointLight(0x00ff66, 3.0, 7.0);
-                pillarLight.position.set(x, WALL_HEIGHT * 0.7, z);
-                scene.add(pillarLight);
-
+                greenPos.push({ x, z });
+                addBox3Collider(x, WALL_HEIGHT / 2, z, TILE_SIZE * 0.5, WALL_HEIGHT, TILE_SIZE * 0.5);
             } else if (char === 'C') {
                 spawnPoints.push({ x, y: 2, z });
-
-                const spotLight = new THREE.SpotLight(0xfff5e6, 2.0, 10.0, Math.PI / 4);
-                spotLight.position.set(x, WALL_HEIGHT, z);
-                spotLight.target.position.set(x, 0, z);
-                scene.add(spotLight);
-                scene.add(spotLight.target);
-
             } else if (char === 'T') {
-                // Sniper / Elevated Platform Post
-                const platform = new THREE.Mesh(
-                    new THREE.BoxGeometry(TILE_SIZE * 1.2, 1.8, TILE_SIZE * 1.2),
-                    cyanGateMat
-                );
-                platform.position.set(x, 0.9, z);
-                scene.add(platform);
-                groundMeshes.push(platform);
-
-                const towerLight = new THREE.PointLight(0x00f0ff, 2.5, 6.0);
-                towerLight.position.set(x, 2.5, z);
-                scene.add(towerLight);
+                towerPos.push({ x, z });
             }
         }
     }
 
-    // --- Sector Ambient Neon Strips ---
-    const sectorXOffsets = [-100, -50, 0, 50, 100];
-    const sectorColors = [0xff0055, 0x00f0ff, 0x9d00ff, 0x00ff66, 0xffaa00];
+    // --- InstancedMesh Generator Helper ---
+    const dummy = new THREE.Object3D();
 
-    sectorXOffsets.forEach((x, idx) => {
-        const color = sectorColors[idx % sectorColors.length];
-        
-        const topStrip = new THREE.PointLight(color, 2.5, 20);
-        topStrip.position.set(x, WALL_HEIGHT - 0.5, -halfDepth + 4);
-        scene.add(topStrip);
-
-        const bottomStrip = new THREE.PointLight(color, 2.5, 20);
-        bottomStrip.position.set(x, WALL_HEIGHT - 0.5, halfDepth - 4);
-        scene.add(bottomStrip);
-    });
-
-    // --- Massive Cover Clusters (Crates) ---
-    const crateMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0a14, roughness: 0.5, metalness: 0.4,
-        emissive: 0x9d00ff, emissiveIntensity: 0.3
-    });
-
-    // Procedural generation of tactical cover throughout corridors
-    for (let x = -100; x <= 100; x += 12) {
-        for (let z = -24; z <= 24; z += 12) {
-            if (Math.abs(x) < 8 && Math.abs(z) < 8) continue; // Keep absolute center clear
-
-            const crate = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), crateMat);
-            crate.position.set(x + (Math.sin(x + z) * 2), 0.7, z + (Math.cos(x * z) * 2));
-            crate.castShadow = true;
-            crate.receiveShadow = true;
-            scene.add(crate);
-            addBoxCollider(crate);
-        }
+    function createInstancedMesh(geometry, material, positions, scale = { x: 1, y: 1, z: 1 }, yPos = WALL_HEIGHT / 2) {
+        if (positions.length === 0) return;
+        const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
+        positions.forEach((pos, idx) => {
+            dummy.position.set(pos.x, yPos, pos.z);
+            dummy.scale.set(scale.x, scale.y, scale.z);
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(idx, dummy.matrix);
+        });
+        instancedMesh.instanceMatrix.needsUpdate = true;
+        scene.add(instancedMesh);
+        return instancedMesh;
     }
 
-    // --- Staircases & Elevated Ramp Systems ---
+    // Meshes in Bündeln instanziieren (extrem schnell!)
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+
+    createInstancedMesh(boxGeo, wallMat, wallPos, { x: TILE_SIZE, y: WALL_HEIGHT, z: TILE_SIZE });
+    createInstancedMesh(boxGeo, cyanGateMat, gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
+    createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+    createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+
+    // Podeste/Tower
+    if (towerPos.length > 0) {
+        const towerMesh = createInstancedMesh(boxGeo, towerMat, towerPos, { x: TILE_SIZE * 1.2, y: 1.8, z: TILE_SIZE * 1.2 }, 0.9);
+        groundMeshes.push(towerMesh);
+    }
+
+    // --- Deckungskisten als InstancedMesh ---
+    const crateMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0a14, roughness: 0.5, emissive: 0x9d00ff, emissiveIntensity: 0.8
+    });
+    const cratePositions = [];
+
+    for (let x = -100; x <= 100; x += 16) {
+        for (let z = -24; z <= 24; z += 16) {
+            if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+            const cx = x + (Math.sin(x + z) * 2);
+            const cz = z + (Math.cos(x * z) * 2);
+            cratePositions.push({ x: cx, z: cz });
+            addBox3Collider(cx, 0.7, cz, 1.4, 1.4, 1.4);
+        }
+    }
+    createInstancedMesh(boxGeo, crateMat, cratePositions, { x: 1.4, y: 1.4, z: 1.4 }, 0.7);
+
+    // --- Treppen & Plattformen ---
     const stepMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0a16, roughness: 0.4, metalness: 0.4,
-        emissive: 0x00f0ff, emissiveIntensity: 0.5
+        color: 0x0a0a16, roughness: 0.4, emissive: 0x00f0ff, emissiveIntensity: 1.5
     });
 
     function addStaircase(startX, z, dirX, steps = 4, stepHeight = 0.45, stepDepth = 1.0, platformDepth = 2.5) {
@@ -234,8 +194,6 @@ export function setupMap(scene) {
             const h = stepHeight * (i + 1);
             const step = new THREE.Mesh(new THREE.BoxGeometry(stepDepth, h, TILE_SIZE * 1.2), stepMat);
             step.position.set(startX + dirX * stepDepth * i, h / 2, z);
-            step.castShadow = true;
-            step.receiveShadow = true;
             scene.add(step);
             groundMeshes.push(step);
         }
@@ -250,17 +208,10 @@ export function setupMap(scene) {
             platformHeight / 2,
             z
         );
-        platform.castShadow = true;
-        platform.receiveShadow = true;
         scene.add(platform);
         groundMeshes.push(platform);
-
-        const edgeLight = new THREE.PointLight(0x00f0ff, 2.5, 8.0);
-        edgeLight.position.set(platform.position.x, platformHeight + 1.2, z);
-        scene.add(edgeLight);
     }
 
-    // Place Stair Systems across West, Central, and East Wings
     addStaircase(-104, -18, 1);
     addStaircase(-104, 18, 1);
     addStaircase(-40, -12, 1);
@@ -270,7 +221,21 @@ export function setupMap(scene) {
     addStaircase(104, -18, -1);
     addStaircase(104, 18, -1);
 
-    // Export properties expected by main.js
+    // --- Zonen-Beleuchtung (Sparsam platzierte Punktlichter für sanftes Licht) ---
+    const zoneLights = [
+        { x: -90, z: 0, color: 0xff0055 },
+        { x: -45, z: 0, color: 0x00f0ff },
+        { x: 0, z: 0, color: 0x9d00ff },
+        { x: 45, z: 0, color: 0x00ff66 },
+        { x: 90, z: 0, color: 0xffaa00 }
+    ];
+
+    zoneLights.forEach(l => {
+        const pLight = new THREE.PointLight(l.color, 3.5, 35.0);
+        pLight.position.set(l.x, WALL_HEIGHT - 1, l.z);
+        scene.add(pLight);
+    });
+
     colliders.spawnPoints = spawnPoints;
     colliders.groundMeshes = groundMeshes;
     return colliders;
