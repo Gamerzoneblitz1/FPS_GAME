@@ -1,7 +1,15 @@
 export class Weapon {
-    constructor(camera, scene) {
+    constructor(camera, scene, onAmmoChange = null) {
         this.camera = camera;
         this.scene = scene;
+        this.onAmmoChange = onAmmoChange; // callback(ammoInMag, reserveAmmo, isReloading)
+
+        // --- Munitionssystem ---
+        this.magSize = 12;
+        this.ammoInMag = this.magSize;
+        this.reserveAmmo = 84; // 7 weitere Magazine in Reserve
+        this.isReloading = false;
+        this.reloadDuration = 1500; // ms
 
         this.weaponGroup = new THREE.Group();
 
@@ -19,9 +27,29 @@ export class Weapon {
 
         this.weaponGroup.position.set(0.3, -0.25, -0.5);
         this.camera.add(this.weaponGroup);
+
+        this._notifyAmmoChange();
     }
 
+    _notifyAmmoChange() {
+        if (this.onAmmoChange) {
+            this.onAmmoChange(this.ammoInMag, this.reserveAmmo, this.isReloading);
+        }
+    }
+
+    // Gibt true zurück, wenn tatsächlich geschossen wurde (main.js nutzt das,
+    // um Tracer/Netzwerk-Events nur bei echten Treffern zu senden)
     shoot() {
+        if (this.isReloading) return false;
+
+        if (this.ammoInMag <= 0) {
+            this._dryFire();
+            return false;
+        }
+
+        this.ammoInMag -= 1;
+        this._notifyAmmoChange();
+
         // Rückstoß
         this.weaponGroup.position.z += 0.08;
         setTimeout(() => { this.weaponGroup.position.z -= 0.08; }, 50);
@@ -34,6 +62,37 @@ export class Weapon {
 
         this.camera.add(flash);
         setTimeout(() => { this.camera.remove(flash); }, 40);
+
+        return true;
+    }
+
+    // Leeres Magazin: kurzes "Klick"-Feedback statt Schuss
+    _dryFire() {
+        this.weaponGroup.position.x += 0.02;
+        setTimeout(() => { this.weaponGroup.position.x -= 0.02; }, 60);
+    }
+
+    reload() {
+        if (this.isReloading) return;
+        if (this.ammoInMag === this.magSize) return; // Magazin schon voll
+        if (this.reserveAmmo <= 0) return; // keine Reserve mehr übrig
+
+        this.isReloading = true;
+        this._notifyAmmoChange();
+
+        // Waffe während des Nachladens leicht absenken (visuelles Feedback)
+        this.weaponGroup.position.y -= 0.15;
+
+        setTimeout(() => {
+            const needed = this.magSize - this.ammoInMag;
+            const amount = Math.min(needed, this.reserveAmmo);
+            this.ammoInMag += amount;
+            this.reserveAmmo -= amount;
+            this.isReloading = false;
+
+            this.weaponGroup.position.y += 0.15;
+            this._notifyAmmoChange();
+        }, this.reloadDuration);
     }
 }
 
