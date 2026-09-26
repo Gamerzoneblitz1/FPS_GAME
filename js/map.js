@@ -24,6 +24,7 @@ const NEON_VAULT_GRID = [
 export function setupMap(scene) {
     const colliders = [];
     const spawnPoints = [];
+    const groundMeshes = []; // begehbare Flächen: Boden, Treppen, Plattformen (für Bodenraycast)
 
     const rows = NEON_VAULT_GRID.length;
     const cols = NEON_VAULT_GRID[0].length;
@@ -42,6 +43,7 @@ export function setupMap(scene) {
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
+    groundMeshes.push(floor);
 
     // Tron-style neon grid lines on the floor
     const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, Math.max(cols, rows), 0x00f0ff, 0x111133);
@@ -133,7 +135,71 @@ export function setupMap(scene) {
         scene.add(strip);
     });
 
-    // Extra data for main.js if you want to use it later (spawning players at C tiles etc.)
+    // --- Deckungskisten (blockieren Bewegung + Sichtlinien, kein Hochklettern) ---
+    const crateMat = new THREE.MeshStandardMaterial({
+        color: 0x0d0d18, roughness: 0.6, metalness: 0.3,
+        emissive: 0x9d00ff, emissiveIntensity: 0.4
+    });
+
+    const cratePositions = [
+        { x: -27, z: -3 }, { x: -27, z: 3 }, // linke Kammer
+        { x: -20, z: -3 }, { x: -20, z: 3 },
+        { x: 20, z: -3 },  { x: 20, z: 3 },  // rechte Kammer
+        { x: 27, z: -3 },  { x: 27, z: 3 },
+        { x: -8, z: 1.4 }, { x: 8, z: -1.4 } // mittlerer Korridor
+    ];
+
+    cratePositions.forEach(({ x, z }) => {
+        const crate = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.3, 1.3), crateMat);
+        crate.position.set(x, 0.65, z);
+        crate.castShadow = true;
+        crate.receiveShadow = true;
+        scene.add(crate);
+        addBoxCollider(crate); // harte Deckung, blockiert horizontale Bewegung wie eine Wand
+    });
+
+    // --- Rampen/Treppen mit begehbarer Plattform (nutzt Bodenraycast statt Collider) ---
+    const stepMat = new THREE.MeshStandardMaterial({
+        color: 0x0d0d18, roughness: 0.5, metalness: 0.3,
+        emissive: 0x00f0ff, emissiveIntensity: 0.6
+    });
+
+    function addStaircase(startX, z, dirX, steps, stepHeight, stepDepth, platformDepth) {
+        for (let i = 0; i < steps; i++) {
+            const h = stepHeight * (i + 1);
+            const step = new THREE.Mesh(new THREE.BoxGeometry(stepDepth, h, TILE_SIZE * 0.9), stepMat);
+            step.position.set(startX + dirX * stepDepth * i, h / 2, z);
+            step.castShadow = true;
+            step.receiveShadow = true;
+            scene.add(step);
+            groundMeshes.push(step); // begehbar, kein harter Collider -> Spieler kann hochlaufen
+        }
+
+        const platformHeight = stepHeight * steps;
+        const platform = new THREE.Mesh(
+            new THREE.BoxGeometry(platformDepth, platformHeight, TILE_SIZE * 1.4),
+            stepMat
+        );
+        platform.position.set(
+            startX + dirX * (stepDepth * steps + platformDepth / 2 - stepDepth / 2),
+            platformHeight / 2,
+            z
+        );
+        platform.castShadow = true;
+        platform.receiveShadow = true;
+        scene.add(platform);
+        groundMeshes.push(platform);
+
+        const edgeLight = new THREE.PointLight(0x00f0ff, 2.0, 6.0);
+        edgeLight.position.set(platform.position.x, platformHeight + 1, z);
+        scene.add(edgeLight);
+    }
+
+    addStaircase(-24, 0, 1, 4, 0.5, 1.0, 3.0);  // linke Kammer, Treppe steigt nach rechts (Richtung Mitte)
+    addStaircase(24, 0, -1, 4, 0.5, 1.0, 3.0);  // rechte Kammer, Treppe steigt nach links (Richtung Mitte)
+
+    // Extra data for main.js: Spawnpunkte + begehbare Flächen für den Bodenraycast
     colliders.spawnPoints = spawnPoints;
+    colliders.groundMeshes = groundMeshes;
     return colliders;
 }
