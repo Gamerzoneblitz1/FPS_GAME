@@ -1,163 +1,104 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Multiplayer FPS</title>
-    <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
-        canvas { display: block; }
-        #touch-controls {
-            position: absolute;
-            inset: 0;
-            z-index: 5;
-            pointer-events: none; /* Kinder aktivieren pointer-events einzeln */
-            display: none;
-        }
-        #joystick-zone {
-            position: absolute;
-            left: 24px;
-            bottom: 24px;
-            width: 130px;
-            height: 130px;
-            pointer-events: auto;
-            touch-action: none;
-        }
-        #joystick-base {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.12);
-            border: 2px solid rgba(255, 255, 255, 0.35);
-        }
-        #joystick-knob {
-            position: absolute;
-            width: 54px;
-            height: 54px;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.55);
-        }
-        #look-zone {
-            position: absolute;
-            right: 0;
-            top: 0;
-            width: 60%;
-            height: 100%;
-            pointer-events: auto;
-            touch-action: none;
-        }
-        .touch-btn {
-            position: absolute;
-            pointer-events: auto;
-            touch-action: none;
-            -webkit-touch-callout: none;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
-            border: 2px solid rgba(255, 255, 255, 0.4);
-            color: white;
-            font-size: 22px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        #btn-fire {
-            right: 28px;
-            bottom: 34px;
-            width: 88px;
-            height: 88px;
-            background: rgba(255, 60, 60, 0.25);
-            border-color: rgba(255, 90, 90, 0.6);
-            font-size: 30px;
-        }
-        #btn-jump {
-            right: 132px;
-            bottom: 116px;
-            width: 64px;
-            height: 64px;
-        }
-        #btn-reload {
-            right: 30px;
-            bottom: 138px;
-            width: 60px;
-            height: 60px;
-            font-size: 16px;
-        }
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 8px;
-            height: 8px;
-            background-color: white;
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            border: 2px solid black;
-        }
-        #hud {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            color: white;
-            font-size: 28px;
-            font-family: monospace;
-            font-weight: bold;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 10px 20px;
-            border-radius: 8px;
-            pointer-events: none;
-            user-select: none;
-            display: flex;
-            gap: 24px;
-        }
-        #instructions {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-        }
-    </style>
-</head>
-<body>
-    <div id="crosshair"></div>
-    <div id="hud">
-        <span>HP: <span id="health-val" style="color: #00ff00;">100</span></span>
-        <span>Ammo: <span id="ammo-val" style="color: #00f0ff;">12 / 84</span></span>
-    </div>
-    <div id="instructions">
-        <h1>Klicken zum Spielen</h1>
-        <p>Steuerung: WASD = Bewegen | LEERTASTE = Springen | R = Nachladen | MAUS = Umsehen & Schießen</p>
-    </div>
+// player.js — lädt "Walk_With_Rifle.fbx" einmal, klont es pro Spieler (inkl. Skelett/Animation)
+// und spielt die Lauf-Animation in Dauerschleife ab.
 
-    <div id="touch-controls">
-        <div id="joystick-zone">
-            <div id="joystick-base"></div>
-            <div id="joystick-knob"></div>
-        </div>
-        <div id="look-zone"></div>
-        <div id="btn-jump" class="touch-btn">⤒</div>
-        <div id="btn-reload" class="touch-btn">R</div>
-        <div id="btn-fire" class="touch-btn">🔫</div>
-    </div>
+const MODEL_PATH = 'models/Walk_With_Rifle.fbx';
+const MODEL_SCALE = 0.01; // Die meisten FBX-Rigs (z.B. Mixamo) sind in cm -> auf Meter skalieren.
+                          // Wenn der Charakter zu klein/groß wirkt, hier anpassen.
 
-    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/inflate.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+let cachedModel = null;
+let cachedAnimation = null;
+let loadPromise = null;
 
-    <script type="module" src="js/main.js"></script>
-</body>
-</html>
+function loadWalkModel() {
+    if (loadPromise) return loadPromise; // nur einmal laden, egal wie viele Spieler joinen
+
+    loadPromise = new Promise((resolve, reject) => {
+        // Absichtlich erst HIER (nicht auf Modul-Ebene) erstellt: falls THREE.FBXLoader aus
+        // irgendeinem Grund nicht verfügbar ist, würde ein Fehler auf Modul-Ebene den kompletten
+        // Import von main.js zum Absturz bringen -> ganzes Spiel lädt nicht mehr. So bleibt der
+        // Fehler lokal auf "Modell konnte nicht geladen werden" begrenzt.
+        if (typeof THREE.FBXLoader !== 'function') {
+            console.error('THREE.FBXLoader ist nicht verfügbar (Script nicht geladen?). Spieler bleiben als Platzhalter-Box sichtbar.');
+            reject(new Error('THREE.FBXLoader missing'));
+            return;
+        }
+
+        const fbxLoader = new THREE.FBXLoader();
+
+        fbxLoader.load(
+            MODEL_PATH,
+            (fbx) => {
+                cachedModel = fbx;
+                cachedAnimation = fbx.animations[0] || null;
+                if (!cachedAnimation) {
+                    console.warn('Walk_With_Rifle.fbx enthält keine Animation-Clips.');
+                }
+                resolve();
+            },
+            undefined,
+            (err) => {
+                console.error('FBX-Ladefehler (models/Walk_With_Rifle.fbx) — liegt die Datei im models/-Ordner neben index.html?', err);
+                reject(err);
+            }
+        );
+    });
+
+    return loadPromise;
+}
+
+export function createPlayerMesh(id) {
+    const group = new THREE.Group();
+    group.userData.id = id; // Wichtig für Raycasting-Treffererkennung!
+    group.userData.mixer = null; // wird gesetzt, sobald das Modell geladen + geklont ist
+
+    // Platzhalter-Box: sichtbar, solange das FBX-Modell noch lädt (verhindert unsichtbare Spieler)
+    const placeholderGeo = new THREE.BoxGeometry(0.8, 1.8, 0.5);
+    const placeholderMat = new THREE.MeshBasicMaterial({ color: 0xcc2222 });
+    const placeholder = new THREE.Mesh(placeholderGeo, placeholderMat);
+    placeholder.position.y = 0.9;
+    group.add(placeholder);
+
+    loadWalkModel()
+        .then(() => {
+            group.remove(placeholder);
+            placeholderGeo.dispose();
+            placeholderMat.dispose();
+
+            // SkeletonUtils.clone statt object.clone() -> nötig, damit jeder Spieler
+            // sein eigenes, unabhängiges Skelett/Animation hat (sonst teilen sich alle
+            // Spieler dieselbe Pose).
+            const model = THREE.SkeletonUtils.clone(cachedModel);
+            model.scale.setScalar(MODEL_SCALE);
+
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            group.add(model);
+
+            if (cachedAnimation) {
+                const mixer = new THREE.AnimationMixer(model);
+                const action = mixer.clipAction(cachedAnimation);
+                action.play();
+                group.userData.mixer = mixer;
+            }
+        })
+        .catch(() => {
+            // Platzhalter bleibt einfach stehen, falls das Modell nicht geladen werden konnte
+        });
+
+    return group;
+}
+
+// Muss in main.js pro Frame aufgerufen werden (mit delta-Zeit), damit die
+// Lauf-Animation aller anderen Spieler-Meshes tatsächlich abgespielt wird.
+export function updatePlayerAnimations(playerMeshesList, delta) {
+    for (const mesh of playerMeshesList) {
+        if (mesh.userData.mixer) {
+            mesh.userData.mixer.update(delta);
+        }
+    }
+}
