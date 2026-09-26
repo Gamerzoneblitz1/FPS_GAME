@@ -4,57 +4,57 @@ const socketIo = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
-
-let players = {};
-
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/index.html');
+const io = socketIo(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
 });
 
+// WICHTIG: Erlaubt dem Browser den Zugriff auf index.html und den js/ Ordner
+app.use(express.static(__dirname));
+
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/index.html');
+});
+
+const players = {};
+
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+    console.log('Spieler verbunden:', socket.id);
 
-  const playerId = socket.id;
-  players[playerId] = { x: 0, y: 5, z: 0, health: 100 };
+    // Neuen Spieler mit Standardposition registrieren
+    players[socket.id] = { x: 0, y: 0, z: 0 };
 
-  // Send spawn info to new player
-  socket.emit('playerSpawn', { id: playerId, position: players[playerId], health: players[playerId].health });
+    // Bisherige Spieler an den neuen Spieler senden
+    socket.emit('currentPlayers', players);
 
-  // Send all existing players to the new player
-  for (const [id, player] of Object.entries(players)) {
-    if (id !== playerId) {
-      socket.emit('newPlayer', { id, position: player, health: player.health });
-    }
-  }
+    // Alle anderen über den neuen Spieler informieren
+    socket.broadcast.emit('newPlayer', {
+        id: socket.id,
+        position: players[socket.id]
+    });
 
-  // Notify everyone else about the new player (FIXED BROADCAST SYNTAX)
-  socket.broadcast.emit('newPlayer', { id: playerId, position: players[playerId], health: players[playerId].health });
+    // Bewegungssignale weiterleiten
+    socket.on('playerMove', (movementData) => {
+        if (players[socket.id]) {
+            players[socket.id] = movementData;
+            socket.broadcast.emit('playerMoved', {
+                id: socket.id,
+                position: movementData
+            });
+        }
+    });
 
-  // Handle position updates
-  socket.on('playerMove', (data) => {
-    if (players[playerId]) {
-      players[playerId] = data;
-      socket.broadcast.emit('playerMoved', { id: playerId, position: data });
-    }
-  });
-
-  // Handle shooting
-  socket.on('shoot', (targetId) => {
-    if (players[targetId]) {
-      players[targetId].health -= 10;
-      io.emit('healthUpdate', { id: targetId, health: players[targetId].health });
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log('A user disconnected:', playerId);
-    delete players[playerId];
-    io.emit('playerDisconnected', playerId);
-  });
+    // Disconnect verarbeiten
+    socket.on('disconnect', () => {
+        console.log('Spieler getrennt:', socket.id);
+        delete players[socket.id];
+        io.emit('playerDisconnected', socket.id);
+    });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Server läuft auf Port ${PORT}`);
 });
