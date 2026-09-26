@@ -1,47 +1,51 @@
-// map.js — "Neon Vault" map
-// Builds the map with real Three.js geometry (no external FBX models needed)
-// and returns an array of THREE.Box3 colliders, matching what main.js expects
-// from: colliders = setupMap(scene);
+// map.js — "Neon Vault XL" Map
+// Baut eine großflächige Arena mit Three.js Geometrie und gibt THREE.Box3 Collider zurück.
 
 const TILE_SIZE = 2.0;
 const WALL_HEIGHT = 4.0;
 
-// # = wall | . = floor | G = neon gate (walk-through) | L = neon pillar (blocks) | C = spawn zone
-// Vergrößerte Version: 41x13 statt 33x11 Tiles (~1.5x mehr Fläche) + eine zusätzliche
-// Raumebene (Zeile 5/7) mit 4 weiteren Spawnpunkten -> insgesamt 10 statt 6 Spawnpunkte,
-// damit sich mehr Spieler über die Karte verteilen können.
+// Grid-Größe: 61 Spalten x 21 Zeilen
+// # = Wand | . = Boden | G = Neon-Tor | L = Neon-Säule | C = Spawn-Punkt
 const NEON_VAULT_GRID = [
-    "#".repeat(41),
-    "#C.......L..........#..........L.......C#",
-    "#.###G##############.##############G###.#",
-    "#.#............#.........#............#.#",
-    "#.#.....L......#..G#.#G..#......L.....#.#",
-    "#.#.....C......#.........#......C.....#.#",
-    "#LG.....C.......................C.....GL#",
-    "#.#.....C......#.........#......C.....#.#",
-    "#.#.....L......#..G#.#G..#......L.....#.#",
-    "#.#............#.........#............#.#",
-    "#.###G##############.##############G###.#",
-    "#C.......L..........#..........L.......C#",
-    "#".repeat(41)
+    "#".repeat(61),
+    "#C........L.............#...........#.............L........C#",
+    "#.#######G#############.#.#########.#.#############G#######.#",
+    "#.#...................#.#.........#.#...................#.#",
+    "#.#.......L...........#.#....G....#.#...........L.......#.#",
+    "#.#.......C...........#.###########.#...........C.......#.#",
+    "#LG.......C...........#.............#...........C.......GL#",
+    "#.#.......C...........#.###########.#...........C.......#.#",
+    "#.#.......L...........#.....G.....#.#...........L.......#.#",
+    "#.#...................#...........#.#...................#.#",
+    "#.#######G#####.#######G###########G#######.#####G#######.#",
+    "#.#...........#.........#.........#.........#...........#.#",
+    "#.#...........#.........#....C....#.........#...........#.#",
+    "#.#.......L...#...G.....#.........#.....G...#...L.......#.#",
+    "#.#...........#.#########.#######.#########.#...........#.#",
+    "#LG.......C...#.........#.........#.........#...C.......GL#",
+    "#.#...........#.#########.#######.#########.#...........#.#",
+    "#.#.......L...#.........#....G....#.........#...L.......#.#",
+    "#.#######G#####.#######G###########G#######.#####G#######.#",
+    "#C........L.............#...........#.............L........C#",
+    "#".repeat(61)
 ];
 
 export function setupMap(scene) {
     const colliders = [];
     const spawnPoints = [];
-    const groundMeshes = []; // begehbare Flächen: Boden, Treppen, Plattformen (für Bodenraycast)
+    const groundMeshes = [];
 
     const rows = NEON_VAULT_GRID.length;
     const cols = NEON_VAULT_GRID[0].length;
     const halfWidth = (cols * TILE_SIZE) / 2;
     const halfDepth = (rows * TILE_SIZE) / 2;
 
-    // --- Mood: dark background + fog so neon accents pop ---
+    // --- Stimmung & Beleuchtung ---
     scene.background = new THREE.Color(0x02020a);
-    scene.fog = new THREE.FogExp2(0x02020a, 0.035);
-    scene.add(new THREE.AmbientLight(0x0a0a1a, 0.4));
+    scene.fog = new THREE.FogExp2(0x02020a, 0.025);
+    scene.add(new THREE.AmbientLight(0x0a0a1a, 0.5));
 
-    // --- Floor ---
+    // --- Boden ---
     const floorGeo = new THREE.PlaneGeometry(cols * TILE_SIZE, rows * TILE_SIZE);
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x080810, roughness: 0.8, metalness: 0.2 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -50,12 +54,12 @@ export function setupMap(scene) {
     scene.add(floor);
     groundMeshes.push(floor);
 
-    // Tron-style neon grid lines on the floor
+    // Neon-Grid auf dem Boden
     const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, Math.max(cols, rows), 0x00f0ff, 0x111133);
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
 
-    // --- Low ceiling to keep the space moody / enclosed ---
+    // --- Decke ---
     const ceiling = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x030308, roughness: 1.0 }));
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = WALL_HEIGHT;
@@ -68,7 +72,7 @@ export function setupMap(scene) {
         };
     }
 
-    const COLLIDER_PADDING = 0.15; // Puffer, damit Spieler nicht in Kanten/Ecken hineinclippen
+    const COLLIDER_PADDING = 0.15;
 
     function addBoxCollider(mesh) {
         const box = new THREE.Box3().setFromObject(mesh);
@@ -76,7 +80,7 @@ export function setupMap(scene) {
         colliders.push(box);
     }
 
-    // Reusable materials
+    // Wiederverwendbare Materialien
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x080810, roughness: 0.8, metalness: 0.1 });
     const gateMat = new THREE.MeshStandardMaterial({
         color: 0x101018, roughness: 0.3, metalness: 0.4,
@@ -87,6 +91,7 @@ export function setupMap(scene) {
         emissive: 0xff0055, emissiveIntensity: 3.0
     });
 
+    // Grid parsen
     for (let r = 0; r < rows; r++) {
         const line = NEON_VAULT_GRID[r];
         for (let c = 0; c < cols; c++) {
@@ -102,60 +107,69 @@ export function setupMap(scene) {
                 addBoxCollider(wall);
 
             } else if (char === 'G') {
-                // Neon gate arch — decorative, walk-through, cyan glow
                 const gate = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE * 0.9, WALL_HEIGHT * 0.9, 0.2), gateMat);
                 gate.position.set(x, WALL_HEIGHT / 2, z);
                 scene.add(gate);
 
-                const gateLight = new THREE.PointLight(0x00f0ff, 2.0, 6.0);
+                const gateLight = new THREE.PointLight(0x00f0ff, 2.0, 7.0);
                 gateLight.position.set(x, WALL_HEIGHT / 2, z);
                 scene.add(gateLight);
 
             } else if (char === 'L') {
-                // Neon pillar — solid obstacle, pink glow
                 const pillar = new THREE.Mesh(new THREE.BoxGeometry(TILE_SIZE * 0.5, WALL_HEIGHT, TILE_SIZE * 0.5), pillarMat);
                 pillar.position.set(x, WALL_HEIGHT / 2, z);
                 pillar.castShadow = true;
+                pillar.receiveShadow = true;
                 scene.add(pillar);
                 addBoxCollider(pillar);
 
-                const pillarLight = new THREE.PointLight(0xff0055, 3.0, 5.0);
+                const pillarLight = new THREE.PointLight(0xff0055, 3.0, 6.0);
                 pillarLight.position.set(x, WALL_HEIGHT * 0.7, z);
                 scene.add(pillarLight);
 
             } else if (char === 'C') {
-                // Spawn zone — warm spotlight marker
                 spawnPoints.push({ x, y: 2, z });
 
-                const spotLight = new THREE.SpotLight(0xfff5e6, 1.5, 8.0, Math.PI / 4);
+                const spotLight = new THREE.SpotLight(0xfff5e6, 1.8, 9.0, Math.PI / 4);
                 spotLight.position.set(x, WALL_HEIGHT, z);
                 spotLight.target.position.set(x, 0, z);
                 scene.add(spotLight);
                 scene.add(spotLight.target);
             }
-            // '.' and ' ' -> plain floor, nothing extra needed
         }
     }
 
-    // Extra ambient neon strip lights along the long side walls
-    [-halfWidth + TILE_SIZE, halfWidth - TILE_SIZE].forEach((x) => {
-        const strip = new THREE.PointLight(0x9d00ff, 1.5, 10);
-        strip.position.set(x, WALL_HEIGHT - 0.5, 0);
-        scene.add(strip);
+    // Neon-Lichtleisten entlang der Längswände
+    [-halfWidth + TILE_SIZE * 2, -halfWidth / 2, 0, halfWidth / 2, halfWidth - TILE_SIZE * 2].forEach((x) => {
+        const stripTop = new THREE.PointLight(0x9d00ff, 1.5, 12);
+        stripTop.position.set(x, WALL_HEIGHT - 0.5, -halfDepth + TILE_SIZE);
+        scene.add(stripTop);
+
+        const stripBottom = new THREE.PointLight(0x9d00ff, 1.5, 12);
+        stripBottom.position.set(x, WALL_HEIGHT - 0.5, halfDepth - TILE_SIZE);
+        scene.add(stripBottom);
     });
 
-    // --- Deckungskisten (blockieren Bewegung + Sichtlinien, kein Hochklettern) ---
+    // --- Deckungskisten (auf neue Kartengröße verteilt) ---
     const crateMat = new THREE.MeshStandardMaterial({
         color: 0x0d0d18, roughness: 0.6, metalness: 0.3,
         emissive: 0x9d00ff, emissiveIntensity: 0.4
     });
 
     const cratePositions = [
-        { x: -30, z: -6 }, { x: -24, z: -6 }, { x: -18, z: -6 }, // linke Kammer oben
-        { x: 14, z: -6 },  { x: 20, z: -6 },  { x: 26, z: -6 },  // rechte Kammer oben
-        { x: -30, z: 6 },  { x: -24, z: 6 },  { x: -18, z: 6 },  // linke Kammer unten
-        { x: 14, z: 6 },   { x: 20, z: 6 },   { x: 26, z: 6 },   // rechte Kammer unten
-        { x: -12, z: 1.3 }, { x: -4, z: -1.3 }, { x: 4, z: 1.3 }, { x: 12, z: -1.3 } // mittlerer Korridor
+        // Linker Bereich
+        { x: -48, z: -14 }, { x: -40, z: -14 }, { x: -32, z: -14 },
+        { x: -48, z: 14 },  { x: -40, z: 14 },  { x: -32, z: 14 },
+        { x: -42, z: -6 },  { x: -42, z: 6 },
+
+        // Rechter Bereich
+        { x: 48, z: -14 },  { x: 40, z: -14 },  { x: 32, z: -14 },
+        { x: 48, z: 14 },   { x: 40, z: 14 },   { x: 32, z: 14 },
+        { x: 42, z: -6 },   { x: 42, z: 6 },
+
+        // Zentraler Bereich & Korridore
+        { x: -20, z: -4 },  { x: -10, z: 4 },   { x: 0, z: -4 },    { x: 10, z: 4 },    { x: 20, z: -4 },
+        { x: -16, z: 10 },  { x: 16, z: 10 },   { x: -16, z: -10 }, { x: 16, z: -10 }
     ];
 
     cratePositions.forEach(({ x, z }) => {
@@ -164,10 +178,10 @@ export function setupMap(scene) {
         crate.castShadow = true;
         crate.receiveShadow = true;
         scene.add(crate);
-        addBoxCollider(crate); // harte Deckung, blockiert horizontale Bewegung wie eine Wand
+        addBoxCollider(crate);
     });
 
-    // --- Rampen/Treppen mit begehbarer Plattform (nutzt Bodenraycast statt Collider) ---
+    // --- Treppen & Plattformen ---
     const stepMat = new THREE.MeshStandardMaterial({
         color: 0x0d0d18, roughness: 0.5, metalness: 0.3,
         emissive: 0x00f0ff, emissiveIntensity: 0.6
@@ -181,7 +195,7 @@ export function setupMap(scene) {
             step.castShadow = true;
             step.receiveShadow = true;
             scene.add(step);
-            groundMeshes.push(step); // begehbar, kein harter Collider -> Spieler kann hochlaufen
+            groundMeshes.push(step);
         }
 
         const platformHeight = stepHeight * steps;
@@ -204,12 +218,11 @@ export function setupMap(scene) {
         scene.add(edgeLight);
     }
 
-    addStaircase(-34, -2, 1, 3, 0.5, 1.0, 2.0);  // links oben
-    addStaircase(34, -2, -1, 3, 0.5, 1.0, 2.0);  // rechts oben
-    addStaircase(-34, 2, 1, 3, 0.5, 1.0, 2.0);   // links unten
-    addStaircase(34, 2, -1, 3, 0.5, 1.0, 2.0);   // rechts unten
+    addStaircase(-52, -8, 1, 3, 0.5, 1.0, 2.0);  // links oben
+    addStaircase(52, -8, -1, 3, 0.5, 1.0, 2.0);  // rechts oben
+    addStaircase(-52, 8, 1, 3, 0.5, 1.0, 2.0);   // links unten
+    addStaircase(52, 8, -1, 3, 0.5, 1.0, 2.0);    // rechts unten
 
-    // Extra data for main.js: Spawnpunkte + begehbare Flächen für den Bodenraycast
     colliders.spawnPoints = spawnPoints;
     colliders.groundMeshes = groundMeshes;
     return colliders;
