@@ -21,6 +21,19 @@ const direction = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
 const groundRaycaster = new THREE.Raycaster();
 
+// --- Touch-Steuerung (iPad/Handy) ---
+const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+let touchActive = false; // Ersatz für controls.isLocked auf Touch-Geräten
+
+let joystickTouchId = null;
+let joystickCenter = { x: 0, y: 0 };
+const JOYSTICK_MAX_RADIUS = 55;
+
+let lookTouchId = null;
+let lookLastX = 0, lookLastY = 0;
+const TOUCH_LOOK_SENSITIVITY = 0.0035;
+const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
 init();
 animate();
 
@@ -40,9 +53,24 @@ function init() {
     controls = new THREE.PointerLockControls(camera, document.body);
 
     const instructions = document.getElementById('instructions');
-    instructions.addEventListener('click', () => controls.lock());
-    controls.addEventListener('lock', () => instructions.style.display = 'none');
-    controls.addEventListener('unlock', () => instructions.style.display = 'flex');
+
+    if (isTouchDevice) {
+        const hint = instructions.querySelector('p');
+        if (hint) hint.innerText = 'Linker Stick = Bewegen | Rechte Bildschirmhälfte ziehen = Umsehen | 🔫 = Schießen | R = Nachladen | Tippen zum Starten';
+
+        document.getElementById('touch-controls').style.display = 'block';
+
+        instructions.addEventListener('click', () => {
+            touchActive = true;
+            instructions.style.display = 'none';
+        });
+
+        setupTouchControls();
+    } else {
+        instructions.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => instructions.style.display = 'none');
+        controls.addEventListener('unlock', () => instructions.style.display = 'flex');
+    }
 
     // Map laden & Kollisions-/Boden-Objekte speichern
     colliders = setupMap(scene);
@@ -100,7 +128,7 @@ function init() {
 }
 
 function handleShooting() {
-    if (!controls.isLocked) return;
+    if (!controls.isLocked && !touchActive) return;
 
     const fired = weapon.shoot();
     if (!fired) return; // Magazin leer oder wird gerade nachgeladen -> kein Schuss
@@ -210,6 +238,112 @@ function onKeyChange(keyCode, isPressed) {
     }
 }
 
+function setupTouchControls() {
+    const joystickZone = document.getElementById('joystick-zone');
+    const joystickKnob = document.getElementById('joystick-knob');
+    const lookZone = document.getElementById('look-zone');
+    const btnJump = document.getElementById('btn-jump');
+    const btnFire = document.getElementById('btn-fire');
+    const btnReload = document.getElementById('btn-reload');
+
+    // --- Joystick: steuert dieselben move-Flags wie WASD ---
+    joystickZone.addEventListener('touchstart', (e) => {
+        if (joystickTouchId !== null) return;
+        const t = e.changedTouches[0];
+        joystickTouchId = t.identifier;
+        const rect = joystickZone.getBoundingClientRect();
+        joystickCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        e.preventDefault();
+    }, { passive: false });
+
+    joystickZone.addEventListener('touchmove', (e) => {
+        for (const t of e.changedTouches) {
+            if (t.identifier !== joystickTouchId) continue;
+
+            const dx = t.clientX - joystickCenter.x;
+            const dy = t.clientY - joystickCenter.y;
+            const dist = Math.min(Math.hypot(dx, dy), JOYSTICK_MAX_RADIUS);
+            const angle = Math.atan2(dy, dx);
+            const knobX = Math.cos(angle) * dist;
+            const knobY = Math.sin(angle) * dist;
+            joystickKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+
+            const nx = knobX / JOYSTICK_MAX_RADIUS;
+            const ny = knobY / JOYSTICK_MAX_RADIUS;
+
+            moveForward = ny < -0.3;
+            moveBackward = ny > 0.3;
+            moveLeft = nx < -0.3;
+            moveRight = nx > 0.3;
+        }
+        e.preventDefault();
+    }, { passive: false });
+
+    function resetJoystick() {
+        joystickTouchId = null;
+        joystickKnob.style.transform = 'translate(-50%, -50%)';
+        moveForward = moveBackward = moveLeft = moveRight = false;
+    }
+
+    joystickZone.addEventListener('touchend', (e) => {
+        for (const t of e.changedTouches) {
+            if (t.identifier === joystickTouchId) resetJoystick();
+        }
+    });
+    joystickZone.addEventListener('touchcancel', resetJoystick);
+
+    // --- Look: rechte Bildschirmhälfte ziehen dreht die Kamera (Ersatz für Pointer Lock) ---
+    lookZone.addEventListener('touchstart', (e) => {
+        if (lookTouchId !== null) return;
+        const t = e.changedTouches[0];
+        lookTouchId = t.identifier;
+        lookLastX = t.clientX;
+        lookLastY = t.clientY;
+        e.preventDefault();
+    }, { passive: false });
+
+    lookZone.addEventListener('touchmove', (e) => {
+        for (const t of e.changedTouches) {
+            if (t.identifier !== lookTouchId) continue;
+
+            const dx = t.clientX - lookLastX;
+            const dy = t.clientY - lookLastY;
+            lookLastX = t.clientX;
+            lookLastY = t.clientY;
+
+            lookEuler.setFromQuaternion(camera.quaternion);
+            lookEuler.y -= dx * TOUCH_LOOK_SENSITIVITY;
+            lookEuler.x -= dy * TOUCH_LOOK_SENSITIVITY;
+            lookEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, lookEuler.x));
+            camera.quaternion.setFromEuler(lookEuler);
+        }
+        e.preventDefault();
+    }, { passive: false });
+
+    lookZone.addEventListener('touchend', (e) => {
+        for (const t of e.changedTouches) {
+            if (t.identifier === lookTouchId) lookTouchId = null;
+        }
+    });
+    lookZone.addEventListener('touchcancel', () => { lookTouchId = null; });
+
+    // --- Buttons ---
+    btnJump.addEventListener('touchstart', (e) => {
+        onKeyChange(32, true);
+        e.preventDefault();
+    }, { passive: false });
+
+    btnFire.addEventListener('touchstart', (e) => {
+        handleShooting();
+        e.preventDefault();
+    }, { passive: false });
+
+    btnReload.addEventListener('touchstart', (e) => {
+        weapon.reload();
+        e.preventDefault();
+    }, { passive: false });
+}
+
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -222,7 +356,7 @@ function animate() {
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
 
-    if (controls.isLocked) {
+    if (controls.isLocked || touchActive) {
         velocity.x -= velocity.x * 10.0 * delta;
         velocity.z -= velocity.z * 10.0 * delta;
         velocity.y -= 9.8 * 3.5 * delta;
