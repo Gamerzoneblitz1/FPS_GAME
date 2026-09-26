@@ -1,4 +1,4 @@
-export const neonVaultMap = {
+const neonVaultMap = {
   name: "Neon Vault",
   dimensions: {
     width: 33,
@@ -15,6 +15,10 @@ export const neonVaultMap = {
       type: "floor",
       model: "corridor.fbx",
       material: { color: "#080810", roughness: 0.8, emission: "#000000" }
+    },
+    " ": {
+      type: "empty",
+      model: null
     },
     "G": {
       type: "gate",
@@ -43,15 +47,23 @@ export const neonVaultMap = {
   },
   grid: [
     "#################################",
-    "# C . . . . L . . # . . L . . . C #",
-    "# . ### G ####### . ####### G ### . #",
-    "# . #           # . #           # . #",
-    "# . #  L . . .  # G #  . . . L  # . #",
-    "# L G . . C . . . . . . . C . . G L #",
-    "# . #  L . . .  # G #  . . . L  # . #",
-    "# . #           # . #           # . #",
-    "# . ### G ####### . ####### G ### . #",
-    "# C . . . L . . . # . . . L . . C #",
+    "#C......L.......#.......L......C#",
+    "#.###G##########.##########G###.#",
+    "#.#..........#.....#..........#.#",
+    "#.#..L.......#G#.#G#.......L..#.#",
+    "#LG...C...................C...GL#",
+    "#.#..L.......#G#.#G#.......L..#.#",
+    "#.#..........#.....#..........#.#",
+    "#.###G##########.##########G###.#",
+    "#C......L.......#.......L......C#",
     "#################################"
   ]
 };
+
+// Export-Kompatibilität für verschiedene Umgebungen
+if (typeof exports !== 'undefined') {
+  module.exports = neonVaultMap;
+} else if (typeof window !== 'undefined') {
+  window.neonVaultMap = neonVaultMap;
+}
+export default neonVaultMap;
