@@ -11,13 +11,27 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             background-color: white;
             border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
-            border: 1px solid black;
+            border: 2px solid black;
+        }
+        #hud {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            font-size: 28px;
+            font-family: monospace;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 8px;
+            pointer-events: none;
+            user-select: none;
         }
         #instructions {
             position: absolute;
@@ -37,17 +51,16 @@
 </head>
 <body>
     <div id="crosshair"></div>
+    <div id="hud">HP: <span id="health-val" style="color: #00ff00;">100</span></div>
     <div id="instructions">
         <h1>Klicken zum Spielen</h1>
         <p>Steuerung: WASD = Bewegen | LEERTASTE = Springen | MAUS = Umsehen & Schießen</p>
     </div>
 
-    <!-- Bibliotheken -->
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 
-    <!-- Haupt-Spielcode als ES6 Modul -->
     <script type="module" src="js/main.js"></script>
 </body>
 </html>
