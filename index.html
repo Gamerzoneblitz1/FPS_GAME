@@ -32,6 +32,8 @@
             border-radius: 8px;
             pointer-events: none;
             user-select: none;
+            display: flex;
+            gap: 24px;
         }
         #instructions {
             position: absolute;
@@ -51,10 +53,13 @@
 </head>
 <body>
     <div id="crosshair"></div>
-    <div id="hud">HP: <span id="health-val" style="color: #00ff00;">100</span></div>
+    <div id="hud">
+        <span>HP: <span id="health-val" style="color: #00ff00;">100</span></span>
+        <span>Ammo: <span id="ammo-val" style="color: #00f0ff;">12 / 84</span></span>
+    </div>
     <div id="instructions">
         <h1>Klicken zum Spielen</h1>
-        <p>Steuerung: WASD = Bewegen | LEERTASTE = Springen | MAUS = Umsehen & Schießen</p>
+        <p>Steuerung: WASD = Bewegen | LEERTASTE = Springen | R = Nachladen | MAUS = Umsehen & Schießen</p>
     </div>
 
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
