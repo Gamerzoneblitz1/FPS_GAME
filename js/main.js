@@ -7,8 +7,11 @@ const socket = io("https://fps-game-e18y.onrender.com");
 let camera, scene, renderer, controls;
 let weapon;
 let colliders = [];
+let groundMeshes = []; // begehbare Flächen (Boden, Treppen, Plattformen) für den Bodenraycast
 const otherPlayers = {};
 const playerMeshesList = [];
+
+const EYE_HEIGHT = 2; // Abstand Kamera <-> Standfläche
 
 let health = 100;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = false;
@@ -16,16 +19,17 @@ let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
+const groundRaycaster = new THREE.Raycaster();
 
 init();
 animate();
 
 function init() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xb0e0e6); // Hellblauer Wüstenhimmel
+    scene.background = new THREE.Color(0xb0e0e6); // wird von setupMap() überschrieben (Neon-Hintergrund)
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 2, 80); // Start im T-Spawn
+    camera.position.set(-24, 2, -8); // Spawn an einer der "C"-Zonen der Neon Vault Map
     scene.add(camera);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -40,8 +44,9 @@ function init() {
     controls.addEventListener('lock', () => instructions.style.display = 'none');
     controls.addEventListener('unlock', () => instructions.style.display = 'flex');
 
-    // Map laden & Kollisions-Objekte speichern
+    // Map laden & Kollisions-/Boden-Objekte speichern
     colliders = setupMap(scene);
+    groundMeshes = colliders.groundMeshes || [];
     weapon = new Weapon(camera, scene);
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
@@ -143,13 +148,13 @@ function checkCollisions(oldPosition) {
     // Spieler als kleine Box (Breite: 1.2, Höhe: 2.0)
     const playerBox = new THREE.Box3();
     const playerRadius = 0.6;
-    
+
     playerBox.min.set(camera.position.x - playerRadius, camera.position.y - 1.5, camera.position.z - playerRadius);
     playerBox.max.set(camera.position.x + playerRadius, camera.position.y + 0.5, camera.position.z + playerRadius);
 
     for (let i = 0; i < colliders.length; i++) {
         if (playerBox.intersectsBox(colliders[i])) {
-            // Bei Kollision Position auf den Stand vor der Bewegung zurücksetzen (Wand stoppt Spieler)
+            // Bei Kollision Position auf den Stand vor der Bewegung zurücksetzen (Wand/Kiste stoppt Spieler)
             camera.position.x = oldPosition.x;
             camera.position.z = oldPosition.z;
             break;
@@ -202,14 +207,23 @@ function animate() {
         controls.moveRight(-velocity.x * delta);
         controls.moveForward(-velocity.z * delta);
 
-        // Prüfen, ob neue Position in Wand/Kiste liegt
+        // Prüfen, ob neue Position in Wand/Kiste liegt (harte Deckung, blockiert X/Z)
         checkCollisions(oldPosition);
 
         camera.position.y += velocity.y * delta;
 
-        if (camera.position.y < 2) {
+        // Bodenerkennung: Raycast senkrecht nach unten findet Boden, Treppenstufe oder Plattform.
+        // Dadurch kann der Spieler Treppen/Rampen aus map.js hochlaufen, statt bei y=2 hart zu kleben.
+        groundRaycaster.set(
+            new THREE.Vector3(camera.position.x, camera.position.y + 5, camera.position.z),
+            new THREE.Vector3(0, -1, 0)
+        );
+        const groundHits = groundMeshes.length ? groundRaycaster.intersectObjects(groundMeshes, false) : [];
+        const groundY = groundHits.length > 0 ? groundHits[0].point.y : 0;
+
+        if (camera.position.y <= groundY + EYE_HEIGHT) {
             velocity.y = 0;
-            camera.position.y = 2;
+            camera.position.y = groundY + EYE_HEIGHT;
             canJump = true;
         }
 
