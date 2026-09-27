@@ -1,7 +1,7 @@
 // map.js — "Neon Vault Megaplex (High FPS Optimized)"
-// Size: 121x33 (~242m x 66m). Optimized via InstancedMesh & Light Budgeting.
+// Size: 121x33 (~363m x 99m bei TILE_SIZE=3). Optimized via InstancedMesh & Light Budgeting.
 
-const TILE_SIZE = 2.0;
+const TILE_SIZE = 3.0; // von 2.0 auf 3.0 erhöht -> öffnet alle Gänge/Räume um 50%, ohne das Grid neu zu zeichnen
 const WALL_HEIGHT = 5.0;
 
 const NEON_VAULT_GRID = [
@@ -59,7 +59,7 @@ export function setupMap(scene) {
     dirLight.position.set(30, 80, 30);
     scene.add(dirLight);
 
-    // --- Boden & Decke ---
+    // --- Boden (keine Decke mehr -> offenes Gefühl statt Tunnel) ---
     const floorGeo = new THREE.PlaneGeometry(cols * TILE_SIZE, rows * TILE_SIZE);
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.8, metalness: 0.2 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -70,11 +70,6 @@ export function setupMap(scene) {
     const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, 60, 0x00f0ff, 0x0d0d22);
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
-
-    const ceiling = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x020205, roughness: 1.0 }));
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.y = WALL_HEIGHT;
-    scene.add(ceiling);
 
     function worldPos(col, row) {
         return {
