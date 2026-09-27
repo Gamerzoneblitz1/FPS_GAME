@@ -60,30 +60,46 @@ export function createPlayerMesh(id) {
 
     loadWalkModel()
         .then(() => {
-            group.remove(placeholder);
-            placeholderGeo.dispose();
-            placeholderMat.dispose();
+            try {
+                // SkeletonUtils.clone statt object.clone() -> nötig, damit jeder Spieler sein
+                // eigenes, unabhängiges Skelett/Animation hat (sonst teilen sich alle Spieler
+                // dieselbe Pose). Fallback auf normales clone(), falls SkeletonUtils fehlt
+                // (Animation könnte dann zwischen Spielern geteilt sein, aber besser als nichts).
+                const hasSkeletonUtils = typeof THREE.SkeletonUtils !== 'undefined'
+                    && typeof THREE.SkeletonUtils.clone === 'function';
 
-            // SkeletonUtils.clone statt object.clone() -> nötig, damit jeder Spieler
-            // sein eigenes, unabhängiges Skelett/Animation hat (sonst teilen sich alle
-            // Spieler dieselbe Pose).
-            const model = THREE.SkeletonUtils.clone(cachedModel);
-            model.scale.setScalar(MODEL_SCALE);
-
-            model.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
+                if (!hasSkeletonUtils) {
+                    console.warn('THREE.SkeletonUtils nicht verfügbar — nutze normales clone() als Fallback.');
                 }
-            });
 
-            group.add(model);
+                const model = hasSkeletonUtils
+                    ? THREE.SkeletonUtils.clone(cachedModel)
+                    : cachedModel.clone(true);
 
-            if (cachedAnimation) {
-                const mixer = new THREE.AnimationMixer(model);
-                const action = mixer.clipAction(cachedAnimation);
-                action.play();
-                group.userData.mixer = mixer;
+                model.scale.setScalar(MODEL_SCALE);
+
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                // Platzhalter erst JETZT entfernen — nachdem das Modell sicher fertig aufgebaut ist
+                group.remove(placeholder);
+                placeholderGeo.dispose();
+                placeholderMat.dispose();
+
+                group.add(model);
+
+                if (cachedAnimation) {
+                    const mixer = new THREE.AnimationMixer(model);
+                    const action = mixer.clipAction(cachedAnimation);
+                    action.play();
+                    group.userData.mixer = mixer;
+                }
+            } catch (err) {
+                console.error('Fehler beim Aufbau des Spieler-Modells — Platzhalter-Box bleibt sichtbar:', err);
             }
         })
         .catch(() => {
