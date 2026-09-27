@@ -22,8 +22,22 @@ export class Weapon {
         const barrel = new THREE.Mesh(barrelGeo, barrelMat);
         barrel.position.set(0, 0.1, -0.2);
 
+        // Scope (Referenzbild-Look): kleiner Aufsatz mit leuchtender Linse
+        const scopeBaseGeo = new THREE.BoxGeometry(0.08, 0.08, 0.3);
+        const scopeBaseMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
+        const scopeBase = new THREE.Mesh(scopeBaseGeo, scopeBaseMat);
+        scopeBase.position.set(0, 0.19, -0.25);
+
+        const scopeLensGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12);
+        const scopeLensMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+        const scopeLensFront = new THREE.Mesh(scopeLensGeo, scopeLensMat);
+        scopeLensFront.rotation.x = Math.PI / 2;
+        scopeLensFront.position.set(0, 0.19, -0.4);
+
         this.weaponGroup.add(handle);
         this.weaponGroup.add(barrel);
+        this.weaponGroup.add(scopeBase);
+        this.weaponGroup.add(scopeLensFront);
 
         this.weaponGroup.position.set(0.3, -0.25, -0.5);
         this.camera.add(this.weaponGroup);
