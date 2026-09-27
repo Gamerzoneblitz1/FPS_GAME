@@ -57,15 +57,40 @@ export function setupMap(scene) {
             NEON_VAULT_GRID[i] = NEON_VAULT_GRID[i] + "#".repeat(cols - NEON_VAULT_GRID[i].length);
         }
     }
+    // De-Clutter: viele Innenwände sind nur 1 Tile dick und erzeugen sehr viele kleine
+    // Mini-Kammern ("zu viele Wände"). Entfernt genau diese dünnen Trennwände (Boden auf beiden
+    // Seiten in X- ODER Z-Richtung), lässt aber dicke Wandblöcke (mehrere '#' hintereinander,
+    // also echte Raumgrenzen/Außenwand) unangetastet, da deren Nachbarn selbst '#' sind.
+    const gridChars = NEON_VAULT_GRID.map(r => r.split(''));
+    const isOpen = (ch) => ch === '.' || ch === ' ' || ch === 'C' || ch === 'T';
+    for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+            if (gridChars[r][c] !== '#') continue;
+            const left = gridChars[r][c - 1];
+            const right = gridChars[r][c + 1];
+            const up = gridChars[r - 1][c];
+            const down = gridChars[r + 1][c];
+            const thinHorizontal = isOpen(left) && isOpen(right);
+            const thinVertical = isOpen(up) && isOpen(down);
+            if (thinHorizontal || thinVertical) {
+                gridChars[r][c] = '.';
+            }
+        }
+    }
+    for (let r = 0; r < rows; r++) {
+        NEON_VAULT_GRID[r] = gridChars[r].join('');
+    }
+
     const halfWidth = (cols * TILE_SIZE) / 2;
     const halfDepth = (rows * TILE_SIZE) / 2;
 
     // --- Atmosphaere ---
     scene.background = new THREE.Color(0x010106);
-    scene.fog = new THREE.FogExp2(0x010106, 0.012);
-    scene.add(new THREE.AmbientLight(0x101025, 0.8));
+    scene.fog = new THREE.FogExp2(0x010106, 0.006);
+    scene.add(new THREE.AmbientLight(0x202844, 1.6));
+    scene.add(new THREE.HemisphereLight(0x8fa8ff, 0x0a0a12, 0.9));
 
-    const dirLight = new THREE.DirectionalLight(0x445577, 0.6);
+    const dirLight = new THREE.DirectionalLight(0x6677aa, 1.1);
     dirLight.position.set(30, 80, 30);
     scene.add(dirLight);
 
@@ -283,19 +308,21 @@ export function setupMap(scene) {
     addStaircase(104, -18, -1);
     addStaircase(104, 18, -1);
 
-    // --- Zonen-Beleuchtung (Sparsam platzierte Punktlichter für sanftes Licht) ---
-    const zoneLights = [
-        { x: -90, z: 0, color: 0xff0055 },
-        { x: -45, z: 0, color: 0x00f0ff },
-        { x: 0, z: 0, color: 0x9d00ff },
-        { x: 45, z: 0, color: 0x00ff66 },
-        { x: 90, z: 0, color: 0xffaa00 }
-    ];
+    // --- Zonen-Beleuchtung: Raster über die GESAMTE Map statt nur einer Linie bei z=0,
+    // sonst bleiben große Teile (die Map ist ~360x100 Einheiten breit) nur mit Ambient-Licht
+    // beleuchtet und wirken dunkel.
+    const zoneColors = [0xff0055, 0x00f0ff, 0x9d00ff, 0x00ff66];
+    const zoneXPositions = [-150, -90, -30, 30, 90, 150];
+    const zoneZPositions = [-30, 0, 30];
 
-    zoneLights.forEach(l => {
-        const pLight = new THREE.PointLight(l.color, 3.5, 35.0);
-        pLight.position.set(l.x, WALL_HEIGHT - 1, l.z);
-        scene.add(pLight);
+    let colorIdx = 0;
+    zoneXPositions.forEach(x => {
+        zoneZPositions.forEach(z => {
+            const pLight = new THREE.PointLight(zoneColors[colorIdx % zoneColors.length], 3.0, 75.0);
+            pLight.position.set(x, WALL_HEIGHT - 0.5, z);
+            scene.add(pLight);
+            colorIdx++;
+        });
     });
 
     colliders.spawnPoints = spawnPoints;
@@ -303,4 +330,5 @@ export function setupMap(scene) {
     colliders.skyboxGroup = skyboxGroup;
     colliders.portalRings = portalRings;
     return colliders;
+}
 }
