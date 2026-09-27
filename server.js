@@ -14,19 +14,23 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
-// Feste Spawnpunkte — entsprechen exakt den "C"-Zonen im Grid von map.js
-// (berechnet aus: x = col*2 - 40, z = row*2 - 12, TILE_SIZE=2, vergrößertes 41x13 Grid)
+// Feste Spawnpunkte — berechnet aus den tatsächlichen "C"-Zonen im (korrigierten) Grid von
+// map.js: 121x33 Zellen, TILE_SIZE=3, Grid rechts mit '#' aufgefüllt auf einheitlich 131 Spalten.
+// Falls sich das Grid in map.js nochmal ändert, müssen diese Werte neu berechnet werden (Node-Skript
+// verwenden, das das Grid genauso auswertet wie setupMap() -> Weltkoordinaten der 'C'-Zeichen).
 const SPAWN_POINTS = [
-    { x: -38, y: 2, z: -10 },
-    { x: 38, y: 2, z: -10 },
-    { x: -24, y: 2, z: -2 },
-    { x: 24, y: 2, z: -2 },
-    { x: -24, y: 2, z: 0 },
-    { x: 24, y: 2, z: 0 },
-    { x: -24, y: 2, z: 2 },
-    { x: 24, y: 2, z: 2 },
-    { x: -38, y: 2, z: 10 },
-    { x: 38, y: 2, z: 10 }
+    { x: -192, y: 2, z: -45 }, { x: -48, y: 2, z: -45 }, { x: 18, y: 2, z: -45 }, { x: 162, y: 2, z: -45 },
+    { x: -168, y: 2, z: -36 }, { x: -72, y: 2, z: -36 }, { x: 48, y: 2, z: -36 }, { x: 144, y: 2, z: -36 },
+    { x: -192, y: 2, z: -24 }, { x: -144, y: 2, z: -24 }, { x: -96, y: 2, z: -24 }, { x: -48, y: 2, z: -24 },
+    { x: -12, y: 2, z: -24 }, { x: 24, y: 2, z: -24 }, { x: 72, y: 2, z: -24 }, { x: 120, y: 2, z: -24 }, { x: 168, y: 2, z: -24 },
+    { x: -138, y: 2, z: -12 }, { x: -90, y: 2, z: -12 }, { x: 84, y: 2, z: -12 }, { x: 132, y: 2, z: -12 },
+    { x: -177, y: 2, z: 0 }, { x: -147, y: 2, z: 0 }, { x: -81, y: 2, z: 0 }, { x: -51, y: 2, z: 0 },
+    { x: -12, y: 2, z: 0 }, { x: 12, y: 2, z: 0 }, { x: 51, y: 2, z: 0 }, { x: 81, y: 2, z: 0 }, { x: 147, y: 2, z: 0 }, { x: 177, y: 2, z: 0 },
+    { x: -138, y: 2, z: 12 }, { x: -90, y: 2, z: 12 }, { x: 84, y: 2, z: 12 }, { x: 132, y: 2, z: 12 },
+    { x: -192, y: 2, z: 24 }, { x: -144, y: 2, z: 24 }, { x: -96, y: 2, z: 24 }, { x: -48, y: 2, z: 24 },
+    { x: -12, y: 2, z: 24 }, { x: 24, y: 2, z: 24 }, { x: 72, y: 2, z: 24 }, { x: 120, y: 2, z: 24 }, { x: 168, y: 2, z: 24 },
+    { x: -168, y: 2, z: 36 }, { x: -72, y: 2, z: 36 }, { x: 48, y: 2, z: 36 }, { x: 144, y: 2, z: 36 },
+    { x: -192, y: 2, z: 45 }, { x: -48, y: 2, z: 45 }, { x: 18, y: 2, z: 45 }, { x: 162, y: 2, z: 45 }
 ];
 
 function getRandomSpawnPoint() {
