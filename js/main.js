@@ -5,6 +5,7 @@ import { createPlayerMesh, updatePlayerAnimations } from './player.js';
 const socket = io("https://fps-game-e18y.onrender.com");
 
 let camera, scene, renderer, controls;
+let composer = null; // Bloom-Postprocessing (null = Fallback auf normales Rendering)
 let weapon;
 let colliders = [];
 let groundMeshes = []; // begehbare Flächen (Boden, Treppen, Plattformen) für den Bodenraycast
@@ -49,6 +50,29 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     document.body.appendChild(renderer.domElement);
+
+    // Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check:
+    // falls die Postprocessing-Scripts (CDN) nicht laden, rendert das Spiel einfach normal weiter,
+    // statt komplett zu crashen (siehe frühere FBXLoader-Lektion).
+    try {
+        if (typeof THREE.EffectComposer === 'function' && typeof THREE.UnrealBloomPass === 'function') {
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(new THREE.RenderPass(scene, camera));
+
+            const bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                1.2,  // strength
+                0.4,  // radius
+                0.15  // threshold
+            );
+            composer.addPass(bloomPass);
+        } else {
+            console.warn('Bloom-Postprocessing nicht verfügbar (Scripts nicht geladen) — normales Rendering wird genutzt.');
+        }
+    } catch (err) {
+        console.error('Fehler beim Initialisieren des Bloom-Postprocessing, normales Rendering wird genutzt:', err);
+        composer = null;
+    }
 
     controls = new THREE.PointerLockControls(camera, document.body);
 
@@ -169,24 +193,43 @@ function addOtherPlayer(id, position) {
 
 function updateHealthUI() {
     const healthVal = document.getElementById('health-val');
+    const healthBar = document.getElementById('health-bar-fill');
     if (healthVal) {
         healthVal.innerText = health;
         healthVal.style.color = health > 50 ? '#00ff00' : health > 25 ? '#ffff00' : '#ff0000';
     }
+    if (healthBar) healthBar.style.width = Math.max(0, Math.min(100, health)) + '%';
 }
 
 function updateAmmoUI(ammoInMag, reserveAmmo, isReloading) {
     const ammoVal = document.getElementById('ammo-val');
+    const ammoBar = document.getElementById('ammo-bar-fill');
     if (!ammoVal) return;
 
     if (isReloading) {
         ammoVal.innerText = 'Nachladen…';
         ammoVal.style.color = '#ffff00';
+        if (ammoBar) ammoBar.style.width = '100%';
         return;
     }
 
     ammoVal.innerText = `${ammoInMag} / ${reserveAmmo}`;
     ammoVal.style.color = ammoInMag === 0 ? '#ff0000' : ammoInMag <= Math.ceil(12 * 0.3) ? '#ffff00' : '#00f0ff';
+    if (ammoBar) ammoBar.style.width = (ammoInMag / 12) * 100 + '%'; // 12 = magSize aus weapon.js
+}
+
+// Entfernung zum nächstgelegenen anderen Spieler (unten rechts im HUD, wie im Referenzbild)
+function updateNearestEnemyUI() {
+    const distVal = document.getElementById('distance-val');
+    if (!distVal) return;
+
+    let nearestDist = null;
+    for (const id in otherPlayers) {
+        const d = camera.position.distanceTo(otherPlayers[id].position);
+        if (nearestDist === null || d < nearestDist) nearestDist = d;
+    }
+
+    distVal.innerText = nearestDist !== null ? `${Math.round(nearestDist)}m` : '--';
 }
 
 const PLAYER_RADIUS = 0.5; // etwas schmaler als vorher (0.6) -> mehr Spielraum in 1-Tile-Korridoren
@@ -350,6 +393,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) composer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function animate() {
@@ -402,6 +446,12 @@ function animate() {
         socket.emit('playerMove', { x: pos.x, y: pos.y - 1.5, z: pos.z });
     }
 
+    updateNearestEnemyUI();
+
     prevTime = time;
-    renderer.render(scene, camera);
+    if (composer) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
 }
