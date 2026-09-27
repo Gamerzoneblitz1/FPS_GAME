@@ -1,42 +1,46 @@
-// map.js — "Neon Vault Megaplex (High FPS Optimized)"
-// Size: 121x33 (~363m x 99m bei TILE_SIZE=3). Optimized via InstancedMesh & Light Budgeting.
+// map.js — "Neon Vault Megaplex (Open Sniper Arena Layout)"
+// Basiert exakt auf der Vogelperspektive: Freie Sichtlinien, 4 erhoehte Sniper-Tuerme (T),
+// Spawn-Zonen (C) an den Raendern und Portal-Tore (G).
 
-const TILE_SIZE = 3.0; // von 2.0 auf 3.0 erhöht -> öffnet alle Gänge/Räume um 50%, ohne das Grid neu zu zeichnen
+const TILE_SIZE = 3.0;
 const WALL_HEIGHT = 5.0;
 
+// Grid-Legende (121 x 33 Tiles ~ 363m x 99m):
+// # = Aussenwand | . = Offenes Spielfeld | G = Portal-Tor
+// L = Pinker Pfeiler | E = Gruener Pfeiler | C = Spawn-Punkt | T = Erhoehte Sniper-Plattform
 const NEON_VAULT_GRID = [
     "#".repeat(121),
-    "#" + "C.......L.......#.......E.......#.......L.......C".padEnd(59, ".") + "#" + "C.......L.......#.......E.......#.......L.......C".padStart(59, ".") + "#",
-    "#." + "#######G#######.#.#############.#.#######G#######".padEnd(59, ".") + "#" + ".#######G#######.#.#############.#.#######G#######.".padStart(59, ".") + "#",
-    "#.#.............#.#.............#.#.............#.#" + " ".repeat(21) + "#.#.............#.#.............#.#.............#.#",
-    "#.#..L...C...L..#.#..T...E...T..#.#..L...C...L..#.#" + " ".repeat(21) + "#.#..L...C...L..#.#..T...E...T..#.#..L...C...L..#.#",
-    "#.#.............#.#.............#.#.............#.#" + " ".repeat(21) + "#.#.............#.#.............#.#.............#.#",
-    "#.#######.#######.#.#####G#####.#.#######.#######.#" + "   #######G#######   " + "#.#######.#######.#.#####G#####.#.#######.#######.#",
-    "#.......#.#.......#.....#.#.....#.......#.#.......#" + "   #.............#   " + "#.......#.#.......#.....#.#.....#.......#.#.......#",
-    "#C......G.#......C#.....G.G.....#C......G.#......C#" + "   G......C......G   " + "#C......G.#......C#.....G.G.....#C......G.#......C#",
-    "#.......#.#.......#.....#.#.....#.......#.#.......#" + "   #.............#   " + "#.......#.#.......#.....#.#.....#.......#.#.......#",
-    "#########.#########.#####.#####.#########.#########" + "   #######.#######   " + "#########.#########.#####.#####.#########.#########",
-    "#.................................................#" + ".........#.#........." + "#.................................................#",
-    "#..L...E...L.......C.......T.......C.......L...E...L#" + "....T....G.G....T...." + "#..L...E...L.......C.......T.......C.......L...E...L#",
-    "#.................................................#" + ".........#.#........." + "#.................................................#",
-    "#.#########.#########.#####G#####.#########.#########" + "#####.#########.#####" + "#.#########.#########.#####G#####.#########.#########",
-    "#.#.......#.#.......#.....#.#.....#.......#.#.......#" + ".....#.#...#...#.#....." + "#.#.......#.#.......#.....#.#.....#.......#.#.......#",
-    "#LG...C...G.G...C...GL....G.G....LG...C...G.G...C...GL" + ".....G.C...E...C.G....." + "LG...C...G.G...C...GL....G.G....LG...C...G.G...C...GL#",
-    "#.#.......#.#.......#.....#.#.....#.......#.#.......#" + ".....#.#...#...#.#....." + "#.#.......#.#.......#.....#.#.....#.......#.#.......#",
-    "#.#########.#########.#####G#####.#########.#########" + "#####.#########.#####" + "#.#########.#########.#####G#####.#########.#########",
-    "#.................................................#" + ".........#.#........." + "#.................................................#",
-    "#..L...E...L.......C.......T.......C.......L...E...L#" + "....T....G.G....T...." + "#..L...E...L.......C.......T.......C.......L...E...L#",
-    "#.................................................#" + ".........#.#........." + "#.................................................#",
-    "#########.#########.#####.#####.#########.#########" + "   #######.#######   " + "#########.#########.#####.#####.#########.#########",
-    "#.......#.#.......#.....#.#.....#.......#.#.......#" + "   #.............#   " + "#.......#.#.......#.....#.#.....#.......#.#.......#",
-    "#C......G.#......C#.....G.G.....#C......G.#......C#" + "   G......C......G   " + "#C......G.#......C#.....G.G.....#C......G.#......C#",
-    "#.......#.#.......#.....#.#.....#.......#.#.......#" + "   #.............#   " + "#.......#.#.......#.....#.#.....#.......#.#.......#",
-    "#.#######.#######.#.#####G#####.#.#######.#######.#" + "   #######G#######   " + "#.#######.#######.#.#####G#####.#.#######.#######.#",
-    "#.#.............#.#.............#.#.............#.#" + " ".repeat(21) + "#.#.............#.#.............#.#.............#.#",
-    "#.#..L...C...L..#.#..T...E...T..#.#..L...C...L..#.#" + " ".repeat(21) + "#.#..L...C...L..#.#..T...E...T..#.#..L...C...L..#.#",
-    "#.#.............#.#.............#.#.............#.#" + " ".repeat(21) + "#.#.............#.#.............#.#.............#.#",
-    "#." + "#######G#######.#.#############.#.#######G#######".padEnd(59, ".") + "#" + ".#######G#######.#.#############.#.#######G#######.".padStart(59, ".") + "#",
-    "#" + "C.......L.......#.......E.......#.......L.......C".padEnd(59, ".") + "#" + "C.......L.......#.......E.......#.......L.......C".padStart(59, ".") + "#",
+    "#" + "C...L...C...............................................................................................C...L...C" + "#",
+    "#" + ".........#.......#######.......G.......#######.......T.......#######.......G.......#######.......#........." + "#",
+    "#" + "..L...E..#.......#.....#...............#.....#...............#.....#...............#.....#.......#..E...L.." + "#",
+    "#" + ".........#.......#.....#...............#.....#...............#.....#...............#.....#.......#........." + "#",
+    "#" + "C........G.......#.....#...............#.....#.......T.......#.....#...............#.....#.......G........C" + "#",
+    "#" + ".........#.......#######...............#######...............#######...............#######.......#........." + "#",
+    "#" + "..........................................................................................................." + "#",
+    "#" + "....E........................G...................G...................G........................E...." + "#",
+    "#" + "..........................................................................................................." + "#",
+    "#" + "##########.......#######...................................................#######.......##########" + "#",
+    "#" + "#........#.......#.....#...................................................#.....#.......#........#" + "#",
+    "#" + "#..C..L..G.......G..T..#...................T...............T...............#..T..G.......G..L..C..#" + "#",
+    "#" + "#........#.......#.....#...................................................#.....#.......#........#" + "#",
+    "#" + "##########.......#######...................................................#######.......##########" + "#",
+    "#" + "..........................................................................................................." + "#",
+    "#" + "C.......L........G...............................................................G........L.......C" + "#",
+    "#" + "..........................................................................................................." + "#",
+    "#" + "##########.......#######...................................................#######.......##########" + "#",
+    "#" + "#........#.......#.....#...................................................#.....#.......#........#" + "#",
+    "#" + "#..C..L..G.......G..T..#...................T...............T...............#..T..G.......G..L..C..#" + "#",
+    "#" + "#........#.......#.....#...................................................#.....#.......#........#" + "#",
+    "#" + "##########.......#######...................................................#######.......##########" + "#",
+    "#" + "..........................................................................................................." + "#",
+    "#" + "....E........................G...................G...................G........................E...." + "#",
+    "#" + "..........................................................................................................." + "#",
+    "#" + ".........#.......#######...............#######...............#######...............#######.......#........." + "#",
+    "#" + "C........G.......#.....#...............#.....#.......T.......#.....#...............#.....#.......G........C" + "#",
+    "#" + ".........#.......#.....#...............#.....#...............#.....#...............#.....#.......#........." + "#",
+    "#" + "..L...E..#.......#.....#...............#.....#...............#.....#...............#.....#.......#..E...L.." + "#",
+    "#" + ".........#.......#######.......G.......#######.......T.......#######.......G.......#######.......#........." + "#",
+    "#" + "C...L...C...............................................................................................C...L...C" + "#",
     "#".repeat(121)
 ];
 
@@ -45,83 +49,45 @@ export function setupMap(scene) {
     const spawnPoints = [];
     const groundMeshes = [];
 
-    // Fix: Die Grid-Zeilen sind durch die padStart/padEnd-Konstruktion unterschiedlich lang
-    // (121 bis 131 Zeichen). Vorher wurde cols von Zeile 0 (121) abgeleitet, wodurch der Rest
-    // jeder längeren Zeile beim Bauen stillschweigend abgeschnitten wurde (fehlende Wände/Gates/
-    // Spawnpunkte am rechten Rand). Jetzt: cols = längste Zeile, kürzere Zeilen rechts mit '#'
-    // auffüllen (schließt den Rand sauber, statt ein Loch in der Außenwand zu lassen).
     const rows = NEON_VAULT_GRID.length;
-    const cols = Math.max(...NEON_VAULT_GRID.map(r => r.length));
-    for (let i = 0; i < NEON_VAULT_GRID.length; i++) {
-        if (NEON_VAULT_GRID[i].length < cols) {
-            NEON_VAULT_GRID[i] = NEON_VAULT_GRID[i] + "#".repeat(cols - NEON_VAULT_GRID[i].length);
-        }
-    }
-    // De-Clutter: viele Innenwände sind nur 1 Tile dick und erzeugen sehr viele kleine
-    // Mini-Kammern ("zu viele Wände"). Entfernt genau diese dünnen Trennwände (Boden auf beiden
-    // Seiten in X- ODER Z-Richtung), lässt aber dicke Wandblöcke (mehrere '#' hintereinander,
-    // also echte Raumgrenzen/Außenwand) unangetastet, da deren Nachbarn selbst '#' sind.
-    const gridChars = NEON_VAULT_GRID.map(r => r.split(''));
-    const isOpen = (ch) => ch === '.' || ch === ' ' || ch === 'C' || ch === 'T';
-    for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
-            if (gridChars[r][c] !== '#') continue;
-            const left = gridChars[r][c - 1];
-            const right = gridChars[r][c + 1];
-            const up = gridChars[r - 1][c];
-            const down = gridChars[r + 1][c];
-            const thinHorizontal = isOpen(left) && isOpen(right);
-            const thinVertical = isOpen(up) && isOpen(down);
-            if (thinHorizontal || thinVertical) {
-                gridChars[r][c] = '.';
-            }
-        }
-    }
-    for (let r = 0; r < rows; r++) {
-        NEON_VAULT_GRID[r] = gridChars[r].join('');
-    }
+    const cols = NEON_VAULT_GRID[0].length;
 
     const halfWidth = (cols * TILE_SIZE) / 2;
     const halfDepth = (rows * TILE_SIZE) / 2;
 
-    // --- Atmosphaere ---
+    // --- Atmosphaere & Beleuchtung ---
     scene.background = new THREE.Color(0x010106);
-    scene.fog = new THREE.FogExp2(0x010106, 0.006);
-    scene.add(new THREE.AmbientLight(0x202844, 1.6));
-    scene.add(new THREE.HemisphereLight(0x8fa8ff, 0x0a0a12, 0.9));
+    scene.fog = new THREE.FogExp2(0x010106, 0.005);
+    scene.add(new THREE.AmbientLight(0x202844, 1.8));
+    scene.add(new THREE.HemisphereLight(0x8fa8ff, 0x0a0a12, 1.0));
 
-    const dirLight = new THREE.DirectionalLight(0x6677aa, 1.1);
-    dirLight.position.set(30, 80, 30);
+    const dirLight = new THREE.DirectionalLight(0x6677aa, 1.2);
+    dirLight.position.set(30, 90, 30);
     scene.add(dirLight);
 
-    // --- Sternenhimmel + Ringplanet (Skybox-Trick: folgt der Kamera-Position, nicht der Rotation,
-    // damit es aussieht wie unendlich weit entfernt statt mitzudrehen. Position wird von main.js
-    // jeden Frame auf camera.position gesetzt -> siehe colliders.skyboxGroup) ---
+    // --- Sternenhimmel & Ringplanet (Skybox) ---
     const skyboxGroup = new THREE.Group();
 
     const starCount = 3000;
     const starPositions = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
-        // Punkte auf einer großen Kugelschale verteilen
         const radius = 1800 + Math.random() * 400;
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos((Math.random() * 2) - 1);
         starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-        starPositions[i * 3 + 1] = Math.abs(radius * Math.sin(phi) * Math.sin(theta)) + 50; // meist über dem Horizont
+        starPositions[i * 3 + 1] = Math.abs(radius * Math.sin(phi) * Math.sin(theta)) + 50;
         starPositions[i * 3 + 2] = radius * Math.cos(phi);
     }
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
     const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false });
-    const starField = new THREE.Points(starGeo, starMat);
-    skyboxGroup.add(starField);
+    skyboxGroup.add(new THREE.Points(starGeo, starMat));
 
     const planetGroup = new THREE.Group();
     const planetMat = new THREE.MeshStandardMaterial({
         color: 0x3a4a66, roughness: 0.9, emissive: 0x111a2e, emissiveIntensity: 0.6, fog: false
     });
-    const planetMesh = new THREE.Mesh(new THREE.SphereGeometry(260, 32, 32), planetMat);
-    planetGroup.add(planetMesh);
+    planetGroup.add(new THREE.Mesh(new THREE.SphereGeometry(260, 32, 32), planetMat));
 
     const ringMat = new THREE.MeshBasicMaterial({
         color: 0x8fd6ff, side: THREE.DoubleSide, transparent: true, opacity: 0.45, fog: false
@@ -133,18 +99,17 @@ export function setupMap(scene) {
 
     planetGroup.position.set(1200, 650, -2000);
     skyboxGroup.add(planetGroup);
-
     scene.add(skyboxGroup);
 
-    // --- Boden (keine Decke mehr -> offenes Gefühl statt Tunnel) ---
+    // --- Boden & Raster ---
     const floorGeo = new THREE.PlaneGeometry(cols * TILE_SIZE, rows * TILE_SIZE);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.95, metalness: 0.0 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.95, metalness: 0.1 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
     groundMeshes.push(floor);
 
-    const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, 60, 0x00f0ff, 0x0d0d22);
+    const gridHelper = new THREE.GridHelper(Math.max(cols, rows) * TILE_SIZE, 80, 0x00f0ff, 0x0d0d22);
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
 
@@ -165,7 +130,7 @@ export function setupMap(scene) {
         colliders.push(box);
     }
 
-    // --- Materialien mit starken Emissive-Werten (Ersatz fuer Performance-fressende Punktlichter) ---
+    // --- Materialien ---
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x06060e, roughness: 0.8 });
     const cyanGateMat = new THREE.MeshStandardMaterial({
         color: 0x0a1018, roughness: 0.75, emissive: 0x00f0ff, emissiveIntensity: 4.0
@@ -177,10 +142,9 @@ export function setupMap(scene) {
         color: 0x0a180a, roughness: 0.75, emissive: 0x00ff66, emissiveIntensity: 4.5
     });
     const towerMat = new THREE.MeshStandardMaterial({
-        color: 0x0d0d1a, roughness: 0.8, emissive: 0x00f0ff, emissiveIntensity: 2.0
+        color: 0x0d0d1a, roughness: 0.4, emissive: 0x00f0ff, emissiveIntensity: 2.5
     });
 
-    // Positions-Arrays für InstancedMeshes sammeln
     const wallPos = [], gatePos = [], pinkPos = [], greenPos = [], towerPos = [];
 
     for (let r = 0; r < rows; r++) {
@@ -208,9 +172,8 @@ export function setupMap(scene) {
         }
     }
 
-    // --- InstancedMesh Generator Helper ---
+    // --- InstancedMeshes ---
     const dummy = new THREE.Object3D();
-
     function createInstancedMesh(geometry, material, positions, scale = { x: 1, y: 1, z: 1 }, yPos = WALL_HEIGHT / 2) {
         if (positions.length === 0) return;
         const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
@@ -225,58 +188,69 @@ export function setupMap(scene) {
         return instancedMesh;
     }
 
-    // Meshes in Bündeln instanziieren (extrem schnell!)
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 
     createInstancedMesh(boxGeo, wallMat, wallPos, { x: TILE_SIZE, y: WALL_HEIGHT, z: TILE_SIZE });
     createInstancedMesh(boxGeo, cyanGateMat, gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
+    createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+    createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
 
-    // --- Rotierende Portal-Ringe an jedem Gate (Referenzbild-Look) ---
+    // --- Portal-Ringe an Gates ---
     const portalRings = [];
     const portalRingMat = new THREE.MeshStandardMaterial({
         color: 0x0a1018, roughness: 0.75, emissive: 0x00f0ff, emissiveIntensity: 3.0
     });
     gatePos.forEach(pos => {
         const ring = new THREE.Mesh(
-            new THREE.TorusGeometry(TILE_SIZE * 0.55, 0.07, 8, 24),
+            new THREE.TorusGeometry(TILE_SIZE * 0.6, 0.1, 8, 24),
             portalRingMat
         );
         ring.position.set(pos.x, WALL_HEIGHT * 0.5, pos.z);
         scene.add(ring);
         portalRings.push(ring);
     });
-    createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
-    createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
 
-    // Podeste/Tower
+    // --- Erhoehte Sniper-Tuerme (T) ---
+    // Tuerme sind hoch (Höhe = 6.0 Einheiten), damit man als Sniper das gesamte Feld überblicken kann
     if (towerPos.length > 0) {
-        const towerMesh = createInstancedMesh(boxGeo, towerMat, towerPos, { x: TILE_SIZE * 1.2, y: 1.8, z: TILE_SIZE * 1.2 }, 0.9);
+        const TOWER_HEIGHT = 6.0;
+        const towerMesh = createInstancedMesh(
+            boxGeo,
+            towerMat,
+            towerPos,
+            { x: TILE_SIZE * 1.8, y: TOWER_HEIGHT, z: TILE_SIZE * 1.8 },
+            TOWER_HEIGHT / 2
+        );
         groundMeshes.push(towerMesh);
+
+        // Kollsion fuer die Turmseiten hinzufügen
+        towerPos.forEach(pos => {
+            addBox3Collider(pos.x, TOWER_HEIGHT / 2, pos.z, TILE_SIZE * 1.8, TOWER_HEIGHT, TILE_SIZE * 1.8);
+        });
     }
 
-    // --- Deckungskisten als InstancedMesh ---
+    // --- Deckungskisten im Zentrum ---
     const crateMat = new THREE.MeshStandardMaterial({
         color: 0x0a0a14, roughness: 0.8, emissive: 0x9d00ff, emissiveIntensity: 0.8
     });
     const cratePositions = [];
-
-    for (let x = -100; x <= 100; x += 16) {
-        for (let z = -24; z <= 24; z += 16) {
-            if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
-            const cx = x + (Math.sin(x + z) * 2);
-            const cz = z + (Math.cos(x * z) * 2);
+    for (let x = -110; x <= 110; x += 22) {
+        for (let z = -30; z <= 30; z += 18) {
+            if (Math.abs(x) < 15 && Math.abs(z) < 15) continue;
+            const cx = x + (Math.sin(x + z) * 3);
+            const cz = z + (Math.cos(x * z) * 3);
             cratePositions.push({ x: cx, z: cz });
-            addBox3Collider(cx, 0.7, cz, 1.4, 1.4, 1.4);
+            addBox3Collider(cx, 0.7, cz, 1.8, 1.4, 1.8);
         }
     }
-    createInstancedMesh(boxGeo, crateMat, cratePositions, { x: 1.4, y: 1.4, z: 1.4 }, 0.7);
+    createInstancedMesh(boxGeo, crateMat, cratePositions, { x: 1.8, y: 1.4, z: 1.8 }, 0.7);
 
-    // --- Treppen & Plattformen ---
+    // --- Treppen zu den Sniper-Plattformen ---
     const stepMat = new THREE.MeshStandardMaterial({
         color: 0x0a0a16, roughness: 0.8, emissive: 0x00f0ff, emissiveIntensity: 1.5
     });
 
-    function addStaircase(startX, z, dirX, steps = 4, stepHeight = 0.45, stepDepth = 1.0, platformDepth = 2.5) {
+    function addStaircase(startX, z, dirX, steps = 6, stepHeight = 1.0, stepDepth = 1.2) {
         for (let i = 0; i < steps; i++) {
             const h = stepHeight * (i + 1);
             const step = new THREE.Mesh(new THREE.BoxGeometry(stepDepth, h, TILE_SIZE * 1.2), stepMat);
@@ -284,44 +258,28 @@ export function setupMap(scene) {
             scene.add(step);
             groundMeshes.push(step);
         }
-
-        const platformHeight = stepHeight * steps;
-        const platform = new THREE.Mesh(
-            new THREE.BoxGeometry(platformDepth, platformHeight, TILE_SIZE * 1.8),
-            stepMat
-        );
-        platform.position.set(
-            startX + dirX * (stepDepth * steps + platformDepth / 2 - stepDepth / 2),
-            platformHeight / 2,
-            z
-        );
-        scene.add(platform);
-        groundMeshes.push(platform);
     }
 
-    addStaircase(-104, -18, 1);
-    addStaircase(-104, 18, 1);
-    addStaircase(-40, -12, 1);
-    addStaircase(-40, 12, 1);
-    addStaircase(40, -12, -1);
-    addStaircase(40, 12, -1);
-    addStaircase(104, -18, -1);
-    addStaircase(104, 18, -1);
+    // Treppenaufgaenge zu den Turmzonen
+    addStaircase(-110, -20, 1);
+    addStaircase(-110, 20, 1);
+    addStaircase(-40, -15, 1);
+    addStaircase(-40, 15, 1);
+    addStaircase(40, -15, -1);
+    addStaircase(40, 15, -1);
+    addStaircase(110, -20, -1);
+    addStaircase(110, 20, -1);
 
-    // --- Zonen-Beleuchtung: Raster über die GESAMTE Map statt nur einer Linie bei z=0,
-    // sonst bleiben große Teile (die Map ist ~360x100 Einheiten breit) nur mit Ambient-Licht
-    // beleuchtet und wirken dunkel.
-    // Von 18 auf 6 Lichter reduziert (größter Performance-Fresser bei PBR-Materialien) —
-    // Reichweite/Intensität erhöht, damit die Fläche trotzdem gut ausgeleuchtet bleibt.
+    // --- Zonen-Beleuchtung ---
     const zoneColors = [0xff0055, 0x00f0ff, 0x9d00ff, 0x00ff66];
-    const zoneXPositions = [-120, 0, 120];
+    const zoneXPositions = [-120, -40, 40, 120];
     const zoneZPositions = [-25, 25];
 
     let colorIdx = 0;
     zoneXPositions.forEach(x => {
         zoneZPositions.forEach(z => {
-            const pLight = new THREE.PointLight(zoneColors[colorIdx % zoneColors.length], 4.5, 110.0);
-            pLight.position.set(x, WALL_HEIGHT - 0.5, z);
+            const pLight = new THREE.PointLight(zoneColors[colorIdx % zoneColors.length], 5.0, 120.0);
+            pLight.position.set(x, WALL_HEIGHT, z);
             scene.add(pLight);
             colorIdx++;
         });
