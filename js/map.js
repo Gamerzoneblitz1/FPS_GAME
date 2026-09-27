@@ -45,8 +45,18 @@ export function setupMap(scene) {
     const spawnPoints = [];
     const groundMeshes = [];
 
+    // Fix: Die Grid-Zeilen sind durch die padStart/padEnd-Konstruktion unterschiedlich lang
+    // (121 bis 131 Zeichen). Vorher wurde cols von Zeile 0 (121) abgeleitet, wodurch der Rest
+    // jeder längeren Zeile beim Bauen stillschweigend abgeschnitten wurde (fehlende Wände/Gates/
+    // Spawnpunkte am rechten Rand). Jetzt: cols = längste Zeile, kürzere Zeilen rechts mit '#'
+    // auffüllen (schließt den Rand sauber, statt ein Loch in der Außenwand zu lassen).
     const rows = NEON_VAULT_GRID.length;
-    const cols = NEON_VAULT_GRID[0].length;
+    const cols = Math.max(...NEON_VAULT_GRID.map(r => r.length));
+    for (let i = 0; i < NEON_VAULT_GRID.length; i++) {
+        if (NEON_VAULT_GRID[i].length < cols) {
+            NEON_VAULT_GRID[i] = NEON_VAULT_GRID[i] + "#".repeat(cols - NEON_VAULT_GRID[i].length);
+        }
+    }
     const halfWidth = (cols * TILE_SIZE) / 2;
     const halfDepth = (rows * TILE_SIZE) / 2;
 
