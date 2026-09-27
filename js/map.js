@@ -331,4 +331,3 @@ export function setupMap(scene) {
     colliders.portalRings = portalRings;
     return colliders;
 }
-}
