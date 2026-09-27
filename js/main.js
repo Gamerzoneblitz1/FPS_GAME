@@ -98,8 +98,15 @@ function init() {
         controls.addEventListener('unlock', () => instructions.style.display = 'flex');
     }
 
-    // Map laden & Kollisions-/Boden-Objekte speichern
-    colliders = setupMap(scene);
+    // Map laden & Kollisions-/Boden-Objekte speichern. Abgesichert: falls setupMap() aus
+    // irgendeinem Grund crasht, läuft das Spiel mit leerer Map weiter statt komplett
+    // einzufrieren (init() bricht sonst ab und animate() wird nie aufgerufen).
+    try {
+        colliders = setupMap(scene);
+    } catch (err) {
+        console.error('Fehler beim Aufbau der Map (setupMap) — Spiel läuft mit leerer Map weiter:', err);
+        colliders = [];
+    }
     groundMeshes = colliders.groundMeshes || [];
     skyboxGroup = colliders.skyboxGroup || null;
     portalRings = colliders.portalRings || [];
