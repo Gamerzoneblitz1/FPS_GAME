@@ -49,8 +49,14 @@ function init() {
     scene.add(camera);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
+    // PC-Fenster haben oft deutlich mehr Pixel als ein Handy-Display (z.B. 1920x1080 vs. 400x850
+    // CSS-Pixel, ~6x Unterschied) — die GPU-Last skaliert direkt mit der Pixelzahl. Deshalb hier
+    // die interne Render-Auflösung am PC bewusst absenken (Browser skaliert per CSS wieder hoch);
+    // am Handy, das schon flüssig läuft, nichts ändern.
+    renderer.setPixelRatio(isTouchDevice ? 1 : 0.65);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
+    // shadowMap bewusst deaktiviert: kein Licht im Spiel wirft aktuell Schatten (castShadow nirgends
+    // gesetzt), die Shadow-Map-Infrastruktur würde also nur unnötig Overhead kosten.
     document.body.appendChild(renderer.domElement);
 
     // Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check:
@@ -61,8 +67,10 @@ function init() {
             composer = new THREE.EffectComposer(renderer);
             composer.addPass(new THREE.RenderPass(scene, camera));
 
+            // Bloom bewusst in halber Auflösung: die internen Blur-Passes sind der teuerste Teil,
+            // halbe Auflösung senkt deren Kosten um ca. das Vierfache bei kaum sichtbarem Unterschied.
             const bloomPass = new THREE.UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
                 1.2,  // strength
                 0.4,  // radius
                 0.15  // threshold
