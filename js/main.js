@@ -42,7 +42,7 @@ function init() {
     scene.background = new THREE.Color(0xb0e0e6); // wird von setupMap() überschrieben (Neon-Hintergrund)
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(-38, 2, -10); // Spawn an einer der "C"-Zonen der vergrößerten Neon Vault Map
+    camera.position.set(-192, 2, -45); // Spawn an einer der "C"-Zonen der Neon Vault Megaplex Map
     scene.add(camera);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -110,6 +110,8 @@ function init() {
             health = 100;
             updateHealthUI();
             camera.position.set(data.position.x, data.position.y, data.position.z);
+            velocity.set(0, 0, 0); // Restgeschwindigkeit vom Tod löschen, sonst "reißt" es den Spieler nach dem Respawn
+            canJump = true;
         } else if (otherPlayers[data.id]) {
             otherPlayers[data.id].position.set(data.position.x, data.position.y, data.position.z);
         }
