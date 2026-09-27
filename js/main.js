@@ -9,6 +9,8 @@ let composer = null; // Bloom-Postprocessing (null = Fallback auf normales Rende
 let weapon;
 let colliders = [];
 let groundMeshes = []; // begehbare Flächen (Boden, Treppen, Plattformen) für den Bodenraycast
+let skyboxGroup = null; // Sternenhimmel + Planet, folgt der Kamera-Position (Skybox-Trick)
+let portalRings = []; // rotierende Neon-Ringe an den Gates
 const otherPlayers = {};
 const playerMeshesList = [];
 
@@ -42,7 +44,7 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xb0e0e6); // wird von setupMap() überschrieben (Neon-Hintergrund)
 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000); // far erhöht für den Sternenhimmel/Planet-Backdrop
     camera.position.set(-192, 2, -45); // Spawn an einer der "C"-Zonen der Neon Vault Megaplex Map
     scene.add(camera);
 
@@ -99,6 +101,8 @@ function init() {
     // Map laden & Kollisions-/Boden-Objekte speichern
     colliders = setupMap(scene);
     groundMeshes = colliders.groundMeshes || [];
+    skyboxGroup = colliders.skyboxGroup || null;
+    portalRings = colliders.portalRings || [];
     weapon = new Weapon(camera, scene, updateAmmoUI);
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
@@ -403,6 +407,15 @@ function animate() {
     const delta = (time - prevTime) / 1000;
 
     updatePlayerAnimations(playerMeshesList, delta);
+
+    // Skybox folgt nur der Position der Kamera (nicht der Rotation) -> wirkt unendlich weit entfernt,
+    // dreht sich aber nicht mit, wenn man sich umschaut
+    if (skyboxGroup) skyboxGroup.position.copy(camera.position);
+
+    // Portal-Ringe an den Gates langsam rotieren lassen
+    for (let i = 0; i < portalRings.length; i++) {
+        portalRings[i].rotation.z += delta * 0.6;
+    }
 
     if (controls.isLocked || touchActive) {
         velocity.x -= velocity.x * 10.0 * delta;
