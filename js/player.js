@@ -1,7 +1,7 @@
 // player.js — lädt "Walk_With_Rifle.fbx" einmal, klont es pro Spieler (inkl. Skelett/Animation)
 // und spielt die Lauf-Animation in Dauerschleife ab.
 
-const MODEL_PATH = 'models/Walk_With_Rifle.fbx';
+const MODEL_PATH = 'models/character.fbx';
 const MODEL_SCALE = 0.01; // Die meisten FBX-Rigs (z.B. Mixamo) sind in cm -> auf Meter skalieren.
                           // Wenn der Charakter zu klein/groß wirkt, hier anpassen.
 
