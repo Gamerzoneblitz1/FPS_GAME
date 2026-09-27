@@ -138,7 +138,7 @@ export function setupMap(scene) {
 
     // --- Boden (keine Decke mehr -> offenes Gefühl statt Tunnel) ---
     const floorGeo = new THREE.PlaneGeometry(cols * TILE_SIZE, rows * TILE_SIZE);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.8, metalness: 0.2 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.95, metalness: 0.0 });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
@@ -168,16 +168,16 @@ export function setupMap(scene) {
     // --- Materialien mit starken Emissive-Werten (Ersatz fuer Performance-fressende Punktlichter) ---
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x06060e, roughness: 0.8 });
     const cyanGateMat = new THREE.MeshStandardMaterial({
-        color: 0x0a1018, roughness: 0.2, emissive: 0x00f0ff, emissiveIntensity: 4.0
+        color: 0x0a1018, roughness: 0.75, emissive: 0x00f0ff, emissiveIntensity: 4.0
     });
     const pinkPillarMat = new THREE.MeshStandardMaterial({
-        color: 0x180a10, roughness: 0.2, emissive: 0xff0055, emissiveIntensity: 4.5
+        color: 0x180a10, roughness: 0.75, emissive: 0xff0055, emissiveIntensity: 4.5
     });
     const greenPillarMat = new THREE.MeshStandardMaterial({
-        color: 0x0a180a, roughness: 0.2, emissive: 0x00ff66, emissiveIntensity: 4.5
+        color: 0x0a180a, roughness: 0.75, emissive: 0x00ff66, emissiveIntensity: 4.5
     });
     const towerMat = new THREE.MeshStandardMaterial({
-        color: 0x0d0d1a, roughness: 0.3, emissive: 0x00f0ff, emissiveIntensity: 2.0
+        color: 0x0d0d1a, roughness: 0.8, emissive: 0x00f0ff, emissiveIntensity: 2.0
     });
 
     // Positions-Arrays für InstancedMeshes sammeln
@@ -234,7 +234,7 @@ export function setupMap(scene) {
     // --- Rotierende Portal-Ringe an jedem Gate (Referenzbild-Look) ---
     const portalRings = [];
     const portalRingMat = new THREE.MeshStandardMaterial({
-        color: 0x0a1018, roughness: 0.2, emissive: 0x00f0ff, emissiveIntensity: 3.0
+        color: 0x0a1018, roughness: 0.75, emissive: 0x00f0ff, emissiveIntensity: 3.0
     });
     gatePos.forEach(pos => {
         const ring = new THREE.Mesh(
@@ -256,7 +256,7 @@ export function setupMap(scene) {
 
     // --- Deckungskisten als InstancedMesh ---
     const crateMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0a14, roughness: 0.5, emissive: 0x9d00ff, emissiveIntensity: 0.8
+        color: 0x0a0a14, roughness: 0.8, emissive: 0x9d00ff, emissiveIntensity: 0.8
     });
     const cratePositions = [];
 
@@ -273,7 +273,7 @@ export function setupMap(scene) {
 
     // --- Treppen & Plattformen ---
     const stepMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0a16, roughness: 0.4, emissive: 0x00f0ff, emissiveIntensity: 1.5
+        color: 0x0a0a16, roughness: 0.8, emissive: 0x00f0ff, emissiveIntensity: 1.5
     });
 
     function addStaircase(startX, z, dirX, steps = 4, stepHeight = 0.45, stepDepth = 1.0, platformDepth = 2.5) {
@@ -311,14 +311,16 @@ export function setupMap(scene) {
     // --- Zonen-Beleuchtung: Raster über die GESAMTE Map statt nur einer Linie bei z=0,
     // sonst bleiben große Teile (die Map ist ~360x100 Einheiten breit) nur mit Ambient-Licht
     // beleuchtet und wirken dunkel.
+    // Von 18 auf 6 Lichter reduziert (größter Performance-Fresser bei PBR-Materialien) —
+    // Reichweite/Intensität erhöht, damit die Fläche trotzdem gut ausgeleuchtet bleibt.
     const zoneColors = [0xff0055, 0x00f0ff, 0x9d00ff, 0x00ff66];
-    const zoneXPositions = [-150, -90, -30, 30, 90, 150];
-    const zoneZPositions = [-30, 0, 30];
+    const zoneXPositions = [-120, 0, 120];
+    const zoneZPositions = [-25, 25];
 
     let colorIdx = 0;
     zoneXPositions.forEach(x => {
         zoneZPositions.forEach(z => {
-            const pLight = new THREE.PointLight(zoneColors[colorIdx % zoneColors.length], 3.0, 75.0);
+            const pLight = new THREE.PointLight(zoneColors[colorIdx % zoneColors.length], 4.5, 110.0);
             pLight.position.set(x, WALL_HEIGHT - 0.5, z);
             scene.add(pLight);
             colorIdx++;
