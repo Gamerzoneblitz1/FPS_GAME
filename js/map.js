@@ -69,6 +69,48 @@ export function setupMap(scene) {
     dirLight.position.set(30, 80, 30);
     scene.add(dirLight);
 
+    // --- Sternenhimmel + Ringplanet (Skybox-Trick: folgt der Kamera-Position, nicht der Rotation,
+    // damit es aussieht wie unendlich weit entfernt statt mitzudrehen. Position wird von main.js
+    // jeden Frame auf camera.position gesetzt -> siehe colliders.skyboxGroup) ---
+    const skyboxGroup = new THREE.Group();
+
+    const starCount = 3000;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+        // Punkte auf einer großen Kugelschale verteilen
+        const radius = 1800 + Math.random() * 400;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+        starPositions[i * 3 + 1] = Math.abs(radius * Math.sin(phi) * Math.sin(theta)) + 50; // meist über dem Horizont
+        starPositions[i * 3 + 2] = radius * Math.cos(phi);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false });
+    const starField = new THREE.Points(starGeo, starMat);
+    skyboxGroup.add(starField);
+
+    const planetGroup = new THREE.Group();
+    const planetMat = new THREE.MeshStandardMaterial({
+        color: 0x3a4a66, roughness: 0.9, emissive: 0x111a2e, emissiveIntensity: 0.6, fog: false
+    });
+    const planetMesh = new THREE.Mesh(new THREE.SphereGeometry(260, 32, 32), planetMat);
+    planetGroup.add(planetMesh);
+
+    const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x8fd6ff, side: THREE.DoubleSide, transparent: true, opacity: 0.45, fog: false
+    });
+    const ringMesh = new THREE.Mesh(new THREE.RingGeometry(360, 520, 64), ringMat);
+    ringMesh.rotation.x = Math.PI * 0.55;
+    ringMesh.rotation.z = 0.3;
+    planetGroup.add(ringMesh);
+
+    planetGroup.position.set(1200, 650, -2000);
+    skyboxGroup.add(planetGroup);
+
+    scene.add(skyboxGroup);
+
     // --- Boden (keine Decke mehr -> offenes Gefühl statt Tunnel) ---
     const floorGeo = new THREE.PlaneGeometry(cols * TILE_SIZE, rows * TILE_SIZE);
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x06060c, roughness: 0.8, metalness: 0.2 });
@@ -163,6 +205,21 @@ export function setupMap(scene) {
 
     createInstancedMesh(boxGeo, wallMat, wallPos, { x: TILE_SIZE, y: WALL_HEIGHT, z: TILE_SIZE });
     createInstancedMesh(boxGeo, cyanGateMat, gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
+
+    // --- Rotierende Portal-Ringe an jedem Gate (Referenzbild-Look) ---
+    const portalRings = [];
+    const portalRingMat = new THREE.MeshStandardMaterial({
+        color: 0x0a1018, roughness: 0.2, emissive: 0x00f0ff, emissiveIntensity: 3.0
+    });
+    gatePos.forEach(pos => {
+        const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(TILE_SIZE * 0.55, 0.07, 8, 24),
+            portalRingMat
+        );
+        ring.position.set(pos.x, WALL_HEIGHT * 0.5, pos.z);
+        scene.add(ring);
+        portalRings.push(ring);
+    });
     createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
     createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
 
@@ -243,5 +300,7 @@ export function setupMap(scene) {
 
     colliders.spawnPoints = spawnPoints;
     colliders.groundMeshes = groundMeshes;
+    colliders.skyboxGroup = skyboxGroup;
+    colliders.portalRings = portalRings;
     return colliders;
 }
