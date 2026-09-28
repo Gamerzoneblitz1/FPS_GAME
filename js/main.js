@@ -45,7 +45,7 @@ function init() {
     scene.background = new THREE.Color(0xb0e0e6); // wird von setupMap() überschrieben (Neon-Hintergrund)
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000); // far erhöht für den Sternenhimmel/Planet-Backdrop
-    camera.position.set(-192, 2, -45); // Spawn an einer der "C"-Zonen der Neon Vault Megaplex Map
+    camera.position.set(-177, 2, 0); // Sicherer Startwert (C-Zone), wird gleich durch einen zufälligen Map-Spawn / den Server-Spawn ersetzt
     scene.add(camera);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -116,6 +116,12 @@ function init() {
         colliders = [];
     }
     groundMeshes = colliders.groundMeshes || [];
+
+    // Zufälliger Start-Spawn direkt aus den C-Feldern der Map (Fallback, falls der Server noch nicht geantwortet hat)
+    if (colliders.spawnPoints && colliders.spawnPoints.length > 0) {
+        const sp = colliders.spawnPoints[Math.floor(Math.random() * colliders.spawnPoints.length)];
+        camera.position.set(sp.x, sp.y, sp.z);
+    }
     skyboxGroup = colliders.skyboxGroup || null;
     portalRings = colliders.portalRings || [];
     weapon = new Weapon(camera, scene, updateAmmoUI);
@@ -129,6 +135,13 @@ function init() {
         Object.keys(players).forEach((id) => {
             if (id !== socket.id) addOtherPlayer(id, players[id]);
         });
+
+        // Eigenen Spawnpunkt vom Server übernehmen (der wählt zufällig, weit weg von anderen Spielern)
+        const me = players[socket.id];
+        if (me) {
+            camera.position.set(me.x, me.y, me.z);
+            velocity.set(0, 0, 0);
+        }
     });
 
     socket.on('newPlayer', (data) => addOtherPlayer(data.id, data.position));
