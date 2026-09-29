@@ -1,4 +1,4 @@
-// map.js — "Neon Vault Megaplex (Open Sniper Arena Layout)"// map.js — "Neon Vault Megaplex (Open Sniper Arena Layout)"
+// map.js — "Neon Vault Megaplex (Open Sniper Arena Layout)"
 // Basiert exakt auf der Vogelperspektive: Freie Sichtlinien, 4 erhoehte Sniper-Tuerme (T),
 // Spawn-Zonen (C) an den Raendern und Portal-Tore (G).
 
@@ -132,19 +132,19 @@ export function setupMap(scene) {
     }
 
     // --- Materialien ---
+    // Die Körper der Blöcke sind matt und dunkel, es leuchten nur die KANTEN (siehe addEdgeBeams).
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x06060e, roughness: 0.8 });
-    const cyanGateMat = new THREE.MeshStandardMaterial({
-        color: 0x0a1018, roughness: 0.75, emissive: 0x00f0ff, emissiveIntensity: 4.0
-    });
-    const pinkPillarMat = new THREE.MeshStandardMaterial({
-        color: 0x180a10, roughness: 0.75, emissive: 0xff0055, emissiveIntensity: 4.5
-    });
-    const greenPillarMat = new THREE.MeshStandardMaterial({
-        color: 0x0a180a, roughness: 0.75, emissive: 0x00ff66, emissiveIntensity: 4.5
-    });
-    const towerMat = new THREE.MeshStandardMaterial({
-        color: 0x0d0d1a, roughness: 0.4, emissive: 0x00f0ff, emissiveIntensity: 2.5
-    });
+    const gateMat = new THREE.MeshStandardMaterial({ color: 0x0a1018, roughness: 0.9 });
+    const pinkPillarMat = new THREE.MeshStandardMaterial({ color: 0x180a10, roughness: 0.9 });
+    const greenPillarMat = new THREE.MeshStandardMaterial({ color: 0x0a180a, roughness: 0.9 });
+    const towerMat = new THREE.MeshStandardMaterial({ color: 0x0d0d1a, roughness: 0.9 });
+
+    // Leuchtende Kanten: MeshBasicMaterial = ungelitten (billig zu rendern, unabhängig von Lichtern),
+    // der Bloom-Effekt lässt sie trotzdem schön glühen.
+    const beamCyan = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const beamPink = new THREE.MeshBasicMaterial({ color: 0xff0055 });
+    const beamGreen = new THREE.MeshBasicMaterial({ color: 0x00ff66 });
+    const beamPurple = new THREE.MeshBasicMaterial({ color: 0x9d00ff });
 
     const wallPos = [], gatePos = [], pinkPos = [], greenPos = [], towerPos = [];
 
@@ -185,16 +185,57 @@ export function setupMap(scene) {
             instancedMesh.setMatrixAt(idx, dummy.matrix);
         });
         instancedMesh.instanceMatrix.needsUpdate = true;
+        // Wichtig: Culling nutzt sonst nur die Bounding-Sphere EINER Instanz am Weltursprung -> ganze
+        // Wand-/Turm-Gruppen würden verschwinden, sobald man vom Kartenmittelpunkt wegschaut.
+        instancedMesh.frustumCulled = false;
         scene.add(instancedMesh);
         return instancedMesh;
     }
 
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 
+    // Leuchtende Kanten für Blöcke: 12 dünne Balken pro Block, als InstancedMesh (ein Draw-Call je Farbe).
+    function addEdgeBeams(positions, size, yCenter, material, t = 0.1) {
+        if (positions.length === 0) return;
+        const hx = size.x / 2, hy = size.y / 2, hz = size.z / 2;
+        const beams = [];
+        positions.forEach(p => {
+            for (const sy of [-1, 1]) {
+                for (const sz of [-1, 1]) {
+                    beams.push({ x: p.x, y: yCenter + sy * hy, z: p.z + sz * hz, sx: size.x + t, sy: t, sz: t }); // entlang X
+                }
+            }
+            for (const sx of [-1, 1]) {
+                for (const sz of [-1, 1]) {
+                    beams.push({ x: p.x + sx * hx, y: yCenter, z: p.z + sz * hz, sx: t, sy: size.y + t, sz: t }); // senkrecht
+                }
+            }
+            for (const sx of [-1, 1]) {
+                for (const sy of [-1, 1]) {
+                    beams.push({ x: p.x + sx * hx, y: yCenter + sy * hy, z: p.z, sx: t, sy: t, sz: size.z + t }); // entlang Z
+                }
+            }
+        });
+        const mesh = new THREE.InstancedMesh(boxGeo, material, beams.length);
+        beams.forEach((b, i) => {
+            dummy.position.set(b.x, b.y, b.z);
+            dummy.scale.set(b.sx, b.sy, b.sz);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.frustumCulled = false;
+        scene.add(mesh);
+    }
+
     createInstancedMesh(boxGeo, wallMat, wallPos, { x: TILE_SIZE, y: WALL_HEIGHT, z: TILE_SIZE });
-    createInstancedMesh(boxGeo, cyanGateMat, gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
+    createInstancedMesh(boxGeo, gateMat, gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
     createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
     createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+
+    addEdgeBeams(gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 }, WALL_HEIGHT / 2, beamCyan, 0.08);
+    addEdgeBeams(pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 }, WALL_HEIGHT / 2, beamPink, 0.07);
+    addEdgeBeams(greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 }, WALL_HEIGHT / 2, beamGreen, 0.07);
 
     // --- Portal-Ringe an Gates ---
     const portalRings = [];
@@ -213,8 +254,8 @@ export function setupMap(scene) {
 
     // --- Erhoehte Sniper-Tuerme (T) ---
     // Tuerme sind hoch (Höhe = 6.0 Einheiten), damit man als Sniper das gesamte Feld überblicken kann
+    const TOWER_HEIGHT = 6.0;
     if (towerPos.length > 0) {
-        const TOWER_HEIGHT = 6.0;
         const towerMesh = createInstancedMesh(
             boxGeo,
             towerMat,
@@ -228,48 +269,126 @@ export function setupMap(scene) {
         towerPos.forEach(pos => {
             addBox3Collider(pos.x, TOWER_HEIGHT / 2, pos.z, TILE_SIZE * 1.8, TOWER_HEIGHT, TILE_SIZE * 1.8);
         });
+
+        addEdgeBeams(towerPos, { x: TILE_SIZE * 1.8, y: TOWER_HEIGHT, z: TILE_SIZE * 1.8 }, TOWER_HEIGHT / 2, beamCyan, 0.16);
     }
 
     // --- Deckungskisten im Zentrum ---
-    const crateMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0a14, roughness: 0.8, emissive: 0x9d00ff, emissiveIntensity: 0.8
-    });
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.9 });
     const cratePositions = [];
     for (let x = -110; x <= 110; x += 22) {
         for (let z = -30; z <= 30; z += 18) {
             if (Math.abs(x) < 15 && Math.abs(z) < 15) continue;
             const cx = x + (Math.sin(x + z) * 3);
             const cz = z + (Math.cos(x * z) * 3);
+
+            // Kisten, die in einer Wand/einem Turm/Pfeiler (oder einer anderen Kiste) stecken würden, weglassen
+            const crateBox = new THREE.Box3();
+            crateBox.setFromCenterAndSize(
+                new THREE.Vector3(cx, 0.7, cz),
+                new THREE.Vector3(1.8 + COLLIDER_PADDING * 2, 1.4, 1.8 + COLLIDER_PADDING * 2)
+            );
+            if (colliders.some(c => c.intersectsBox(crateBox))) continue;
+
             cratePositions.push({ x: cx, z: cz });
             addBox3Collider(cx, 0.7, cz, 1.8, 1.4, 1.8);
         }
     }
     createInstancedMesh(boxGeo, crateMat, cratePositions, { x: 1.8, y: 1.4, z: 1.8 }, 0.7);
+    addEdgeBeams(cratePositions, { x: 1.8, y: 1.4, z: 1.8 }, 0.7, beamPurple, 0.07);
 
-    // --- Treppen zu den Sniper-Plattformen ---
-    const stepMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0a16, roughness: 0.8, emissive: 0x00f0ff, emissiveIntensity: 1.5
-    });
+    // --- Rampen zu den Sniper-Türmen (statt Treppen) ---
+    // Jeder Turm bekommt automatisch eine Rampe, die oben exakt auf Turmhöhe endet. Die Rampe wird
+    // an einer freien Seite platziert (bevorzugt Richtung Kartenmitte, nie in Wänden/Kisten/Pfeilern).
+    // Sie hat keinen Collider: der Bodenraycast in main.js lässt den Spieler die Schräge hochlaufen.
+    const RAMP_WIDTH = TILE_SIZE * 1.5;
+    const TOWER_HALF = (TILE_SIZE * 1.8) / 2;
 
-    function addStaircase(startX, z, dirX, steps = 6, stepHeight = 1.0, stepDepth = 1.2) {
-        for (let i = 0; i < steps; i++) {
-            const h = stepHeight * (i + 1);
-            const step = new THREE.Mesh(new THREE.BoxGeometry(stepDepth, h, TILE_SIZE * 1.2), stepMat);
-            step.position.set(startX + dirX * stepDepth * i, h / 2, z);
-            scene.add(step);
-            groundMeshes.push(step);
-        }
+    // Keil-Geometrie (Einheitsgröße: Länge 1 entlang +X, Höhe 1, Breite 1), wird per Instanz skaliert
+    function createRampGeometry() {
+        const A = [0, 0, -0.5], B = [0, 0, 0.5], C = [1, 0, -0.5];
+        const D = [1, 0, 0.5], E = [1, 1, -0.5], F = [1, 1, 0.5];
+        const tris = [
+            [A, B, F], [A, F, E],   // Schräge (Oberseite)
+            [C, E, F], [C, F, D],   // Rückwand am Turm
+            [B, D, F], [A, E, C],   // Seiten
+            [A, C, D], [A, D, B]    // Unterseite
+        ];
+        const arr = [];
+        tris.forEach(t => t.forEach(v => arr.push(v[0], v[1], v[2])));
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3));
+        g.computeVertexNormals();
+        return g;
     }
 
-    // Treppenaufgaenge zu den Turmzonen
-    addStaircase(-110, -20, 1);
-    addStaircase(-110, 20, 1);
-    addStaircase(-40, -15, 1);
-    addStaircase(-40, 15, 1);
-    addStaircase(40, -15, -1);
-    addStaircase(40, 15, -1);
-    addStaircase(110, -20, -1);
-    addStaircase(110, 20, -1);
+    // out = Richtung, in die sich die Rampe vom Turm weg erstreckt; rotY dreht den Keil so, dass er zum Turm hin ansteigt
+    const RAMP_DIRS = [
+        { out: { x: -1, z: 0 }, rotY: 0 },
+        { out: { x: 1, z: 0 }, rotY: Math.PI },
+        { out: { x: 0, z: -1 }, rotY: -Math.PI / 2 },
+        { out: { x: 0, z: 1 }, rotY: Math.PI / 2 }
+    ];
+
+    // Grundfläche der Rampe (ohne die letzten 0.6 direkt am Turm, dort liegt dessen eigener Collider an,
+    // dafür mit 1.5 Einheiten freiem Platz vor dem Rampenfuß, damit dort keine Kiste/Wand im Weg steht)
+    function rampFootprint(t, out, len) {
+        const near = TOWER_HALF + 0.6;
+        const far = TOWER_HALF + len + 1.5;
+        const along = (near + far) / 2;
+        const extent = far - near;
+        const box = new THREE.Box3();
+        box.setFromCenterAndSize(
+            new THREE.Vector3(t.x + out.x * along, 1.5, t.z + out.z * along),
+            new THREE.Vector3(out.x !== 0 ? extent : RAMP_WIDTH, 2, out.z !== 0 ? extent : RAMP_WIDTH)
+        );
+        return box;
+    }
+
+    const rampInstances = [];
+    const placedRampBoxes = [];
+    const unreachableTowers = [];
+
+    towerPos.forEach(t => {
+        // Richtungen sortieren: zuerst die, deren Rampe Richtung Kartenmitte zeigt
+        const towardCenter = (d) => d.out.x * -t.x + d.out.z * -t.z;
+        const dirs = RAMP_DIRS.slice().sort((d1, d2) => towardCenter(d2) - towardCenter(d1));
+
+        for (const len of [16, 12]) { // 16 lang = ca. 20° Steigung, sonst steilere 12er-Rampe
+            for (const d of dirs) {
+                const box = rampFootprint(t, d.out, len);
+                if (colliders.some(c => c.intersectsBox(box))) continue;
+                if (placedRampBoxes.some(b => b.intersectsBox(box))) continue;
+
+                placedRampBoxes.push(box);
+                const reach = TOWER_HALF + len - 0.05; // Rampenende ragt 5 cm in den Turm (keine Lücke)
+                rampInstances.push({ x: t.x + d.out.x * reach, z: t.z + d.out.z * reach, rotY: d.rotY, len });
+                return;
+            }
+        }
+        unreachableTowers.push(t);
+    });
+
+    if (rampInstances.length > 0) {
+        // Matt und dunkel: kein Glanz, kein Leuchten
+        const rampMat = new THREE.MeshStandardMaterial({ color: 0x1b1b28, roughness: 1.0, metalness: 0.0 });
+        const rampMesh = new THREE.InstancedMesh(createRampGeometry(), rampMat, rampInstances.length);
+        rampInstances.forEach((r, i) => {
+            dummy.position.set(r.x, 0, r.z);
+            dummy.rotation.set(0, r.rotY, 0);
+            dummy.scale.set(r.len, TOWER_HEIGHT, RAMP_WIDTH);
+            dummy.updateMatrix();
+            rampMesh.setMatrixAt(i, dummy.matrix);
+        });
+        dummy.rotation.set(0, 0, 0);
+        rampMesh.instanceMatrix.needsUpdate = true;
+        rampMesh.frustumCulled = false;
+        scene.add(rampMesh);
+        groundMeshes.push(rampMesh);
+    }
+    if (unreachableTowers.length > 0) {
+        console.warn(`${unreachableTowers.length} Turm/Türme ohne freie Rampen-Seite:`, unreachableTowers);
+    }
 
     // --- Zonen-Beleuchtung ---
     const zoneColors = [0xff0055, 0x00f0ff, 0x9d00ff, 0x00ff66];
@@ -290,5 +409,7 @@ export function setupMap(scene) {
     colliders.groundMeshes = groundMeshes;
     colliders.skyboxGroup = skyboxGroup;
     colliders.portalRings = portalRings;
+    colliders.rampStats = { placed: rampInstances.length, total: towerPos.length };
+    colliders.ramps = rampInstances;
     return colliders;
 }
