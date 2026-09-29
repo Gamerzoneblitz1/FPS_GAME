@@ -16,6 +16,18 @@ const playerMeshesList = [];
 
 const EYE_HEIGHT = 2; // Abstand Kamera <-> Standfläche
 
+// Krunker-artiges Movement: der Kern davon ist kaum Reibung in der Luft (Schwung bleibt erhalten)
+// bei voller Beschleunigungskontrolle -> Air-Strafing/Bunny-Hopping lohnt sich, weil man in der Luft
+// schneller wird als am Boden erlaubt (MAX_AIR_SPEED > MAX_GROUND_SPEED).
+const GROUND_FRICTION = 10.0;
+const AIR_FRICTION = 0.6;
+const GROUND_ACCEL = 90.0;
+const AIR_ACCEL = 70.0;
+const MAX_GROUND_SPEED = 9.0;
+const MAX_AIR_SPEED = 13.5;
+const JUMP_VELOCITY = 13.0;
+const GRAVITY = 9.8 * 3.0;
+
 let health = 100;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = false;
 let prevTime = performance.now();
@@ -53,7 +65,7 @@ function init() {
     // CSS-Pixel, ~6x Unterschied) — die GPU-Last skaliert direkt mit der Pixelzahl. Deshalb hier
     // die interne Render-Auflösung am PC bewusst absenken (Browser skaliert per CSS wieder hoch);
     // am Handy, das schon flüssig läuft, nichts ändern.
-    renderer.setPixelRatio(isTouchDevice ? 1 : 0.65);
+    renderer.setPixelRatio(isTouchDevice ? 1 : 0.85);
     renderer.setSize(window.innerWidth, window.innerHeight);
     // shadowMap bewusst deaktiviert: kein Licht im Spiel wirft aktuell Schatten (castShadow nirgends
     // gesetzt), die Shadow-Map-Infrastruktur würde also nur unnötig Overhead kosten.
@@ -305,7 +317,7 @@ function onKeyChange(keyCode, isPressed) {
         case 39: case 68: moveRight = isPressed; break;
         case 32:
             if (isPressed && canJump) {
-                velocity.y += 12;
+                velocity.y += JUMP_VELOCITY;
                 canJump = false;
             }
             break;
@@ -446,16 +458,32 @@ function animate() {
     }
 
     if (controls.isLocked || touchActive) {
-        velocity.x -= velocity.x * 10.0 * delta;
-        velocity.z -= velocity.z * 10.0 * delta;
-        velocity.y -= 9.8 * 3.5 * delta;
+        // canJump ist nur true, während der Spieler tatsächlich auf dem Boden steht (siehe
+        // Bodenerkennung weiter unten) -> zuverlässiger "isGrounded"-Wert für die Physik.
+        const isGrounded = canJump;
+        const friction = isGrounded ? GROUND_FRICTION : AIR_FRICTION;
+        const accel = isGrounded ? GROUND_ACCEL : AIR_ACCEL;
+
+        velocity.x -= velocity.x * friction * delta;
+        velocity.z -= velocity.z * friction * delta;
+        velocity.y -= GRAVITY * delta;
 
         direction.z = Number(moveForward) - Number(moveBackward);
         direction.x = Number(moveRight) - Number(moveLeft);
         direction.normalize();
 
-        if (moveForward || moveBackward) velocity.z -= direction.z * 90.0 * delta;
-        if (moveLeft || moveRight) velocity.x -= direction.x * 90.0 * delta;
+        if (moveForward || moveBackward) velocity.z -= direction.z * accel * delta;
+        if (moveLeft || moveRight) velocity.x -= direction.x * accel * delta;
+
+        // Geschwindigkeit deckeln (in der Luft etwas höher erlaubt -> Air-Strafing/Bunny-Hopping
+        // lohnt sich, klassisches Krunker-Feeling: wer beim Springen weiter steuert, wird schneller)
+        const maxSpeed = isGrounded ? MAX_GROUND_SPEED : MAX_AIR_SPEED;
+        const horizSpeed = Math.hypot(velocity.x, velocity.z);
+        if (horizSpeed > maxSpeed) {
+            const scale = maxSpeed / horizSpeed;
+            velocity.x *= scale;
+            velocity.z *= scale;
+        }
 
         // Alte Position sichern
         const oldPosition = camera.position.clone();
