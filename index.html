@@ -160,6 +160,58 @@
             pointer-events: none;
             user-select: none;
         }
+        #settings-btn {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            border: 2px solid rgba(0, 240, 255, 0.4);
+            background: rgba(0, 0, 0, 0.55);
+            color: #00f0ff;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 20;
+        }
+        #settings-panel {
+            display: none;
+            position: absolute;
+            top: 64px;
+            right: 20px;
+            width: 260px;
+            background: rgba(5, 5, 15, 0.92);
+            border: 2px solid rgba(0, 240, 255, 0.35);
+            border-radius: 10px;
+            padding: 16px;
+            font-family: monospace;
+            color: white;
+            z-index: 20;
+        }
+        #settings-panel h3 {
+            margin: 0 0 14px 0;
+            color: #00f0ff;
+            text-shadow: 0 0 8px #00f0ff;
+            font-size: 15px;
+            letter-spacing: 1px;
+        }
+        #settings-panel label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 14px;
+        }
+        #settings-panel input[type="range"] { width: 100%; margin-top: 6px; }
+        #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
+        #settings-close {
+            width: 100%;
+            padding: 8px;
+            background: rgba(0, 240, 255, 0.15);
+            border: 1px solid rgba(0, 240, 255, 0.4);
+            color: #00f0ff;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: monospace;
+        }
         #instructions {
             position: absolute;
             top: 0;
@@ -196,6 +248,20 @@
     <div id="hud-br">
         <div id="distance-val">--</div>
         <div id="distance-label">NEAREST TARGET</div>
+    </div>
+
+    <button id="settings-btn" title="Einstellungen">⚙</button>
+    <div id="settings-panel">
+        <h3>EINSTELLUNGEN</h3>
+        <label>
+            Render-Auflösung: <span id="res-val">90%</span>
+            <input type="range" id="res-slider" min="50" max="100" step="5" value="90">
+        </label>
+        <label class="checkbox-row">
+            <input type="checkbox" id="bloom-toggle" checked>
+            Bloom / Glow-Effekt
+        </label>
+        <button id="settings-close">Schließen</button>
     </div>
     <div id="instructions">
         <h1>Klicken zum Spielen</h1>
