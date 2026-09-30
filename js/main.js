@@ -14,7 +14,9 @@ let portalRings = []; // rotierende Neon-Ringe an den Gates
 const otherPlayers = {};
 const playerMeshesList = [];
 
-const EYE_HEIGHT = 2; // Abstand Kamera <-> Standfläche
+const EYE_HEIGHT_STAND = 2;   // Abstand Kamera <-> Standfläche im Stehen
+const EYE_HEIGHT_CROUCH = 1.1; // ... im Ducken
+let currentEyeHeight = EYE_HEIGHT_STAND; // wird jeden Frame sanft Richtung Ziel interpoliert
 
 // Krunker-artiges Movement: der Kern davon ist kaum Reibung in der Luft (Schwung bleibt erhalten)
 // bei voller Beschleunigungskontrolle -> Air-Strafing/Bunny-Hopping lohnt sich, weil man in der Luft
@@ -27,9 +29,14 @@ const MAX_GROUND_SPEED = 9.0;
 const MAX_AIR_SPEED = 13.5;
 const JUMP_VELOCITY = 13.0;
 const GRAVITY = 9.8 * 3.0;
+const SPRINT_MULTIPLIER = 1.4;   // Shift
+const CROUCH_SPEED_MULTIPLIER = 0.5; // C / Strg
 
 let health = 100;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = false;
+let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
+let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
+let sprintHeld = false;
 let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
@@ -279,9 +286,13 @@ function updateNearestEnemyUI() {
 const PLAYER_RADIUS = 0.5; // etwas schmaler als vorher (0.6) -> mehr Spielraum in 1-Tile-Korridoren
 
 function isColliding() {
+    // Box skaliert mit der aktuellen Augenhöhe -> beim Ducken automatisch niedrigere Kollisionsbox
+    // (gleiches Verhältnis wie vorher: 0.75 unterhalb / 0.25 oberhalb der Kamera)
+    const below = currentEyeHeight * 0.75;
+    const above = currentEyeHeight * 0.25;
     const playerBox = new THREE.Box3();
-    playerBox.min.set(camera.position.x - PLAYER_RADIUS, camera.position.y - 1.5, camera.position.z - PLAYER_RADIUS);
-    playerBox.max.set(camera.position.x + PLAYER_RADIUS, camera.position.y + 0.5, camera.position.z + PLAYER_RADIUS);
+    playerBox.min.set(camera.position.x - PLAYER_RADIUS, camera.position.y - below, camera.position.z - PLAYER_RADIUS);
+    playerBox.max.set(camera.position.x + PLAYER_RADIUS, camera.position.y + above, camera.position.z + PLAYER_RADIUS);
 
     for (let i = 0; i < colliders.length; i++) {
         if (playerBox.intersectsBox(colliders[i])) return true;
@@ -315,11 +326,17 @@ function onKeyChange(keyCode, isPressed) {
         case 37: case 65: moveLeft = isPressed; break;
         case 40: case 83: moveBackward = isPressed; break;
         case 39: case 68: moveRight = isPressed; break;
-        case 32:
-            if (isPressed && canJump) {
-                velocity.y += JUMP_VELOCITY;
-                canJump = false;
-            }
+        case 32: // Leertaste gehalten -> springt automatisch im Animate-Loop, sobald man landet (Bhop)
+            spaceHeld = isPressed;
+            break;
+        case 67: // C
+            crouchKeyC = isPressed;
+            break;
+        case 17: // Strg (links & rechts liefern beide keyCode 17)
+            crouchKeyCtrl = isPressed;
+            break;
+        case 16: // Shift (links & rechts liefern beide keyCode 16)
+            sprintHeld = isPressed;
             break;
         case 82: // R
             if (isPressed) weapon.reload();
@@ -418,9 +435,14 @@ function setupTouchControls() {
 
     // --- Buttons ---
     btnJump.addEventListener('touchstart', (e) => {
-        onKeyChange(32, true);
+        onKeyChange(32, true); // gehalten halten = automatisch weiterspringen, wie bei der Leertaste
         e.preventDefault();
     }, { passive: false });
+    btnJump.addEventListener('touchend', (e) => {
+        onKeyChange(32, false);
+        e.preventDefault();
+    }, { passive: false });
+    btnJump.addEventListener('touchcancel', () => onKeyChange(32, false));
 
     btnFire.addEventListener('touchstart', (e) => {
         handleShooting();
@@ -461,8 +483,25 @@ function animate() {
         // canJump ist nur true, während der Spieler tatsächlich auf dem Boden steht (siehe
         // Bodenerkennung weiter unten) -> zuverlässiger "isGrounded"-Wert für die Physik.
         const isGrounded = canJump;
+
+        // Leertaste gehalten -> automatisch springen, sobald man den Boden berührt (Bunny-Hop)
+        if (spaceHeld && isGrounded) {
+            velocity.y += JUMP_VELOCITY;
+            canJump = false;
+        }
+
+        // Ducken (C oder Strg, beide unabhängig voneinander) -> Augenhöhe sanft interpolieren,
+        // Kollisionsbox skaliert automatisch mit (siehe isColliding())
+        const crouching = crouchKeyC || crouchKeyCtrl;
+        const targetEyeHeight = crouching ? EYE_HEIGHT_CROUCH : EYE_HEIGHT_STAND;
+        currentEyeHeight += (targetEyeHeight - currentEyeHeight) * Math.min(1, 12 * delta);
+
+        // Sprint (Shift) und Ducken beeinflussen Beschleunigung/Höchstgeschwindigkeit. Ducken hat
+        // Vorrang vor Sprint (kann nicht gleichzeitig sprinten und ducken).
+        const speedMultiplier = crouching ? CROUCH_SPEED_MULTIPLIER : (sprintHeld ? SPRINT_MULTIPLIER : 1.0);
+
         const friction = isGrounded ? GROUND_FRICTION : AIR_FRICTION;
-        const accel = isGrounded ? GROUND_ACCEL : AIR_ACCEL;
+        const accel = (isGrounded ? GROUND_ACCEL : AIR_ACCEL) * speedMultiplier;
 
         velocity.x -= velocity.x * friction * delta;
         velocity.z -= velocity.z * friction * delta;
@@ -477,7 +516,7 @@ function animate() {
 
         // Geschwindigkeit deckeln (in der Luft etwas höher erlaubt -> Air-Strafing/Bunny-Hopping
         // lohnt sich, klassisches Krunker-Feeling: wer beim Springen weiter steuert, wird schneller)
-        const maxSpeed = isGrounded ? MAX_GROUND_SPEED : MAX_AIR_SPEED;
+        const maxSpeed = (isGrounded ? MAX_GROUND_SPEED : MAX_AIR_SPEED) * speedMultiplier;
         const horizSpeed = Math.hypot(velocity.x, velocity.z);
         if (horizSpeed > maxSpeed) {
             const scale = maxSpeed / horizSpeed;
@@ -505,9 +544,9 @@ function animate() {
         const groundHits = groundMeshes.length ? groundRaycaster.intersectObjects(groundMeshes, false) : [];
         const groundY = groundHits.length > 0 ? groundHits[0].point.y : 0;
 
-        if (camera.position.y <= groundY + EYE_HEIGHT) {
+        if (camera.position.y <= groundY + currentEyeHeight) {
             velocity.y = 0;
-            camera.position.y = groundY + EYE_HEIGHT;
+            camera.position.y = groundY + currentEyeHeight;
             canJump = true;
         }
 
