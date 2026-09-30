@@ -6,6 +6,20 @@ const socket = io("https://fps-game-e18y.onrender.com");
 
 let camera, scene, renderer, controls;
 let composer = null; // Bloom-Postprocessing (null = Fallback auf normales Rendering)
+
+// Einstellungen: aus localStorage laden (bleiben nach Neuladen erhalten), sonst Standardwerte
+const SETTINGS_KEY = 'fpsGameSettings';
+const savedSettings = (() => {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; }
+})();
+let userPixelRatioPercent = savedSettings.pixelRatio ?? 90; // 90% Standard, im Menü 50-100% einstellbar
+let bloomEnabled = savedSettings.bloomEnabled ?? true;
+
+function saveSettings() {
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ pixelRatio: userPixelRatioPercent, bloomEnabled }));
+    } catch (e) { /* localStorage evtl. nicht verfügbar (z.B. privates Fenster) - dann halt nicht speichern */ }
+}
 let weapon;
 let colliders = [];
 let groundMeshes = []; // begehbare Flächen (Boden, Treppen, Plattformen) für den Bodenraycast
@@ -84,37 +98,16 @@ function init() {
     // PC-Fenster haben oft deutlich mehr Pixel als ein Handy-Display (z.B. 1920x1080 vs. 400x850
     // CSS-Pixel, ~6x Unterschied) — die GPU-Last skaliert direkt mit der Pixelzahl. Deshalb hier
     // die interne Render-Auflösung am PC bewusst absenken (Browser skaliert per CSS wieder hoch);
-    // am Handy, das schon flüssig läuft, nichts ändern.
-    renderer.setPixelRatio(isTouchDevice ? 1 : 0.85);
+    // am Handy, das schon flüssig läuft, nichts ändern. Wert kommt aus den gespeicherten
+    // Einstellungen (Standard 90%) und lässt sich im Einstellungsmenü live nachjustieren.
+    renderer.setPixelRatio(isTouchDevice ? 1 : userPixelRatioPercent / 100);
     renderer.setSize(window.innerWidth, window.innerHeight);
     // shadowMap bewusst deaktiviert: kein Licht im Spiel wirft aktuell Schatten (castShadow nirgends
     // gesetzt), die Shadow-Map-Infrastruktur würde also nur unnötig Overhead kosten.
     document.body.appendChild(renderer.domElement);
 
-    // Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check:
-    // falls die Postprocessing-Scripts (CDN) nicht laden, rendert das Spiel einfach normal weiter,
-    // statt komplett zu crashen (siehe frühere FBXLoader-Lektion).
-    try {
-        if (typeof THREE.EffectComposer === 'function' && typeof THREE.UnrealBloomPass === 'function') {
-            composer = new THREE.EffectComposer(renderer);
-            composer.addPass(new THREE.RenderPass(scene, camera));
-
-            // Bloom bewusst in halber Auflösung: die internen Blur-Passes sind der teuerste Teil,
-            // halbe Auflösung senkt deren Kosten um ca. das Vierfache bei kaum sichtbarem Unterschied.
-            const bloomPass = new THREE.UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
-                1.2,  // strength
-                0.4,  // radius
-                0.15  // threshold
-            );
-            composer.addPass(bloomPass);
-        } else {
-            console.warn('Bloom-Postprocessing nicht verfügbar (Scripts nicht geladen) — normales Rendering wird genutzt.');
-        }
-    } catch (err) {
-        console.error('Fehler beim Initialisieren des Bloom-Postprocessing, normales Rendering wird genutzt:', err);
-        composer = null;
-    }
+    initComposer();
+    setupSettingsPanel();
 
     controls = new THREE.PointerLockControls(camera, document.body);
 
@@ -466,6 +459,76 @@ function setupTouchControls() {
         weapon.reload();
         e.preventDefault();
     }, { passive: false });
+}
+
+// Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check: falls die
+// Postprocessing-Scripts (CDN) nicht laden, rendert das Spiel einfach normal weiter, statt komplett
+// zu crashen. Eigene Funktion, damit das Bloom-Toggle im Einstellungsmenü sie erneut aufrufen kann.
+function initComposer() {
+    if (!bloomEnabled) { composer = null; return; }
+    try {
+        if (typeof THREE.EffectComposer === 'function' && typeof THREE.UnrealBloomPass === 'function') {
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(new THREE.RenderPass(scene, camera));
+
+            // Bloom bewusst in halber Auflösung: die internen Blur-Passes sind der teuerste Teil,
+            // halbe Auflösung senkt deren Kosten um ca. das Vierfache bei kaum sichtbarem Unterschied.
+            const bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+                1.2,  // strength
+                0.4,  // radius
+                0.15  // threshold
+            );
+            composer.addPass(bloomPass);
+        } else {
+            console.warn('Bloom-Postprocessing nicht verfügbar (Scripts nicht geladen) — normales Rendering wird genutzt.');
+            composer = null;
+        }
+    } catch (err) {
+        console.error('Fehler beim Initialisieren des Bloom-Postprocessing, normales Rendering wird genutzt:', err);
+        composer = null;
+    }
+}
+
+// Einstellungsmenü (Zahnrad-Button oben rechts): Render-Auflösung + Bloom an/aus, live anwendbar
+function setupSettingsPanel() {
+    const btn = document.getElementById('settings-btn');
+    const panel = document.getElementById('settings-panel');
+    const resSlider = document.getElementById('res-slider');
+    const resVal = document.getElementById('res-val');
+    const bloomToggle = document.getElementById('bloom-toggle');
+    const closeBtn = document.getElementById('settings-close');
+    if (!btn || !panel) return; // Panel nicht im HTML vorhanden -> überspringen statt zu crashen
+
+    resSlider.value = userPixelRatioPercent;
+    resVal.textContent = userPixelRatioPercent + '%';
+    bloomToggle.checked = bloomEnabled;
+
+    btn.addEventListener('click', () => {
+        panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
+    });
+    if (closeBtn) closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
+
+    resSlider.addEventListener('input', () => {
+        userPixelRatioPercent = parseInt(resSlider.value, 10);
+        resVal.textContent = userPixelRatioPercent + '%';
+        if (!isTouchDevice) {
+            renderer.setPixelRatio(userPixelRatioPercent / 100);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+        }
+        saveSettings();
+    });
+
+    bloomToggle.addEventListener('change', () => {
+        bloomEnabled = bloomToggle.checked;
+        if (!bloomEnabled) {
+            composer = null;
+        } else {
+            initComposer();
+        }
+        saveSettings();
+    });
 }
 
 function onWindowResize() {
