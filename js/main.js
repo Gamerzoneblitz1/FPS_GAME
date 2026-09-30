@@ -30,13 +30,26 @@ const MAX_AIR_SPEED = 13.5;
 const JUMP_VELOCITY = 13.0;
 const GRAVITY = 9.8 * 3.0;
 const SPRINT_MULTIPLIER = 1.4;   // Shift
-const CROUCH_SPEED_MULTIPLIER = 0.5; // C / Strg
+const CROUCH_SPEED_MULTIPLIER = 0.5; // C / Strg (normales Ducken, langsam)
+
+// Sliden: Ducken (C/Strg) während man schnell am Boden unterwegs ist, löst einen Slide statt eines
+// normalen langsamen Duckens aus -> kurzer Geschwindigkeits-Kick, danach kaum Bremsung (Schwung bleibt
+// erhalten), bis man ausrollt. Springt man währenddessen, gibt's nochmal einen Schub (Slide-Hop).
+const SLIDE_MIN_SPEED_TO_START = 4.0;
+const SLIDE_BOOST = 1.25;
+const SLIDE_MAX_SPEED = 16.0;
+const SLIDE_FRICTION = 1.2;
+const SLIDE_END_SPEED = 2.5; // darunter rollt der Slide aus -> wird zu normalem Ducken
+const SLIDE_STEER_FACTOR = 0.3; // wie viel eigene Beschleunigung während des Slides noch möglich ist
+const SLIDE_JUMP_BOOST = 1.2; // zusätzlicher Schub, wenn man aus dem Slide/Ducken heraus springt
 
 let health = 100;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = false;
 let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
 let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
 let sprintHeld = false;
+let sliding = false;
+let wasCrouching = false; // um den Übergang "gerade erst gedrückt" zu erkennen (Slide-Start)
 let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
@@ -484,23 +497,56 @@ function animate() {
         // Bodenerkennung weiter unten) -> zuverlässiger "isGrounded"-Wert für die Physik.
         const isGrounded = canJump;
 
-        // Leertaste gehalten -> automatisch springen, sobald man den Boden berührt (Bunny-Hop)
+        const crouchInput = crouchKeyC || crouchKeyCtrl;
+        const speedBeforeJump = Math.hypot(velocity.x, velocity.z);
+
+        // Leertaste gehalten -> automatisch springen, sobald man den Boden berührt (Bunny-Hop).
+        // Springt man aus einem Slide/Ducken heraus, gibt's zusätzlich einen Geschwindigkeitsschub
+        // (Slide-Hop) -> genau das macht "schneller werden, wenn man crouched und dann springt".
         if (spaceHeld && isGrounded) {
             velocity.y += JUMP_VELOCITY;
             canJump = false;
+            if ((sliding || crouchInput) && speedBeforeJump > 0.5) {
+                velocity.x *= SLIDE_JUMP_BOOST;
+                velocity.z *= SLIDE_JUMP_BOOST;
+            }
+            sliding = false; // Sprung beendet den Slide immer
         }
 
-        // Ducken (C oder Strg, beide unabhängig voneinander) -> Augenhöhe sanft interpolieren,
-        // Kollisionsbox skaliert automatisch mit (siehe isColliding())
-        const crouching = crouchKeyC || crouchKeyCtrl;
+        // Slide starten: Ducken-Taste wird gerade erst gedrückt, während man am Boden schnell
+        // unterwegs ist (typischerweise nach Sprint) -> kurzer Geschwindigkeits-Kick.
+        if (crouchInput && !wasCrouching && isGrounded && speedBeforeJump > SLIDE_MIN_SPEED_TO_START) {
+            sliding = true;
+            const boostedSpeed = Math.min(speedBeforeJump * SLIDE_BOOST, SLIDE_MAX_SPEED);
+            const scale = boostedSpeed / speedBeforeJump;
+            velocity.x *= scale;
+            velocity.z *= scale;
+        }
+        // Slide beenden: Taste losgelassen, zu langsam geworden, oder nicht mehr am Boden
+        if (sliding && (!crouchInput || !isGrounded || speedBeforeJump < SLIDE_END_SPEED)) {
+            sliding = false;
+        }
+        wasCrouching = crouchInput;
+
+        // Augenhöhe sanft interpolieren (Ducken UND Sliden -> geduckte Höhe), Kollisionsbox
+        // skaliert automatisch mit (siehe isColliding())
+        const crouching = crouchInput || sliding;
         const targetEyeHeight = crouching ? EYE_HEIGHT_CROUCH : EYE_HEIGHT_STAND;
         currentEyeHeight += (targetEyeHeight - currentEyeHeight) * Math.min(1, 12 * delta);
 
-        // Sprint (Shift) und Ducken beeinflussen Beschleunigung/Höchstgeschwindigkeit. Ducken hat
-        // Vorrang vor Sprint (kann nicht gleichzeitig sprinten und ducken).
-        const speedMultiplier = crouching ? CROUCH_SPEED_MULTIPLIER : (sprintHeld ? SPRINT_MULTIPLIER : 1.0);
-
-        const friction = isGrounded ? GROUND_FRICTION : AIR_FRICTION;
+        // Sprint/Ducken/Sliden beeinflussen Beschleunigung & Reibung. Beim Sliden kaum Bremsung
+        // (Schwung bleibt erhalten) und kaum eigene Beschleunigung (man gleitet, statt zu laufen).
+        let speedMultiplier, friction;
+        if (sliding) {
+            speedMultiplier = SLIDE_STEER_FACTOR;
+            friction = SLIDE_FRICTION;
+        } else if (crouching) {
+            speedMultiplier = CROUCH_SPEED_MULTIPLIER;
+            friction = GROUND_FRICTION;
+        } else {
+            speedMultiplier = sprintHeld ? SPRINT_MULTIPLIER : 1.0;
+            friction = isGrounded ? GROUND_FRICTION : AIR_FRICTION;
+        }
         const accel = (isGrounded ? GROUND_ACCEL : AIR_ACCEL) * speedMultiplier;
 
         velocity.x -= velocity.x * friction * delta;
@@ -514,9 +560,9 @@ function animate() {
         if (moveForward || moveBackward) velocity.z -= direction.z * accel * delta;
         if (moveLeft || moveRight) velocity.x -= direction.x * accel * delta;
 
-        // Geschwindigkeit deckeln (in der Luft etwas höher erlaubt -> Air-Strafing/Bunny-Hopping
-        // lohnt sich, klassisches Krunker-Feeling: wer beim Springen weiter steuert, wird schneller)
-        const maxSpeed = (isGrounded ? MAX_GROUND_SPEED : MAX_AIR_SPEED) * speedMultiplier;
+        // Geschwindigkeit deckeln (beim Sliden am höchsten erlaubt, sonst in der Luft etwas höher
+        // als am Boden -> Air-Strafing/Bunny-Hopping lohnt sich, klassisches Krunker-Feeling)
+        const maxSpeed = sliding ? SLIDE_MAX_SPEED : (isGrounded ? MAX_GROUND_SPEED : MAX_AIR_SPEED) * speedMultiplier;
         const horizSpeed = Math.hypot(velocity.x, velocity.z);
         if (horizSpeed > maxSpeed) {
             const scale = maxSpeed / horizSpeed;
