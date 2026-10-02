@@ -50,8 +50,13 @@ const CROUCH_SPEED_MULTIPLIER = 0.5; // C / Strg (normales Ducken, langsam)
 // normalen langsamen Duckens aus -> kurzer Geschwindigkeits-Kick, danach kaum Bremsung (Schwung bleibt
 // erhalten), bis man ausrollt. Springt man währenddessen, gibt's nochmal einen Schub (Slide-Hop).
 const SLIDE_MIN_SPEED_TO_START = 4.0;
-const SLIDE_BOOST = 1.25;
 const SLIDE_MAX_SPEED = 16.0;
+// Geschwindigkeitskurve beim Sliden: erst exakt die Ausgangsgeschwindigkeit beibehalten, dann
+// innerhalb von SLIDE_BOOST_RISE_TIME auf +5% hochrampen, das bis SLIDE_BOOST_DURATION halten
+// ("für die ersten paar Meter"), danach übernimmt wieder die normale Reibung (wird langsamer).
+const SLIDE_BOOST_PEAK = 1.05;
+const SLIDE_BOOST_RISE_TIME = 0.1; // Sekunden bis zum Erreichen der +5%
+const SLIDE_BOOST_DURATION = 0.4;  // Sekunden, die der Boost insgesamt anhält
 const SLIDE_FRICTION = 1.2;
 const SLIDE_END_SPEED = 2.5; // darunter rollt der Slide aus -> wird zu normalem Ducken
 const SLIDE_STEER_FACTOR = 0.3; // wie viel eigene Beschleunigung während des Slides noch möglich ist
@@ -64,6 +69,8 @@ let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhäng
 let sprintHeld = false;
 let sliding = false;
 let wasCrouching = false; // um den Übergang "gerade erst gedrückt" zu erkennen (Slide-Start)
+let slideTimer = 0;       // Sekunden seit Slide-Start -> steuert die Geschwindigkeitskurve
+let slideBaseSpeed = 0;   // exakt die Geschwindigkeit beim Slide-Start (Referenz für die Kurve)
 let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
@@ -577,19 +584,23 @@ function animate() {
         }
 
         // Slide starten: Ducken-Taste wird gerade erst gedrückt, während man am Boden schnell
-        // unterwegs ist (typischerweise nach Sprint) -> kurzer Geschwindigkeits-Kick.
+        // unterwegs ist (typischerweise nach Sprint). Geschwindigkeit bleibt beim Start exakt
+        // erhalten (kein Sprung) -> die Kurve (Rise/Hold/Ausrollen) übernimmt ab jetzt.
         if (crouchInput && !wasCrouching && isGrounded && speedBeforeJump > SLIDE_MIN_SPEED_TO_START) {
             sliding = true;
-            const boostedSpeed = Math.min(speedBeforeJump * SLIDE_BOOST, SLIDE_MAX_SPEED);
-            const scale = boostedSpeed / speedBeforeJump;
-            velocity.x *= scale;
-            velocity.z *= scale;
+            slideTimer = 0;
+            slideBaseSpeed = speedBeforeJump;
         }
         // Slide beenden: Taste losgelassen, zu langsam geworden, oder nicht mehr am Boden
         if (sliding && (!crouchInput || !isGrounded || speedBeforeJump < SLIDE_END_SPEED)) {
             sliding = false;
         }
         wasCrouching = crouchInput;
+        if (sliding) slideTimer += delta;
+
+        // In welcher Phase der Kurve stecken wir gerade: hochrampen (0 -> +5%), halten (+5%),
+        // oder vorbei (danach übernimmt ganz normal SLIDE_FRICTION den Ausroll-Effekt)
+        const slideBoostActive = sliding && slideTimer <= SLIDE_BOOST_DURATION;
 
         // Augenhöhe sanft interpolieren (Ducken UND Sliden -> geduckte Höhe), Kollisionsbox
         // skaliert automatisch mit (siehe isColliding())
@@ -602,7 +613,9 @@ function animate() {
         let speedMultiplier, friction;
         if (sliding) {
             speedMultiplier = SLIDE_STEER_FACTOR;
-            friction = SLIDE_FRICTION;
+            // Während der Boost-Phase (Rise+Hold) keine Reibung -> das Tempo wird gleich unten exakt
+            // über die Kurve gesetzt. Danach normale Slide-Reibung -> man rollt spürbar aus.
+            friction = slideBoostActive ? 0 : SLIDE_FRICTION;
         } else if (crouching) {
             speedMultiplier = CROUCH_SPEED_MULTIPLIER;
             friction = GROUND_FRICTION;
@@ -622,6 +635,22 @@ function animate() {
 
         if (moveForward || moveBackward) velocity.z -= direction.z * accel * delta;
         if (moveLeft || moveRight) velocity.x -= direction.x * accel * delta;
+
+        // Während der Boost-Phase: Tempo exakt auf die Kurve setzen (0 -> SLIDE_BOOST_RISE_TIME:
+        // linear von 100% auf 105% hochrampen, danach bis SLIDE_BOOST_DURATION bei 105% halten).
+        // Die Richtung (inkl. leichtem Steering durch accel oben) bleibt dabei erhalten, nur das
+        // Tempo wird überschrieben.
+        if (slideBoostActive) {
+            const rampT = Math.min(1, slideTimer / SLIDE_BOOST_RISE_TIME);
+            const targetMultiplier = 1 + (SLIDE_BOOST_PEAK - 1) * rampT;
+            const targetSpeed = Math.min(slideBaseSpeed * targetMultiplier, SLIDE_MAX_SPEED);
+            const curSpeed = Math.hypot(velocity.x, velocity.z);
+            if (curSpeed > 0.01) {
+                const scale = targetSpeed / curSpeed;
+                velocity.x *= scale;
+                velocity.z *= scale;
+            }
+        }
 
         // Geschwindigkeit deckeln (beim Sliden am höchsten erlaubt, sonst in der Luft etwas höher
         // als am Boden -> Air-Strafing/Bunny-Hopping lohnt sich, klassisches Krunker-Feeling)
