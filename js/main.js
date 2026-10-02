@@ -584,12 +584,18 @@ function animate() {
         }
 
         // Slide starten: Ducken-Taste wird gerade erst gedrückt, während man am Boden schnell
-        // unterwegs ist (typischerweise nach Sprint). Geschwindigkeit bleibt beim Start exakt
-        // erhalten (kein Sprung) -> die Kurve (Rise/Hold/Ausrollen) übernimmt ab jetzt.
-        if (crouchInput && !wasCrouching && isGrounded && speedBeforeJump > SLIDE_MIN_SPEED_TO_START) {
-            sliding = true;
-            slideTimer = 0;
-            slideBaseSpeed = speedBeforeJump;
+        // unterwegs ist (typischerweise nach Sprint). Geschwindigkeit wird HIER frisch nachgemessen
+        // (nicht die speedBeforeJump vom Frame-Anfang verwendet) -> falls im selben Frame kurz zuvor
+        // schon ein Sprung-Boost die Velocity verändert hat, zählt der tatsächliche aktuelle Wert als
+        // Start-Crouch-Speed, nicht ein veralteter. Diese Geschwindigkeit bleibt beim Start exakt
+        // erhalten (kein zusätzlicher Sprung) -> die Kurve (Rise/Hold/Ausrollen) übernimmt ab jetzt.
+        if (crouchInput && !wasCrouching && isGrounded) {
+            const speedAtCrouchStart = Math.hypot(velocity.x, velocity.z);
+            if (speedAtCrouchStart > SLIDE_MIN_SPEED_TO_START) {
+                sliding = true;
+                slideTimer = 0;
+                slideBaseSpeed = speedAtCrouchStart;
+            }
         }
         // Slide beenden: Taste losgelassen, zu langsam geworden, oder nicht mehr am Boden
         if (sliding && (!crouchInput || !isGrounded || speedBeforeJump < SLIDE_END_SPEED)) {
