@@ -131,6 +131,15 @@ export function setupMap(scene) {
         colliders.push(box);
     }
 
+    // --- Unsichtbare Grenzwände (hoch & dünn, direkt an der Außenwand) ---
+    // Verhindert, dass man z.B. per Bhop/Slide-Jump-Kombo über die Außenwand (nur WALL_HEIGHT hoch)
+    // hinausspringt. Komplett unsichtbar, dient nur als harte Kollisionsgrenze.
+    const BOUNDARY_HEIGHT = 60;
+    addBox3Collider(0, BOUNDARY_HEIGHT / 2, -halfDepth, cols * TILE_SIZE + 4, BOUNDARY_HEIGHT, 1);
+    addBox3Collider(0, BOUNDARY_HEIGHT / 2, halfDepth, cols * TILE_SIZE + 4, BOUNDARY_HEIGHT, 1);
+    addBox3Collider(-halfWidth, BOUNDARY_HEIGHT / 2, 0, 1, BOUNDARY_HEIGHT, rows * TILE_SIZE + 4);
+    addBox3Collider(halfWidth, BOUNDARY_HEIGHT / 2, 0, 1, BOUNDARY_HEIGHT, rows * TILE_SIZE + 4);
+
     // --- Materialien ---
     // Die Körper der Blöcke sind matt und dunkel, es leuchten nur die KANTEN (siehe addEdgeBeams).
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x06060e, roughness: 0.8 });
@@ -158,7 +167,16 @@ export function setupMap(scene) {
                 wallPos.push({ x, z });
                 addBox3Collider(x, WALL_HEIGHT / 2, z, TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
             } else if (char === 'G') {
-                gatePos.push({ x, z });
+                // Orientierung aus den Nachbarzellen ableiten: verläuft die umgebende Wand
+                // horizontal (links/rechts Wand) oder vertikal (oben/unten Wand)? Bei Gleichstand
+                // oder Ecken bleibt es bei der horizontalen Standard-Ausrichtung.
+                const leftWall = line[c - 1] === '#';
+                const rightWall = line[c + 1] === '#';
+                const upWall = NEON_VAULT_GRID[r - 1] && NEON_VAULT_GRID[r - 1][c] === '#';
+                const downWall = NEON_VAULT_GRID[r + 1] && NEON_VAULT_GRID[r + 1][c] === '#';
+                const horizCount = (leftWall ? 1 : 0) + (rightWall ? 1 : 0);
+                const vertCount = (upWall ? 1 : 0) + (downWall ? 1 : 0);
+                gatePos.push({ x, z, vertical: vertCount > horizCount });
             } else if (char === 'L') {
                 pinkPos.push({ x, z });
                 addBox3Collider(x, WALL_HEIGHT / 2, z, TILE_SIZE * 0.5, WALL_HEIGHT, TILE_SIZE * 0.5);
@@ -228,12 +246,24 @@ export function setupMap(scene) {
         scene.add(mesh);
     }
 
-    createInstancedMesh(boxGeo, wallMat, wallPos, { x: TILE_SIZE, y: WALL_HEIGHT, z: TILE_SIZE });
-    createInstancedMesh(boxGeo, gateMat, gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
-    createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
-    createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+    // Meshes, die Schüsse blockieren sollen (Gates bewusst NICHT -> Portale bleiben durchlässig)
+    const shootBlockers = [];
+    const wallMesh = createInstancedMesh(boxGeo, wallMat, wallPos, { x: TILE_SIZE, y: WALL_HEIGHT, z: TILE_SIZE });
+    // Horizontale Gates (Standard: dünn in Z, breit in X) und vertikale Gates (90° gedreht: dünn in X,
+    // breit in Z) getrennt instanziieren. Bei einer Box ist das Tauschen von X/Z-Maßen identisch zu
+    // einer echten 90°-Rotation um die Y-Achse, braucht also keine eigene Rotation.
+    const gatePosH = gatePos.filter(g => !g.vertical);
+    const gatePosV = gatePos.filter(g => g.vertical);
+    createInstancedMesh(boxGeo, gateMat, gatePosH, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
+    createInstancedMesh(boxGeo, gateMat, gatePosV, { x: 0.2, y: WALL_HEIGHT * 0.85, z: TILE_SIZE * 0.9 });
+    const pinkMesh = createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+    const greenMesh = createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
+    if (wallMesh) shootBlockers.push(wallMesh);
+    if (pinkMesh) shootBlockers.push(pinkMesh);
+    if (greenMesh) shootBlockers.push(greenMesh);
 
-    addEdgeBeams(gatePos, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 }, WALL_HEIGHT / 2, beamCyan, 0.08);
+    addEdgeBeams(gatePosH, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 }, WALL_HEIGHT / 2, beamCyan, 0.08);
+    addEdgeBeams(gatePosV, { x: 0.2, y: WALL_HEIGHT * 0.85, z: TILE_SIZE * 0.9 }, WALL_HEIGHT / 2, beamCyan, 0.08);
     addEdgeBeams(pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 }, WALL_HEIGHT / 2, beamPink, 0.07);
     addEdgeBeams(greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 }, WALL_HEIGHT / 2, beamGreen, 0.07);
 
@@ -248,6 +278,7 @@ export function setupMap(scene) {
             portalRingMat
         );
         ring.position.set(pos.x, WALL_HEIGHT * 0.5, pos.z);
+        if (pos.vertical) ring.rotation.y = Math.PI / 2; // Lochachse von Z auf X drehen
         scene.add(ring);
         portalRings.push(ring);
     });
@@ -264,6 +295,7 @@ export function setupMap(scene) {
             TOWER_HEIGHT / 2
         );
         groundMeshes.push(towerMesh);
+        shootBlockers.push(towerMesh);
 
         // Kollsion fuer die Turmseiten hinzufügen
         towerPos.forEach(pos => {
@@ -294,8 +326,12 @@ export function setupMap(scene) {
             addBox3Collider(cx, 0.7, cz, 1.8, 1.4, 1.8);
         }
     }
-    createInstancedMesh(boxGeo, crateMat, cratePositions, { x: 1.8, y: 1.4, z: 1.8 }, 0.7);
+    const crateMesh = createInstancedMesh(boxGeo, crateMat, cratePositions, { x: 1.8, y: 1.4, z: 1.8 }, 0.7);
     addEdgeBeams(cratePositions, { x: 1.8, y: 1.4, z: 1.8 }, 0.7, beamPurple, 0.07);
+    if (crateMesh) {
+        groundMeshes.push(crateMesh); // Bodenraycast erkennt Kistenoberseite -> man steht drauf statt reinzufallen
+        shootBlockers.push(crateMesh);
+    }
 
     // --- Rampen zu den Sniper-Türmen (statt Treppen) ---
     // Jeder Turm bekommt automatisch eine Rampe, die oben exakt auf Turmhöhe endet. Die Rampe wird
@@ -362,7 +398,7 @@ export function setupMap(scene) {
 
                 placedRampBoxes.push(box);
                 const reach = TOWER_HALF + len - 0.05; // Rampenende ragt 5 cm in den Turm (keine Lücke)
-                rampInstances.push({ x: t.x + d.out.x * reach, z: t.z + d.out.z * reach, rotY: d.rotY, len });
+                rampInstances.push({ x: t.x + d.out.x * reach, z: t.z + d.out.z * reach, rotY: d.rotY, len, outX: d.out.x, outZ: d.out.z });
                 return;
             }
         }
@@ -385,7 +421,56 @@ export function setupMap(scene) {
         rampMesh.frustumCulled = false;
         scene.add(rampMesh);
         groundMeshes.push(rampMesh);
+        shootBlockers.push(rampMesh);
     }
+    // --- Rampen-Seitenwände ---
+    // Pro Rampenseite eine Reihe kurzer, überlappender Wandsegmente, die der Steigung folgen (Position
+    // und Höhe linear vom Fuß der Rampe (y=0) bis zum Turm-Ende (y=TOWER_HEIGHT) interpoliert). Dadurch
+    // kann man beim Hochlaufen nicht mehr seitlich über die Rampe hinweg erschossen werden.
+    // lateral = Richtung quer zur Laufrichtung (aus rotY hergeleitet: lokale Z-Achse nach der
+    // Y-Rotation): (sin(rotY), cos(rotY)) in Welt-(x,z).
+    if (rampInstances.length > 0) {
+        const RAIL_HEIGHT = 1.4;
+        const RAIL_THICKNESS = 0.15;
+        const RAIL_SEGMENTS = 6;
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x1b1b28, roughness: 1.0, metalness: 0.0 });
+        const railInstances = [];
+
+        rampInstances.forEach(r => {
+            const lateral = { x: Math.sin(r.rotY), z: Math.cos(r.rotY) };
+            const halfW = RAMP_WIDTH / 2;
+            const segLen = (r.len / RAIL_SEGMENTS) * 1.15; // leichte Überlappung -> keine Lücken in der Wand
+
+            [-1, 1].forEach(side => {
+                for (let i = 0; i < RAIL_SEGMENTS; i++) {
+                    const t = (i + 0.5) / RAIL_SEGMENTS; // 0 = Fuß der Rampe (fern), 1 = Turm-Ende
+                    const baseX = r.x - r.outX * (t * r.len) + lateral.x * halfW * side;
+                    const baseZ = r.z - r.outZ * (t * r.len) + lateral.z * halfW * side;
+                    const baseY = t * TOWER_HEIGHT;
+                    railInstances.push({
+                        x: baseX, y: baseY + RAIL_HEIGHT / 2, z: baseZ,
+                        rotY: r.rotY, segLen
+                    });
+                }
+            });
+        });
+
+        const railMesh = new THREE.InstancedMesh(boxGeo, railMat, railInstances.length);
+        railInstances.forEach((r, i) => {
+            dummy.position.set(r.x, r.y, r.z);
+            dummy.rotation.set(0, r.rotY, 0);
+            dummy.scale.set(r.segLen, RAIL_HEIGHT, RAIL_THICKNESS);
+            dummy.updateMatrix();
+            railMesh.setMatrixAt(i, dummy.matrix);
+            addBox3Collider(r.x, r.y, r.z, r.segLen, RAIL_HEIGHT, RAIL_THICKNESS);
+        });
+        dummy.rotation.set(0, 0, 0);
+        railMesh.instanceMatrix.needsUpdate = true;
+        railMesh.frustumCulled = false;
+        scene.add(railMesh);
+        shootBlockers.push(railMesh);
+    }
+
     if (unreachableTowers.length > 0) {
         console.warn(`${unreachableTowers.length} Turm/Türme ohne freie Rampen-Seite:`, unreachableTowers);
     }
@@ -409,6 +494,7 @@ export function setupMap(scene) {
     colliders.groundMeshes = groundMeshes;
     colliders.skyboxGroup = skyboxGroup;
     colliders.portalRings = portalRings;
+    colliders.shootBlockers = shootBlockers;
     colliders.rampStats = { placed: rampInstances.length, total: towerPos.length };
     colliders.ramps = rampInstances;
     return colliders;
