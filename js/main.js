@@ -13,7 +13,7 @@ const savedSettings = (() => {
     try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; }
 })();
 let userPixelRatioPercent = savedSettings.pixelRatio ?? 90; // 90% Standard, im Menü 50-100% einstellbar
-let bloomEnabled = savedSettings.bloomEnabled ?? true;
+let bloomEnabled = savedSettings.bloomEnabled ?? false; // Standard jetzt AUS (war zu hell) - im Menü weiter an-/abschaltbar
 
 function saveSettings() {
     try {
@@ -25,12 +25,18 @@ let colliders = [];
 let groundMeshes = []; // begehbare Flächen (Boden, Treppen, Plattformen) für den Bodenraycast
 let skyboxGroup = null; // Sternenhimmel + Planet, folgt der Kamera-Position (Skybox-Trick)
 let portalRings = []; // rotierende Neon-Ringe an den Gates
+let shootBlockers = []; // Wände/Türme/Kisten/Rampen -> blockieren Schüsse (Gates bewusst nicht)
 const otherPlayers = {};
 const playerMeshesList = [];
 
 const EYE_HEIGHT_STAND = 2;   // Abstand Kamera <-> Standfläche im Stehen
 const EYE_HEIGHT_CROUCH = 1.1; // ... im Ducken
 let currentEyeHeight = EYE_HEIGHT_STAND; // wird jeden Frame sanft Richtung Ziel interpoliert
+// Fuß-Position getrennt von der Kamera getrackt: camera.position.y = feetY + currentEyeHeight.
+// Grund: vorher wurde die Schwerkraft direkt auf camera.position.y addiert, wodurch Ducken in der
+// Luft wirkungslos war (currentEyeHeight änderte sich zwar, beeinflusste aber nichts, solange man
+// nicht gerade landete). Jetzt wirkt sich Ducken/Sliden sofort aus, auch während man in der Luft ist.
+let feetY = 0;
 
 // Krunker-artiges Movement: der Kern davon ist kaum Reibung in der Luft (Schwung bleibt erhalten)
 // bei voller Beschleunigungskontrolle -> Air-Strafing/Bunny-Hopping lohnt sich, weil man in der Luft
@@ -153,9 +159,11 @@ function init() {
     if (colliders.spawnPoints && colliders.spawnPoints.length > 0) {
         const sp = colliders.spawnPoints[Math.floor(Math.random() * colliders.spawnPoints.length)];
         camera.position.set(sp.x, sp.y, sp.z);
+        feetY = sp.y - currentEyeHeight;
     }
     skyboxGroup = colliders.skyboxGroup || null;
     portalRings = colliders.portalRings || [];
+    shootBlockers = colliders.shootBlockers || [];
     weapon = new Weapon(camera, scene, updateAmmoUI);
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
@@ -172,6 +180,7 @@ function init() {
         const me = players[socket.id];
         if (me) {
             camera.position.set(me.x, me.y, me.z);
+            feetY = me.y - currentEyeHeight;
             velocity.set(0, 0, 0);
         }
     });
@@ -197,7 +206,9 @@ function init() {
         if (data.id === socket.id) {
             health = 100;
             updateHealthUI();
+            currentEyeHeight = EYE_HEIGHT_STAND; // falls man geduckt/slidend gestorben ist -> sauber stehend respawnen
             camera.position.set(data.position.x, data.position.y, data.position.z);
+            feetY = data.position.y - currentEyeHeight;
             velocity.set(0, 0, 0); // Restgeschwindigkeit vom Tod löschen, sonst "reißt" es den Spieler nach dem Respawn
             canJump = true;
         } else if (otherPlayers[data.id]) {
@@ -224,16 +235,22 @@ function handleShooting() {
     if (!fired) return; // Magazin leer oder wird gerade nachgeladen -> kein Schuss
 
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const intersects = raycaster.intersectObjects(playerMeshesList, true);
+    const playerHits = raycaster.intersectObjects(playerMeshesList, true);
+    // Wände/Türme/Kisten/Rampen blockieren Schüsse jetzt auch (Gates bewusst ausgenommen - Portale
+    // bleiben durchlässig). Ohne das gingen Kugeln bisher durch jede Wand/Rampenseite hindurch.
+    const wallHits = shootBlockers.length ? raycaster.intersectObjects(shootBlockers, false) : [];
 
     const startPos = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(0.5));
     let endPos = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(100));
 
-    if (intersects.length > 0) {
-        const hit = intersects[0];
-        endPos = hit.point;
+    const nearestPlayerHit = playerHits.length > 0 ? playerHits[0] : null;
+    const nearestWallHit = wallHits.length > 0 ? wallHits[0] : null;
 
-        let hitGroup = hit.object;
+    // Näherer Treffer gewinnt: steht eine Wand/Rampenwand im Weg, zählt kein Spielertreffer dahinter
+    if (nearestPlayerHit && (!nearestWallHit || nearestPlayerHit.distance <= nearestWallHit.distance)) {
+        endPos = nearestPlayerHit.point;
+
+        let hitGroup = nearestPlayerHit.object;
         while (hitGroup.parent && !hitGroup.userData.id) {
             hitGroup = hitGroup.parent;
         }
@@ -241,6 +258,8 @@ function handleShooting() {
         if (hitGroup.userData.id) {
             socket.emit('hitPlayer', hitGroup.userData.id);
         }
+    } else if (nearestWallHit) {
+        endPos = nearestWallHit.point;
     }
 
     createTracer(scene, startPos, endPos);
@@ -273,6 +292,13 @@ function updateAmmoUI(ammoInMag, reserveAmmo, isReloading) {
     if (isReloading) {
         ammoVal.innerText = 'Nachladen…';
         ammoVal.style.color = '#ffff00';
+        if (ammoBar) ammoBar.style.width = '100%';
+        return;
+    }
+
+    if (weapon && weapon.infiniteAmmo) {
+        ammoVal.innerText = '∞';
+        ammoVal.style.color = '#00f0ff';
         if (ammoBar) ammoBar.style.width = '100%';
         return;
     }
@@ -677,22 +703,26 @@ function animate() {
         // Prüfen, ob neue Position in Wand/Kiste liegt (harte Deckung, blockiert X/Z)
         checkCollisions(oldPosition);
 
-        camera.position.y += velocity.y * delta;
+        feetY += velocity.y * delta;
 
         // Bodenerkennung: Raycast senkrecht nach unten findet Boden, Treppenstufe oder Plattform.
         // Dadurch kann der Spieler Treppen/Rampen aus map.js hochlaufen, statt bei y=2 hart zu kleben.
         groundRaycaster.set(
-            new THREE.Vector3(camera.position.x, camera.position.y + 5, camera.position.z),
+            new THREE.Vector3(camera.position.x, feetY + 5, camera.position.z),
             new THREE.Vector3(0, -1, 0)
         );
         const groundHits = groundMeshes.length ? groundRaycaster.intersectObjects(groundMeshes, false) : [];
         const groundY = groundHits.length > 0 ? groundHits[0].point.y : 0;
 
-        if (camera.position.y <= groundY + currentEyeHeight) {
+        if (feetY <= groundY) {
             velocity.y = 0;
-            camera.position.y = groundY + currentEyeHeight;
+            feetY = groundY;
             canJump = true;
         }
+
+        // Kamera-Höhe = Fuß-Position + aktuelle Augenhöhe -> Ducken/Sliden wirkt sich SOFORT aus,
+        // unabhängig davon ob man gerade am Boden steht oder in der Luft ist.
+        camera.position.y = feetY + currentEyeHeight;
 
         const pos = camera.position;
         socket.emit('playerMove', { x: pos.x, y: pos.y - 1.5, z: pos.z });
