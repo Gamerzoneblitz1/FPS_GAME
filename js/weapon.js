@@ -228,10 +228,13 @@ export const WEAPON_CONFIGS = [
 export class WeaponManager {
     constructor(camera, scene, onAmmoChange = null) {
         this.onAmmoChange = onAmmoChange;
+        this.activeIndex = 0;
+        this._ready = false; // verhindert, dass der Ammo-Callback einer Waffe während des Aufbaus
+                              // (noch mitten in .map(), this.weapons existiert noch nicht) feuert
         this.weapons = WEAPON_CONFIGS.map(
             config => new Weapon(camera, scene, config, (w) => this._handleWeaponAmmoChange(w))
         );
-        this.activeIndex = 0;
+        this._ready = true;
         this.weapons[this.activeIndex].weaponGroup.visible = true;
         this._notify();
     }
@@ -264,6 +267,7 @@ export class WeaponManager {
     }
 
     _handleWeaponAmmoChange(weapon) {
+        if (!this._ready) return; // Aufbau noch nicht fertig (this.weapons existiert noch nicht)
         // Nur HUD aktualisieren, wenn sich die gerade AKTIVE Waffe ändert (z.B. Nachladen im
         // Hintergrund einer nicht ausgerüsteten Waffe soll das HUD nicht beeinflussen)
         if (weapon === this.current) this._notify();
@@ -274,21 +278,4 @@ export class WeaponManager {
             this.onAmmoChange(this.current.ammoInMag, this.current.reserveAmmo, this.current.isReloading, this.current.name, this.current.magSize);
         }
     }
-}
-// Funktion für gelben Laser-Tracerstrahl im Raum
-export function createTracer(scene, startPos, endPos) {
-    const material = new THREE.LineBasicMaterial({ color: 0xffcc00, linewidth: 2 });
-    const points = [
-        new THREE.Vector3(startPos.x, startPos.y, startPos.z),
-        new THREE.Vector3(endPos.x, endPos.y, endPos.z)
-    ];
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geometry, material);
-    scene.add(line);
-
-    setTimeout(() => {
-        scene.remove(line);
-        geometry.dispose();
-        material.dispose();
-    }, 80);
 }
