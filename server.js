@@ -118,9 +118,16 @@ io.on('connection', (socket) => {
     });
 
     // Treffer & Schaden verarbeiten
-    socket.on('hitPlayer', (targetId) => {
+    socket.on('hitPlayer', (data) => {
+        // Neues Format: { targetId, damage } (seit dem Waffenwechsel-System - jede Waffe hat eigenen
+        // Schaden). Abwärtskompatibel: falls doch mal nur ein String/ID ankommt, 20 Schaden annehmen.
+        const targetId = typeof data === 'string' ? data : data?.targetId;
+        let damage = typeof data === 'object' && data !== null ? Number(data.damage) : 20;
+        if (!Number.isFinite(damage) || damage <= 0) damage = 20;
+        damage = Math.min(damage, 100); // grobe Clamp gegen offensichtlich manipulierte Werte
+
         if (players[targetId]) {
-            players[targetId].health -= 25; // 25 Schaden pro Treffer
+            players[targetId].health -= damage;
 
             if (players[targetId].health <= 0) {
                 // Respawn bei 0 HP an einem festen Spawnpunkt (statt zufällig irgendwo auf der Karte)
