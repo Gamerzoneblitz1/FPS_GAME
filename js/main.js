@@ -1,5 +1,5 @@
 import { setupMap } from './map.js';
-import { Weapon, createTracer } from './weapon.js';
+import { WeaponManager, createTracer } from './weapon.js';
 import { createPlayerMesh, updatePlayerAnimations } from './player.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
@@ -164,7 +164,7 @@ function init() {
     skyboxGroup = colliders.skyboxGroup || null;
     portalRings = colliders.portalRings || [];
     shootBlockers = colliders.shootBlockers || [];
-    weapon = new Weapon(camera, scene, updateAmmoUI);
+    weapon = new WeaponManager(camera, scene, updateAmmoUI);
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
     document.addEventListener('keyup', (e) => onKeyChange(e.keyCode, false));
@@ -256,7 +256,7 @@ function handleShooting() {
         }
 
         if (hitGroup.userData.id) {
-            socket.emit('hitPlayer', hitGroup.userData.id);
+            socket.emit('hitPlayer', { targetId: hitGroup.userData.id, damage: weapon.damage });
         }
     } else if (nearestWallHit) {
         endPos = nearestWallHit.point;
@@ -284,9 +284,11 @@ function updateHealthUI() {
     if (healthBar) healthBar.style.width = Math.max(0, Math.min(100, health)) + '%';
 }
 
-function updateAmmoUI(ammoInMag, reserveAmmo, isReloading) {
+function updateAmmoUI(ammoInMag, reserveAmmo, isReloading, weaponName, magSize) {
     const ammoVal = document.getElementById('ammo-val');
     const ammoBar = document.getElementById('ammo-bar-fill');
+    const weaponNameEl = document.getElementById('weapon-name');
+    if (weaponNameEl && weaponName) weaponNameEl.innerText = weaponName.toUpperCase();
     if (!ammoVal) return;
 
     if (isReloading) {
@@ -304,8 +306,8 @@ function updateAmmoUI(ammoInMag, reserveAmmo, isReloading) {
     }
 
     ammoVal.innerText = `${ammoInMag} / ${reserveAmmo}`;
-    ammoVal.style.color = ammoInMag === 0 ? '#ff0000' : ammoInMag <= Math.ceil(12 * 0.3) ? '#ffff00' : '#00f0ff';
-    if (ammoBar) ammoBar.style.width = (ammoInMag / 12) * 100 + '%'; // 12 = magSize aus weapon.js
+    ammoVal.style.color = ammoInMag === 0 ? '#ff0000' : ammoInMag <= Math.ceil(magSize * 0.3) ? '#ffff00' : '#00f0ff';
+    if (ammoBar) ammoBar.style.width = (ammoInMag / magSize) * 100 + '%';
 }
 
 // Entfernung zum nächstgelegenen anderen Spieler (unten rechts im HUD, wie im Referenzbild)
@@ -379,6 +381,15 @@ function onKeyChange(keyCode, isPressed) {
             break;
         case 82: // R
             if (isPressed) weapon.reload();
+            break;
+        case 49: // 1
+            if (isPressed) weapon.switchTo(0);
+            break;
+        case 50: // 2
+            if (isPressed) weapon.switchTo(1);
+            break;
+        case 51: // 3
+            if (isPressed) weapon.switchTo(2);
             break;
     }
 }
@@ -492,6 +503,14 @@ function setupTouchControls() {
         weapon.reload();
         e.preventDefault();
     }, { passive: false });
+
+    const btnSwitch = document.getElementById('btn-switch-weapon');
+    if (btnSwitch) {
+        btnSwitch.addEventListener('touchstart', (e) => {
+            weapon.switchNext(); // Touch hat keine Zahlentasten -> zyklisch durchwechseln
+            e.preventDefault();
+        }, { passive: false });
+    }
 }
 
 // Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check: falls die
