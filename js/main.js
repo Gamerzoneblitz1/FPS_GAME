@@ -3,6 +3,8 @@ import { WeaponManager, createTracer } from './weapon.js';
 import { createPlayerMesh, updatePlayerAnimations } from './player.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
+let playerName = ''; // wird beim ersten Spielstart abgefragt
+const playerNames = {}; // id -> name, für Nametags + Kill-Feed
 
 let camera, scene, renderer, controls;
 let composer = null; // Bloom-Postprocessing (null = Fallback auf normales Rendering)
@@ -126,22 +128,37 @@ function init() {
 
     const instructions = document.getElementById('instructions');
 
-    if (isTouchDevice) {
-        const hint = instructions.querySelector('p');
-        if (hint) hint.innerText = 'Linker Stick = Bewegen | Rechte Bildschirmhälfte ziehen = Umsehen | 🔫 = Schießen | R = Nachladen | Tippen zum Starten';
+    // Name abfragen bevor man das Spiel betritt
+    function enterGame() {
+        const input = document.getElementById('name-input');
+        const name = input ? input.value.trim().slice(0, 20) : '';
+        playerName = name || 'Player' + Math.floor(Math.random() * 1000);
+        socket.emit('setName', playerName);
+        document.getElementById('own-name-display').textContent = playerName;
 
-        document.getElementById('touch-controls').style.display = 'block';
-
-        instructions.addEventListener('click', () => {
+        if (isTouchDevice) {
             touchActive = true;
             instructions.style.display = 'none';
-        });
+        } else {
+            instructions.style.display = 'none';
+            controls.lock();
+        }
+    }
 
+    const enterBtn = document.getElementById('enter-btn');
+    if (enterBtn) enterBtn.addEventListener('click', enterGame);
+
+    const nameInput = document.getElementById('name-input');
+    if (nameInput) nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') enterGame(); });
+
+    if (isTouchDevice) {
+        const hint = instructions.querySelector('p');
+        if (hint) hint.innerText = 'Linker Stick = Bewegen | Rechte Bildschirmhälfte ziehen = Umsehen | 🔫 = Schießen | 1/2/3 = Waffe wechseln | Tippen zum Starten';
+        document.getElementById('touch-controls').style.display = 'block';
         setupTouchControls();
     } else {
-        instructions.addEventListener('click', () => controls.lock());
         controls.addEventListener('lock', () => instructions.style.display = 'none');
-        controls.addEventListener('unlock', () => instructions.style.display = 'flex');
+        controls.addEventListener('unlock', () => { instructions.style.display = 'flex'; });
     }
 
     // Map laden & Kollisions-/Boden-Objekte speichern. Abgesichert: falls setupMap() aus
@@ -173,7 +190,7 @@ function init() {
     // Socket Events
     socket.on('currentPlayers', (players) => {
         Object.keys(players).forEach((id) => {
-            if (id !== socket.id) addOtherPlayer(id, players[id]);
+            if (id !== socket.id) addOtherPlayer(id, players[id], players[id].name);
         });
 
         // Eigenen Spawnpunkt vom Server übernehmen (der wählt zufällig, weit weg von anderen Spielern)
@@ -185,7 +202,7 @@ function init() {
         }
     });
 
-    socket.on('newPlayer', (data) => addOtherPlayer(data.id, data.position));
+    socket.on('newPlayer', (data) => addOtherPlayer(data.id, data.position, data.name));
 
     socket.on('playerMoved', (data) => {
         if (otherPlayers[data.id]) {
@@ -202,19 +219,33 @@ function init() {
         }
     });
 
-    socket.on('playerRespawned', (data) => {
-        if (data.id === socket.id) {
+    socket.on('playerKilled', (data) => {
+        // Kill-Feed anzeigen (für alle)
+        addKillFeedEntry(data.killerName, data.victimName, data.killerId === socket.id, data.victimId === socket.id);
+
+        if (data.victimId === socket.id) {
+            // Ich wurde getötet
             health = 100;
             updateHealthUI();
-            currentEyeHeight = EYE_HEIGHT_STAND; // falls man geduckt/slidend gestorben ist -> sauber stehend respawnen
-            camera.position.set(data.position.x, data.position.y, data.position.z);
-            feetY = data.position.y - currentEyeHeight;
-            velocity.set(0, 0, 0); // Restgeschwindigkeit vom Tod löschen, sonst "reißt" es den Spieler nach dem Respawn
+            currentEyeHeight = EYE_HEIGHT_STAND;
+            camera.position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
+            feetY = data.respawnPos.y - currentEyeHeight;
+            velocity.set(0, 0, 0);
             canJump = true;
-        } else if (otherPlayers[data.id]) {
-            otherPlayers[data.id].position.set(data.position.x, data.position.y, data.position.z);
+            showDeathOverlay(data.killerName);
+        } else if (otherPlayers[data.victimId]) {
+            otherPlayers[data.victimId].position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
         }
     });
+
+    // Treffer-Bestätigung (nur für den Schützen: rotes Fadenkreuz-Flash)
+    socket.on('hitConfirm', () => flashCrosshair());
+
+    // Nametag-Update wenn ein Spieler seinen Namen ändert
+    socket.on('playerNameUpdate', (data) => updateNameTag(data.id, data.name));
+
+    // Leaderboard aktualisieren
+    socket.on('leaderboard', (board) => updateLeaderboard(board));
 
     socket.on('playerDisconnected', (id) => {
         if (otherPlayers[id]) {
@@ -266,12 +297,48 @@ function handleShooting() {
     socket.emit('shoot', { start: startPos, end: endPos });
 }
 
-function addOtherPlayer(id, position) {
+function addOtherPlayer(id, position, name = '') {
+    playerNames[id] = name || id.slice(0, 6);
     const pMesh = createPlayerMesh(id);
     pMesh.position.set(position.x || 0, position.y || 2, position.z || 0);
+
+    // Nametag als Sprite über dem Spieler
+    const tag = makeNameSprite(playerNames[id]);
+    tag.position.set(0, 3.2, 0); // über dem Kopf (relativ zur Gruppe)
+    tag.name = 'nametag';
+    pMesh.add(tag);
+
     otherPlayers[id] = pMesh;
     playerMeshesList.push(pMesh);
     scene.add(pMesh);
+}
+
+function makeNameSprite(name) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.font = 'bold 28px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.roundRect(4, 4, 248, 56, 10); ctx.fill();
+    ctx.fillStyle = '#00f0ff';
+    ctx.fillText(name.slice(0, 16), 128, 34);
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(2.8, 0.7, 1);
+    return sprite;
+}
+
+function updateNameTag(id, name) {
+    playerNames[id] = name;
+    const mesh = otherPlayers[id];
+    if (!mesh) return;
+    const old = mesh.getObjectByName('nametag');
+    if (old) { old.material.map.dispose(); old.material.dispose(); mesh.remove(old); }
+    const tag = makeNameSprite(name);
+    tag.position.set(0, 3.2, 0); tag.name = 'nametag';
+    mesh.add(tag);
 }
 
 function updateHealthUI() {
@@ -513,7 +580,56 @@ function setupTouchControls() {
     }
 }
 
-// Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check: falls die
+// --- Kill Feed ---
+const KILL_FEED_MAX = 6;
+const KILL_FEED_DURATION = 4000; // ms
+
+function addKillFeedEntry(killer, victim, iMadeKill, iDied) {
+    const feed = document.getElementById('kill-feed');
+    if (!feed) return;
+    const el = document.createElement('div');
+    el.className = 'kf-entry' + (iMadeKill ? ' kf-me-kill' : '') + (iDied ? ' kf-me-died' : '');
+    el.innerHTML = `<span class="kf-killer">${esc(killer)}</span><span class="kf-verb"> ⬡ </span><span class="kf-victim">${esc(victim)}</span>`;
+    feed.prepend(el);
+    while (feed.children.length > KILL_FEED_MAX) feed.lastChild.remove();
+    setTimeout(() => el.remove(), KILL_FEED_DURATION);
+}
+
+function esc(str) {
+    return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// --- Leaderboard ---
+function updateLeaderboard(board) {
+    const el = document.getElementById('leaderboard-body');
+    if (!el) return;
+    el.innerHTML = board.map((p, i) => {
+        const isMe = p.id === socket.id;
+        const kd = p.deaths > 0 ? (p.kills / p.deaths).toFixed(2) : p.kills.toFixed(2);
+        return `<tr class="${isMe ? 'lb-me' : ''}"><td>${i + 1}</td><td>${esc(p.name)}</td><td>${p.kills}</td><td>${p.deaths}</td><td>${kd}</td></tr>`;
+    }).join('');
+}
+
+// --- Death Overlay ---
+let deathTimeout = null;
+function showDeathOverlay(killerName) {
+    const el = document.getElementById('death-overlay');
+    if (!el) return;
+    document.getElementById('death-killer').textContent = killerName;
+    el.style.display = 'flex';
+    if (deathTimeout) clearTimeout(deathTimeout);
+    deathTimeout = setTimeout(() => { el.style.display = 'none'; }, 2000);
+}
+
+// --- Crosshair-Flash (Treffer-Confirm) ---
+function flashCrosshair() {
+    const ch = document.getElementById('crosshair');
+    if (!ch) return;
+    ch.classList.add('hit');
+    setTimeout(() => ch.classList.remove('hit'), 120);
+}
+
+// Bloom-Postprocessing für den Neon-Glow-Look.// Bloom-Postprocessing für den Neon-Glow-Look. Absichtlich mit try/catch + Feature-Check: falls die
 // Postprocessing-Scripts (CDN) nicht laden, rendert das Spiel einfach normal weiter, statt komplett
 // zu crashen. Eigene Funktion, damit das Bloom-Toggle im Einstellungsmenü sie erneut aufrufen kann.
 function initComposer() {
