@@ -3,296 +3,224 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Multiplayer FPS</title>
+    <title>Neon Vault Megaplex</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { overflow: hidden; font-family: monospace; background: #000; touch-action: none; -webkit-user-select: none; user-select: none; }
         canvas { display: block; }
-        #touch-controls {
-            position: absolute;
-            inset: 0;
-            z-index: 5;
-            pointer-events: none; /* Kinder aktivieren pointer-events einzeln */
-            display: none;
-        }
-        #joystick-zone {
-            position: absolute;
-            left: 24px;
-            bottom: 24px;
-            width: 130px;
-            height: 130px;
-            pointer-events: auto;
-            touch-action: none;
-        }
-        #joystick-base {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.12);
-            border: 2px solid rgba(255, 255, 255, 0.35);
-        }
-        #joystick-knob {
-            position: absolute;
-            width: 54px;
-            height: 54px;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.55);
-        }
-        #look-zone {
-            position: absolute;
-            right: 0;
-            top: 0;
-            width: 60%;
-            height: 100%;
-            pointer-events: auto;
-            touch-action: none;
-        }
-        .touch-btn {
-            position: absolute;
-            pointer-events: auto;
-            touch-action: none;
-            -webkit-touch-callout: none;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
-            border: 2px solid rgba(255, 255, 255, 0.4);
-            color: white;
-            font-size: 22px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        #btn-fire {
-            right: 28px;
-            bottom: 34px;
-            width: 88px;
-            height: 88px;
-            background: rgba(255, 60, 60, 0.25);
-            border-color: rgba(255, 90, 90, 0.6);
-            font-size: 30px;
-        }
-        #btn-jump {
-            right: 132px;
-            bottom: 116px;
-            width: 64px;
-            height: 64px;
-        }
-        #btn-reload {
-            right: 30px;
-            bottom: 138px;
-            width: 60px;
-            height: 60px;
-            font-size: 16px;
-        }
-        #btn-switch-weapon {
-            right: 100px;
-            bottom: 138px;
-            width: 60px;
-            height: 60px;
-            font-size: 22px;
-        }
+
+        /* --- Crosshair --- */
         #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 8px;
-            height: 8px;
-            background-color: white;
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            border: 2px solid black;
+            position: absolute; top: 50%; left: 50%;
+            width: 8px; height: 8px; background: white; border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none; border: 2px solid black;
+            transition: background 0.05s;
         }
+        #crosshair.hit { background: #ff3355; border-color: #ff3355; transform: translate(-50%, -50%) scale(1.8); }
+
+        /* --- HUD unten links --- */
         #hud-bl {
-            position: absolute;
-            left: 20px;
-            bottom: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            font-family: monospace;
-            color: white;
-            pointer-events: none;
-            user-select: none;
+            position: absolute; left: 20px; bottom: 20px;
+            display: flex; flex-direction: column; gap: 10px;
+            font-family: monospace; color: white; pointer-events: none; user-select: none;
         }
         .hud-row { display: flex; align-items: center; gap: 10px; }
-        #weapon-name {
-            font-size: 12px;
-            letter-spacing: 2px;
-            color: #00f0ff;
-            text-shadow: 0 0 6px #00f0ff;
-            margin-bottom: 2px;
-        }
-        .hud-icon {
-            width: 38px;
-            height: 38px;
-            border: 2px solid rgba(255, 255, 255, 0.4);
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0, 0, 0, 0.55);
-            font-size: 18px;
-            flex-shrink: 0;
-        }
-        .hud-bar-bg {
-            width: 160px;
-            height: 14px;
-            background: rgba(255, 255, 255, 0.12);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 3px;
-            overflow: hidden;
-        }
+        #weapon-name { font-size: 12px; letter-spacing: 2px; color: #00f0ff; text-shadow: 0 0 6px #00f0ff; margin-bottom: 2px; }
+        .hud-icon { width: 38px; height: 38px; border: 2px solid rgba(255,255,255,0.4); border-radius: 6px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); font-size: 18px; flex-shrink: 0; }
+        .hud-bar-bg { width: 160px; height: 14px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; overflow: hidden; }
         .hud-bar-fill { height: 100%; transition: width 0.15s ease; }
         #ammo-bar-fill { background: #00f0ff; width: 100%; box-shadow: 0 0 8px #00f0ff; }
         #health-bar-fill { background: #ff3355; width: 100%; box-shadow: 0 0 8px #ff3355; }
         .hud-val { min-width: 70px; font-size: 15px; font-weight: bold; }
+
+        /* --- HUD unten rechts --- */
         #hud-br {
-            position: absolute;
-            right: 20px;
-            bottom: 20px;
-            font-family: monospace;
-            color: #00f0ff;
-            text-align: right;
-            text-shadow: 0 0 8px #00f0ff;
-            pointer-events: none;
-            user-select: none;
+            position: absolute; right: 20px; bottom: 20px;
+            font-family: monospace; color: #00f0ff; text-align: right;
+            text-shadow: 0 0 8px #00f0ff; pointer-events: none; user-select: none;
         }
         #distance-val { font-size: 22px; font-weight: bold; }
         #distance-label { font-size: 10px; opacity: 0.7; letter-spacing: 1px; }
+
+        /* --- Map-Titel oben Mitte --- */
         #map-title {
-            position: absolute;
-            top: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-family: monospace;
-            color: #00f0ff;
-            text-shadow: 0 0 10px #00f0ff;
-            font-size: 14px;
-            letter-spacing: 3px;
-            pointer-events: none;
-            user-select: none;
+            position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+            font-family: monospace; color: #00f0ff; text-shadow: 0 0 10px #00f0ff;
+            font-size: 14px; letter-spacing: 3px; pointer-events: none; user-select: none;
         }
+        #own-name-display {
+            position: absolute; top: 38px; left: 50%; transform: translateX(-50%);
+            font-size: 11px; color: rgba(255,255,255,0.5); pointer-events: none; letter-spacing: 1px;
+        }
+
+        /* --- Kill Feed (oben links) --- */
+        #kill-feed {
+            position: absolute; top: 20px; left: 20px;
+            display: flex; flex-direction: column; gap: 5px;
+            pointer-events: none; user-select: none;
+        }
+        .kf-entry {
+            background: rgba(0,0,0,0.6); border-left: 2px solid rgba(255,255,255,0.3);
+            padding: 4px 10px; border-radius: 0 6px 6px 0; font-size: 13px; color: #ccc;
+            animation: kf-in 0.15s ease;
+        }
+        .kf-entry.kf-me-kill { border-left-color: #00ff66; color: #fff; }
+        .kf-entry.kf-me-died { border-left-color: #ff3355; color: #fff; }
+        .kf-killer { color: #00f0ff; }
+        .kf-verb { color: #9d00ff; }
+        .kf-victim { color: #ff0055; }
+        .kf-entry.kf-me-kill .kf-killer { color: #00ff66; }
+        .kf-entry.kf-me-died .kf-victim { color: #ff3355; }
+        @keyframes kf-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+
+        /* --- Leaderboard (Tab-Taste) --- */
+        #leaderboard {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(2,2,15,0.92); border: 2px solid rgba(0,240,255,0.4);
+            border-radius: 12px; padding: 20px 30px; min-width: 420px;
+            display: none; pointer-events: none; user-select: none;
+        }
+        #leaderboard h2 { color: #00f0ff; text-shadow: 0 0 10px #00f0ff; text-align: center; margin-bottom: 16px; letter-spacing: 3px; font-size: 16px; }
+        #leaderboard table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        #leaderboard th { color: #9d00ff; border-bottom: 1px solid rgba(157,0,255,0.4); padding: 4px 10px; text-align: left; }
+        #leaderboard td { color: #ccc; padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        #leaderboard tr.lb-me td { color: #00ff66; font-weight: bold; }
+        #lb-hint { color: rgba(255,255,255,0.3); font-size: 11px; text-align: center; margin-top: 12px; letter-spacing: 1px; }
+
+        /* --- Death Overlay --- */
+        #death-overlay {
+            position: absolute; inset: 0;
+            background: rgba(200,0,50,0.18);
+            display: none; flex-direction: column;
+            align-items: center; justify-content: center;
+            pointer-events: none;
+        }
+        #death-overlay h2 { color: #ff3355; font-size: 48px; text-shadow: 0 0 30px #ff3355; letter-spacing: 4px; }
+        #death-overlay p { color: rgba(255,255,255,0.7); margin-top: 10px; font-size: 16px; }
+
+        /* --- Settings Button + Panel --- */
         #settings-btn {
-            position: absolute;
-            top: 16px;
-            right: 20px;
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            border: 2px solid rgba(0, 240, 255, 0.4);
-            background: rgba(0, 0, 0, 0.55);
-            color: #00f0ff;
-            font-size: 20px;
-            cursor: pointer;
-            z-index: 20;
+            position: absolute; top: 16px; right: 20px;
+            width: 40px; height: 40px; border-radius: 8px;
+            border: 2px solid rgba(0,240,255,0.4); background: rgba(0,0,0,0.55);
+            color: #00f0ff; font-size: 20px; cursor: pointer; z-index: 20;
         }
         #settings-panel {
-            display: none;
-            position: absolute;
-            top: 64px;
-            right: 20px;
-            width: 260px;
-            background: rgba(5, 5, 15, 0.92);
-            border: 2px solid rgba(0, 240, 255, 0.35);
-            border-radius: 10px;
-            padding: 16px;
-            font-family: monospace;
-            color: white;
-            z-index: 20;
+            display: none; position: absolute; top: 64px; right: 20px; width: 260px;
+            background: rgba(5,5,15,0.92); border: 2px solid rgba(0,240,255,0.35);
+            border-radius: 10px; padding: 16px; font-family: monospace; color: white; z-index: 20;
         }
-        #settings-panel h3 {
-            margin: 0 0 14px 0;
-            color: #00f0ff;
-            text-shadow: 0 0 8px #00f0ff;
-            font-size: 15px;
-            letter-spacing: 1px;
-        }
-        #settings-panel label {
-            display: block;
-            font-size: 13px;
-            margin-bottom: 14px;
-        }
+        #settings-panel h3 { margin: 0 0 14px 0; color: #00f0ff; text-shadow: 0 0 8px #00f0ff; font-size: 15px; letter-spacing: 1px; }
+        #settings-panel label { display: block; font-size: 13px; margin-bottom: 14px; }
         #settings-panel input[type="range"] { width: 100%; margin-top: 6px; }
         #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
-        #settings-close {
-            width: 100%;
-            padding: 8px;
-            background: rgba(0, 240, 255, 0.15);
-            border: 1px solid rgba(0, 240, 255, 0.4);
-            color: #00f0ff;
-            border-radius: 6px;
-            cursor: pointer;
-            font-family: monospace;
-        }
+        #settings-close { width: 100%; padding: 8px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; }
+
+        /* --- Touch Controls --- */
+        #touch-controls { position: absolute; inset: 0; z-index: 5; pointer-events: none; display: none; }
+        #joystick-zone { position: absolute; left: 24px; bottom: 24px; width: 130px; height: 130px; pointer-events: auto; touch-action: none; }
+        #joystick-base { position: absolute; inset: 0; border-radius: 50%; background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.35); }
+        #joystick-knob { position: absolute; width: 54px; height: 54px; left: 50%; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; background: rgba(255,255,255,0.55); }
+        #look-zone { position: absolute; right: 0; top: 0; width: 60%; height: 100%; pointer-events: auto; touch-action: none; }
+        .touch-btn { position: absolute; pointer-events: auto; touch-action: none; -webkit-touch-callout: none; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); color: white; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+        #btn-fire { right: 28px; bottom: 34px; width: 88px; height: 88px; background: rgba(255,60,60,0.25); border-color: rgba(255,90,90,0.6); font-size: 30px; }
+        #btn-jump { right: 132px; bottom: 116px; width: 64px; height: 64px; }
+        #btn-reload { right: 30px; bottom: 138px; width: 60px; height: 60px; font-size: 16px; }
+        #btn-switch-weapon { right: 100px; bottom: 138px; width: 60px; height: 60px; font-size: 22px; }
+
+        /* --- Instructions / Login --- */
         #instructions {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.82);
+            color: white; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; gap: 18px; cursor: default; z-index: 30;
         }
+        #instructions h1 { color: #00f0ff; text-shadow: 0 0 16px #00f0ff; font-size: 32px; letter-spacing: 4px; }
+        #instructions p { color: rgba(255,255,255,0.55); font-size: 13px; }
+        #name-input {
+            background: rgba(0,240,255,0.08); border: 2px solid rgba(0,240,255,0.5);
+            color: #00f0ff; font-family: monospace; font-size: 20px; padding: 10px 18px;
+            border-radius: 8px; text-align: center; outline: none; width: 280px; letter-spacing: 1px;
+        }
+        #name-input::placeholder { color: rgba(0,240,255,0.3); }
+        #enter-btn {
+            background: rgba(0,240,255,0.15); border: 2px solid rgba(0,240,255,0.6);
+            color: #00f0ff; font-family: monospace; font-size: 16px; padding: 10px 32px;
+            border-radius: 8px; cursor: pointer; letter-spacing: 2px;
+        }
+        #enter-btn:hover { background: rgba(0,240,255,0.28); }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
     <div id="map-title">NEON VAULT MEGAPLEX</div>
+    <div id="own-name-display"></div>
 
+    <!-- Kill Feed -->
+    <div id="kill-feed"></div>
+
+    <!-- HUD unten links -->
     <div id="hud-bl">
         <div id="weapon-name">RIFLE</div>
         <div class="hud-row">
             <div class="hud-icon">🔫</div>
             <div class="hud-bar-bg"><div id="ammo-bar-fill" class="hud-bar-fill"></div></div>
-            <span id="ammo-val" class="hud-val" style="color: #00f0ff;">12 / 84</span>
+            <span id="ammo-val" class="hud-val" style="color:#00f0ff;">∞</span>
         </div>
         <div class="hud-row">
             <div class="hud-icon">❤</div>
             <div class="hud-bar-bg"><div id="health-bar-fill" class="hud-bar-fill"></div></div>
-            <span id="health-val" class="hud-val" style="color: #00ff00;">100</span>
+            <span id="health-val" class="hud-val" style="color:#00ff00;">100</span>
         </div>
     </div>
 
+    <!-- Entfernung unten rechts -->
     <div id="hud-br">
         <div id="distance-val">--</div>
         <div id="distance-label">NEAREST TARGET</div>
     </div>
 
+    <!-- Leaderboard (Tab halten) -->
+    <div id="leaderboard">
+        <h2>LEADERBOARD</h2>
+        <table>
+            <thead><tr><th>#</th><th>Name</th><th>Kills</th><th>Deaths</th><th>K/D</th></tr></thead>
+            <tbody id="leaderboard-body"></tbody>
+        </table>
+        <div id="lb-hint">TAB GEDRÜCKT HALTEN</div>
+    </div>
+
+    <!-- Death Overlay -->
+    <div id="death-overlay">
+        <h2>YOU DIED</h2>
+        <p>getötet von <span id="death-killer"></span></p>
+    </div>
+
+    <!-- Settings -->
     <button id="settings-btn" title="Einstellungen">⚙</button>
     <div id="settings-panel">
         <h3>EINSTELLUNGEN</h3>
-        <label>
-            Render-Auflösung: <span id="res-val">90%</span>
-            <input type="range" id="res-slider" min="50" max="100" step="5" value="90">
-        </label>
-        <label class="checkbox-row">
-            <input type="checkbox" id="bloom-toggle" checked>
-            Bloom / Glow-Effekt
-        </label>
+        <label>Render-Auflösung: <span id="res-val">90%</span><input type="range" id="res-slider" min="50" max="100" step="5" value="90"></label>
+        <label class="checkbox-row"><input type="checkbox" id="bloom-toggle"> Bloom / Glow-Effekt</label>
         <button id="settings-close">Schließen</button>
     </div>
-    <div id="instructions">
-        <h1>Klicken zum Spielen</h1>
-        <p>Steuerung: WASD = Bewegen | LEERTASTE = Springen | 1/2/3 = Waffe wechseln | R = Nachladen | MAUS = Umsehen & Schießen</p>
-    </div>
 
+    <!-- Touch Controls -->
     <div id="touch-controls">
-        <div id="joystick-zone">
-            <div id="joystick-base"></div>
-            <div id="joystick-knob"></div>
-        </div>
+        <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-knob"></div></div>
         <div id="look-zone"></div>
         <div id="btn-jump" class="touch-btn">⤒</div>
         <div id="btn-reload" class="touch-btn">R</div>
         <div id="btn-switch-weapon" class="touch-btn">🔄</div>
         <div id="btn-fire" class="touch-btn">🔫</div>
+    </div>
+
+    <!-- Einloggen / Instructions -->
+    <div id="instructions">
+        <h1>NEON VAULT</h1>
+        <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
+        <button id="enter-btn">SPIELEN</button>
+        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard</p>
     </div>
 
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
@@ -309,5 +237,15 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 
     <script type="module" src="js/main.js"></script>
+
+    <script>
+        // Tab-Taste für Leaderboard
+        document.addEventListener('keydown', e => {
+            if (e.code === 'Tab') { e.preventDefault(); document.getElementById('leaderboard').style.display = 'block'; }
+        });
+        document.addEventListener('keyup', e => {
+            if (e.code === 'Tab') document.getElementById('leaderboard').style.display = 'none';
+        });
+    </script>
 </body>
 </html>
