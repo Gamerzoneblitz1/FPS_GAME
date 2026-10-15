@@ -75,6 +75,11 @@ let moveForward = false, moveBackward = false, moveLeft = false, moveRight = fal
 let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
 let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
 let sprintHeld = false;
+// Reset-Button (K halten): verhindert versehentliches Auslösen
+const RESET_HOLD_MS = 1000;
+let resetHeld = false;
+let resetLatch = false;      // true nach Auslösung, bis die Taste losgelassen wurde (Key-Repeat ignorieren)
+let resetHoldStart = null;
 let sliding = false;
 let wasCrouching = false; // um den Übergang "gerade erst gedrückt" zu erkennen (Slide-Start)
 let slideTimer = 0;       // Sekunden seit Slide-Start -> steuert die Geschwindigkeitskurve
@@ -240,6 +245,10 @@ function init() {
 
     // Treffer-Bestätigung (nur für den Schützen: rotes Fadenkreuz-Flash)
     socket.on('hitConfirm', () => flashCrosshair());
+
+    socket.on('resetDenied', (data) => {
+        showNotice(`Reset in ${Math.ceil(data.remainingMs / 1000)}s wieder möglich`);
+    });
 
     // Nametag-Update wenn ein Spieler seinen Namen ändert
     socket.on('playerNameUpdate', (data) => updateNameTag(data.id, data.name));
@@ -446,6 +455,10 @@ function onKeyChange(keyCode, isPressed) {
         case 16: // Shift (links & rechts liefern beide keyCode 16)
             sprintHeld = isPressed;
             break;
+        case 75: // K halten = Reset
+            if (!isPressed) { resetHeld = false; resetLatch = false; resetHoldStart = null; }
+            else if (!resetLatch) resetHeld = true;
+            break;
         case 82: // R
             if (isPressed) weapon.reload();
             break;
@@ -468,6 +481,7 @@ function setupTouchControls() {
     const btnJump = document.getElementById('btn-jump');
     const btnFire = document.getElementById('btn-fire');
     const btnReload = document.getElementById('btn-reload');
+    const btnReset = document.getElementById('btn-reset');
 
     // --- Joystick: steuert dieselben move-Flags wie WASD ---
     joystickZone.addEventListener('touchstart', (e) => {
@@ -571,6 +585,12 @@ function setupTouchControls() {
         e.preventDefault();
     }, { passive: false });
 
+    if (btnReset) {
+        btnReset.addEventListener('touchstart', (e) => { onKeyChange(75, true); e.preventDefault(); }, { passive: false });
+        btnReset.addEventListener('touchend', (e) => { onKeyChange(75, false); e.preventDefault(); }, { passive: false });
+        btnReset.addEventListener('touchcancel', () => onKeyChange(75, false));
+    }
+
     const btnSwitch = document.getElementById('btn-switch-weapon');
     if (btnSwitch) {
         btnSwitch.addEventListener('touchstart', (e) => {
@@ -593,6 +613,44 @@ function addKillFeedEntry(killer, victim, iMadeKill, iDied) {
     feed.prepend(el);
     while (feed.children.length > KILL_FEED_MAX) feed.lastChild.remove();
     setTimeout(() => el.remove(), KILL_FEED_DURATION);
+}
+
+// Kurze Systemmeldung im Kill-Feed-Bereich (z.B. Reset-Cooldown)
+function showNotice(text) {
+    const feed = document.getElementById('kill-feed');
+    if (!feed) return;
+    const el = document.createElement('div');
+    el.className = 'kf-entry';
+    el.textContent = text;
+    feed.prepend(el);
+    while (feed.children.length > KILL_FEED_MAX) feed.lastChild.remove();
+    setTimeout(() => el.remove(), KILL_FEED_DURATION);
+}
+
+// Reset-Button: K gedrückt halten, Fortschrittsbalken unter dem Fadenkreuz, dann Request an den Server
+function updateResetHold(now) {
+    const wrap = document.getElementById('reset-hold');
+    const fill = document.getElementById('reset-hold-fill');
+    const active = resetHeld && (controls.isLocked || touchActive);
+
+    if (!active) {
+        resetHoldStart = null;
+        if (wrap) wrap.style.display = 'none';
+        return;
+    }
+    if (resetHoldStart === null) resetHoldStart = now;
+
+    const p = Math.min(1, (now - resetHoldStart) / RESET_HOLD_MS);
+    if (wrap) wrap.style.display = 'block';
+    if (fill) fill.style.width = (p * 100) + '%';
+
+    if (p >= 1) {
+        socket.emit('requestReset');
+        resetHeld = false;
+        resetLatch = true;
+        resetHoldStart = null;
+        if (wrap) wrap.style.display = 'none';
+    }
 }
 
 function esc(str) {
@@ -713,6 +771,7 @@ function animate() {
     const delta = (time - prevTime) / 1000;
 
     updatePlayerAnimations(playerMeshesList, delta);
+    updateResetHold(time);
 
     // Skybox folgt nur der Position der Kamera (nicht der Rotation) -> wirkt unendlich weit entfernt,
     // dreht sich aber nicht mit, wenn man sich umschaut
