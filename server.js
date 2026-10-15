@@ -54,12 +54,58 @@ function loadSpawnPointsFromMap() {
 const SPAWN_POINTS = loadSpawnPointsFromMap();
 const MIN_SAFE_SPAWN_DISTANCE = 40;
 
+// --- Reset-Button-Regeln ---
+const LAST_ATTACKER_WINDOW_MS = 10000; // Schaden älter als 10s zählt nicht mehr als "wurde getötet von"
+const RESET_COOLDOWN_MS = 5000;        // Mindestabstand zwischen zwei Resets pro Spieler (gegen Kill-Farming)
+
 function getRandomSpawnPoint(excludeId) {
     const others = Object.values(players).filter((_, i) => Object.keys(players)[i] !== excludeId);
     const dist = (p) => others.length === 0 ? Infinity : Math.min(...others.map(o => Math.hypot(p.x - o.x, p.z - o.z)));
     let candidates = SPAWN_POINTS.filter(p => dist(p) >= MIN_SAFE_SPAWN_DISTANCE);
     if (candidates.length === 0) candidates = [SPAWN_POINTS.reduce((a, b) => dist(a) >= dist(b) ? a : b)];
     return { ...candidates[Math.floor(Math.random() * candidates.length)] };
+}
+
+// Räumlich nächster anderer Spieler (Fallback-Killer beim Reset, wenn niemand kürzlich Schaden gemacht hat)
+function findNearestOtherPlayer(id) {
+    const me = players[id];
+    if (!me) return null;
+    let best = null, bestDist = Infinity;
+    for (const [otherId, o] of Object.entries(players)) {
+        if (otherId === id) continue;
+        const d = Math.hypot(me.x - o.x, me.y - o.y, me.z - o.z);
+        if (d < bestDist) { bestDist = d; best = otherId; }
+    }
+    return best;
+}
+
+// Zentrale Kill-Logik: wird von normalen Treffern UND vom Reset-Button benutzt (Kill Feed,
+// Leaderboard, Respawn laufen dadurch immer über denselben Pfad).
+// killerId = null -> kein Killer (Reset, wenn man allein auf dem Server ist): keine Statistik-Änderung.
+function killPlayer(victimId, killerId, reason = 'hit') {
+    const victim = players[victimId];
+    if (!victim) return;
+    const killer = (killerId && killerId !== victimId) ? players[killerId] : null;
+
+    if (killer) killer.kills = (killer.kills || 0) + 1;
+    if (killer || reason !== 'reset') victim.deaths = (victim.deaths || 0) + 1;
+
+    victim.health = 100;
+    victim.lastAttacker = null;
+    victim.lastDamageTime = 0;
+
+    const respawnPos = getRandomSpawnPoint(victimId);
+    Object.assign(victim, respawnPos);
+
+    io.emit('playerKilled', {
+        killerId: killer ? killerId : null,
+        killerName: killer ? (killer.name || killerId.slice(0, 6)) : 'Reset',
+        victimId,
+        victimName: victim.name || victimId.slice(0, 6),
+        respawnPos,
+        reason
+    });
+    broadcastLeaderboard();
 }
 
 // Leaderboard an alle schicken (nach jeder Änderung von kills/deaths)
@@ -72,6 +118,7 @@ function broadcastLeaderboard() {
 
 io.on('connection', (socket) => {
     console.log('Verbunden:', socket.id);
+    let lastResetTime = 0;
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
     const spawn = getRandomSpawnPoint(socket.id);
@@ -108,35 +155,42 @@ io.on('connection', (socket) => {
         if (!Number.isFinite(damage) || damage <= 0) damage = 20;
         damage = Math.min(damage, 100);
 
-        if (!players[targetId]) return;
+        if (!players[targetId] || targetId === socket.id) return;
         players[targetId].health -= damage;
+        players[targetId].lastAttacker = socket.id;   // für den Reset-Button
+        players[targetId].lastDamageTime = Date.now();
 
         // Schaden-Feedback an den Schützen (Treffermeldung im Client)
         socket.emit('hitConfirm', { targetId, damage, remaining: Math.max(0, players[targetId].health) });
 
         if (players[targetId].health <= 0) {
-            // Kill registrieren
-            if (players[socket.id]) players[socket.id].kills = (players[socket.id].kills || 0) + 1;
-            players[targetId].deaths = (players[targetId].deaths || 0) + 1;
-            players[targetId].health = 100;
-
-            const killerName = players[socket.id]?.name || socket.id.slice(0, 6);
-            const victimName = players[targetId]?.name || targetId.slice(0, 6);
-
-            const respawnPos = getRandomSpawnPoint(targetId);
-            Object.assign(players[targetId], respawnPos);
-
-            // Kill-Feed-Event an ALLE (auch Zuschauer sehen es)
-            io.emit('playerKilled', {
-                killerId: socket.id, killerName,
-                victimId: targetId,  victimName,
-                respawnPos
-            });
-
-            broadcastLeaderboard();
+            killPlayer(targetId, socket.id, 'hit');
         } else {
             io.emit('playerHealthUpdate', { id: targetId, health: players[targetId].health });
         }
+    });
+
+    // Reset-Button: Spieler "stirbt" freiwillig. Kill geht an den letzten Schadensverursacher
+    // (innerhalb des Zeitfensters, noch verbunden), sonst an den räumlich nächsten Spieler.
+    socket.on('requestReset', () => {
+        const me = players[socket.id];
+        if (!me) return;
+
+        const now = Date.now();
+        const wait = RESET_COOLDOWN_MS - (now - lastResetTime);
+        if (wait > 0) {
+            socket.emit('resetDenied', { remainingMs: wait });
+            return;
+        }
+        lastResetTime = now;
+
+        let killerId = null;
+        if (me.lastAttacker && players[me.lastAttacker] && now - me.lastDamageTime <= LAST_ATTACKER_WINDOW_MS) {
+            killerId = me.lastAttacker;
+        } else {
+            killerId = findNearestOtherPlayer(socket.id); // null, wenn man allein ist
+        }
+        killPlayer(socket.id, killerId, 'reset');
     });
 
     socket.on('disconnect', () => {
