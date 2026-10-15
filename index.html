@@ -116,6 +116,15 @@
         #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
         #settings-close { width: 100%; padding: 8px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; }
 
+        /* --- Reset-Hold-Anzeige (K halten) --- */
+        #reset-hold {
+            position: absolute; top: calc(50% + 28px); left: 50%; transform: translateX(-50%);
+            width: 120px; text-align: center; display: none; pointer-events: none;
+            font-size: 11px; letter-spacing: 2px; color: #ff3355; text-shadow: 0 0 6px #ff3355;
+        }
+        #reset-hold-bar { height: 6px; margin-top: 4px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,51,85,0.6); border-radius: 3px; overflow: hidden; }
+        #reset-hold-fill { height: 100%; width: 0; background: #ff3355; box-shadow: 0 0 8px #ff3355; }
+
         /* --- Touch Controls --- */
         #touch-controls { position: absolute; inset: 0; z-index: 5; pointer-events: none; display: none; }
         #joystick-zone { position: absolute; left: 24px; bottom: 24px; width: 130px; height: 130px; pointer-events: auto; touch-action: none; }
@@ -126,6 +135,7 @@
         #btn-fire { right: 28px; bottom: 34px; width: 88px; height: 88px; background: rgba(255,60,60,0.25); border-color: rgba(255,90,90,0.6); font-size: 30px; }
         #btn-jump { right: 132px; bottom: 116px; width: 64px; height: 64px; }
         #btn-reload { right: 30px; bottom: 138px; width: 60px; height: 60px; font-size: 16px; }
+        #btn-reset { right: 36px; bottom: 214px; width: 48px; height: 48px; font-size: 18px; }
         #btn-switch-weapon { right: 100px; bottom: 138px; width: 60px; height: 60px; font-size: 22px; }
 
         /* --- Instructions / Login --- */
@@ -153,6 +163,7 @@
 </head>
 <body>
     <div id="crosshair"></div>
+    <div id="reset-hold">RESET<div id="reset-hold-bar"><div id="reset-hold-fill"></div></div></div>
     <div id="map-title">NEON VAULT MEGAPLEX</div>
     <div id="own-name-display"></div>
 
@@ -212,6 +223,7 @@
         <div id="btn-jump" class="touch-btn">⤒</div>
         <div id="btn-reload" class="touch-btn">R</div>
         <div id="btn-switch-weapon" class="touch-btn">🔄</div>
+        <div id="btn-reset" class="touch-btn">↺</div>
         <div id="btn-fire" class="touch-btn">🔫</div>
     </div>
 
@@ -220,7 +232,7 @@
         <h1>NEON VAULT</h1>
         <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
         <button id="enter-btn">SPIELEN</button>
-        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard</p>
+        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | K halten = Reset</p>
     </div>
 
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
