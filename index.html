@@ -103,12 +103,12 @@
             position: absolute; top: 16px; right: 20px;
             width: 40px; height: 40px; border-radius: 8px;
             border: 2px solid rgba(0,240,255,0.4); background: rgba(0,0,0,0.55);
-            color: #00f0ff; font-size: 20px; cursor: pointer; z-index: 20;
+            color: #00f0ff; font-size: 20px; cursor: pointer; z-index: 50;
         }
         #settings-panel {
             display: none; position: absolute; top: 64px; right: 20px; width: 260px;
             background: rgba(5,5,15,0.92); border: 2px solid rgba(0,240,255,0.35);
-            border-radius: 10px; padding: 16px; font-family: monospace; color: white; z-index: 20;
+            border-radius: 10px; padding: 16px; font-family: monospace; color: white; z-index: 50;
         }
         #settings-panel h3 { margin: 0 0 14px 0; color: #00f0ff; text-shadow: 0 0 8px #00f0ff; font-size: 15px; letter-spacing: 1px; }
         #settings-panel label { display: block; font-size: 13px; margin-bottom: 14px; }
@@ -137,6 +137,21 @@
         #btn-reload { right: 30px; bottom: 138px; width: 60px; height: 60px; font-size: 16px; }
         #btn-reset { right: 36px; bottom: 214px; width: 48px; height: 48px; font-size: 18px; }
         #btn-switch-weapon { right: 100px; bottom: 138px; width: 60px; height: 60px; font-size: 22px; }
+
+        /* --- Pause-Menü (ESC im Spiel) --- */
+        #pause-menu {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.78); z-index: 30;
+            display: none; flex-direction: column; justify-content: center; align-items: center; gap: 14px;
+        }
+        #pause-menu h1 { color: #00f0ff; text-shadow: 0 0 16px #00f0ff; font-size: 28px; letter-spacing: 4px; margin-bottom: 8px; }
+        #pause-menu button {
+            width: 260px; padding: 11px; font-family: monospace; font-size: 15px; letter-spacing: 2px; cursor: pointer;
+            background: rgba(0,240,255,0.15); border: 2px solid rgba(0,240,255,0.6); color: #00f0ff; border-radius: 8px;
+        }
+        #pause-menu button:hover { background: rgba(0,240,255,0.28); }
+        #pause-menu button.danger { background: rgba(255,51,85,0.15); border-color: rgba(255,51,85,0.7); color: #ff3355; }
+        #pause-menu button.danger:hover { background: rgba(255,51,85,0.3); }
+        #pause-menu p { color: rgba(255,255,255,0.4); font-size: 11px; }
 
         /* --- Instructions / Login --- */
         #instructions {
@@ -227,12 +242,21 @@
         <div id="btn-fire" class="touch-btn">🔫</div>
     </div>
 
+    <!-- Pause-Menü (erscheint bei ESC im Spiel) -->
+    <div id="pause-menu">
+        <h1>PAUSE</h1>
+        <button id="pause-resume">WEITER</button>
+        <button id="pause-reset" class="danger">RESET (RESPAWN)</button>
+        <button id="pause-settings">EINSTELLUNGEN</button>
+        <p>Reset: Kill geht an den letzten Angreifer, sonst an den nächsten Spieler</p>
+    </div>
+
     <!-- Einloggen / Instructions -->
     <div id="instructions">
         <h1>NEON VAULT</h1>
         <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
         <button id="enter-btn">SPIELEN</button>
-        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | K halten = Reset</p>
+        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | ESC = Pause/Reset/Einstellungen</p>
     </div>
 
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
