@@ -138,7 +138,7 @@ function init() {
     controls = new THREE.PointerLockControls(camera, document.body);
 
     const instructions = document.getElementById('instructions');
-
+    let showLockProblem = () => {}; // wird weiter unten (Desktop-Zweig) gesetzt
     // Name abfragen bevor man das Spiel betritt
     function enterGame() {
         const input = document.getElementById('name-input');
@@ -153,6 +153,9 @@ function init() {
             instructions.style.display = 'none';
         } else {
             controls.lock(); // Overlay verschwindet erst im 'lock'-Event (siehe unten), sonst hängt man bei abgelehntem Lock fest
+            // Sicherheitsnetz: kommt nach 1.2 s keine Maussperre an (Browser lehnt still ab / meldet nichts),
+            // das halbdunkle Login-Overlay nicht ewig über der Map stehen lassen, sondern Menü mit Hinweis zeigen
+            setTimeout(() => { if (hasEntered && !controls.isLocked) showLockProblem(); }, 1200);
         }
     }
 
@@ -191,6 +194,23 @@ function init() {
             pauseMenu.style.display = 'flex';
             if (lockError) lockError.style.display = 'block';
         };
+        showLockProblem = onLockError;
+
+        // Safari meldet Änderungen der Maussperre teils nur mit webkit-Prefix -> PointerLockControls (hört nur
+        // auf 'pointerlockchange') würde dann nie "gesperrt" melden: Maus tot, Login-Overlay bleibt über der Map.
+        // Diese Synchronisierung läuft NACH dem Handler von PointerLockControls und greift nur bei Abweichung,
+        // in Chrome/Firefox ist sie also ein No-Op.
+        const syncLock = () => {
+            const el = document.pointerLockElement || document.webkitPointerLockElement || null;
+            const locked = el === document.body;
+            if (locked !== controls.isLocked) {
+                controls.isLocked = locked;
+                controls.dispatchEvent({ type: locked ? 'lock' : 'unlock' });
+            }
+        };
+        document.addEventListener('pointerlockchange', syncLock);
+        document.addEventListener('webkitpointerlockchange', syncLock);
+
         document.addEventListener('pointerlockerror', onLockError);
         document.addEventListener('webkitpointerlockerror', onLockError);
         controls.addEventListener('lock', () => { if (lockError) lockError.style.display = 'none'; });
