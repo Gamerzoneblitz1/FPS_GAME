@@ -76,6 +76,7 @@ let moveForward = false, moveBackward = false, moveLeft = false, moveRight = fal
 let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
 let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
 let sprintHeld = false;
+let fireHeld = false; // Feuertaste gehalten (Maus links / Touch-Fire) -> Dauerfeuer bei automatischen Waffen
 let hasEntered = false; // true, sobald man das Login einmal bestätigt hat -> danach zeigt ESC das Pause-Menü statt des Logins
 // Reset-Button (K halten): verhindert versehentliches Auslösen
 const RESET_HOLD_MS = 1000;
@@ -149,8 +150,7 @@ function init() {
             touchActive = true;
             instructions.style.display = 'none';
         } else {
-            instructions.style.display = 'none';
-            controls.lock();
+            controls.lock(); // Overlay verschwindet erst im 'lock'-Event (siehe unten), sonst hängt man bei abgelehntem Lock fest
         }
     }
 
@@ -175,9 +175,23 @@ function init() {
         });
         // ESC (bzw. jedes Ende der Maussperre): vor dem ersten Start Login, danach Pause-Menü
         controls.addEventListener('unlock', () => {
+            fireHeld = false;
             if (hasEntered) pauseMenu.style.display = 'flex';
             else instructions.style.display = 'flex';
         });
+        // Browser lehnt die Maussperre ab (z.B. Safari bei Start per Enter-Taste statt Mausklick):
+        // Menü mit Hinweis zeigen, ein Klick auf WEITER sperrt die Maus dann zuverlässig.
+        const lockError = document.getElementById('lock-error');
+        const onLockError = () => {
+            console.warn('Pointer Lock wurde vom Browser abgelehnt.');
+            instructions.style.display = 'none';
+            pauseMenu.style.display = 'flex';
+            if (lockError) lockError.style.display = 'block';
+        };
+        document.addEventListener('pointerlockerror', onLockError);
+        document.addEventListener('webkitpointerlockerror', onLockError);
+        controls.addEventListener('lock', () => { if (lockError) lockError.style.display = 'none'; });
+
         document.getElementById('pause-resume').addEventListener('click', () => controls.lock());
         document.getElementById('pause-reset').addEventListener('click', () => {
             socket.emit('requestReset');
@@ -212,7 +226,14 @@ function init() {
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
     document.addEventListener('keyup', (e) => onKeyChange(e.keyCode, false));
-    document.addEventListener('mousedown', handleShooting);
+    document.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (!controls.isLocked && !touchActive) return; // Klicks auf Menü-Buttons zählen nicht
+        fireHeld = true;
+        handleShooting(); // sofortiger erster Schuss (reicht bei halbautomatischen Waffen)
+    });
+    document.addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; });
+    window.addEventListener('blur', () => { fireHeld = false; });
 
     // Socket Events
     socket.on('currentPlayers', (players) => {
@@ -259,6 +280,7 @@ function init() {
             feetY = data.respawnPos.y - currentEyeHeight;
             velocity.set(0, 0, 0);
             canJump = true;
+            if (weapon) weapon.refillAll(); // nach dem Respawn wieder volle Magazine
             showDeathOverlay(data.killerName);
         } else if (otherPlayers[data.victimId]) {
             otherPlayers[data.victimId].position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
@@ -644,9 +666,12 @@ function setupTouchControls() {
     btnJump.addEventListener('touchcancel', () => onKeyChange(32, false));
 
     btnFire.addEventListener('touchstart', (e) => {
+        fireHeld = true;
         handleShooting();
         e.preventDefault();
     }, { passive: false });
+    btnFire.addEventListener('touchend', (e) => { fireHeld = false; e.preventDefault(); }, { passive: false });
+    btnFire.addEventListener('touchcancel', () => { fireHeld = false; });
 
     btnReload.addEventListener('touchstart', (e) => {
         weapon.reload();
@@ -840,7 +865,11 @@ function animate() {
 
     updatePlayerAnimations(playerMeshesList, delta);
     updateResetHold(time);
-    if (weapon) weapon.update(delta);
+    if (weapon) {
+        weapon.update(delta);
+        // Automatische Waffe: solange die Feuertaste gehalten wird, feuert sie im Rhythmus ihres Cooldowns
+        if (fireHeld && weapon.automatic) handleShooting();
+    }
     updateEffects(delta);
 
     // Skybox folgt nur der Position der Kamera (nicht der Rotation) -> wirkt unendlich weit entfernt,
