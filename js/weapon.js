@@ -74,8 +74,11 @@ function buildRifleModel(g) {
 
     // Red-Dot-Visier
     box(g, 0.05, 0.02, 0.07, DARK, 0, 0.14, -0.1);
-    box(g, 0.055, 0.05, 0.012, DARK, 0, 0.17, -0.07);
-    neon(g, 0.036, 0.028, 0.004, CYAN, 0, 0.172, -0.134);
+    // Visierrahmen (offen in der Mitte, damit man beim Zielen hindurchsehen kann)
+    box(g, 0.008, 0.05, 0.012, DARK, 0.024, 0.17, -0.07);
+    box(g, 0.008, 0.05, 0.012, DARK, -0.024, 0.17, -0.07);
+    box(g, 0.056, 0.008, 0.012, DARK, 0, 0.196, -0.07);
+    neon(g, 0.007, 0.007, 0.004, CYAN, 0, 0.172, -0.134); // Leuchtpunkt (liegt beim Zielen exakt in der Bildmitte)
 
     return [0, 0.06, -0.69];
 }
@@ -163,6 +166,8 @@ function buildSniperModel(g) {
 // ---------- Waffentypen ----------
 // automatic  = true: Dauerfeuer bei gehaltener Feuertaste (sonst ein Schuss pro Klick)
 // infiniteAmmo = false: Magazin + Reserve, Nachladen nötig (true = unendlich)
+// aimFov = Sichtfeld beim Zielen (Rechtsklick), aimPos = Waffenposition beim Zielen (Visier in Bildmitte),
+// aimSpeed = Zielgeschwindigkeit, aimMoveFactor = Lauftempo beim Zielen, scopeOverlay = Zielfernrohr-Ansicht
 // color      = Neon-Farbe für Tracer, Einschlagsfunken, Bullet Holes, Mündungsfeuer
 // kick/kickRot = Rückstoß (Rückwärtsversatz / Hochschlag in rad); holeSize = Größe des Einschussloches
 export const WEAPON_CONFIGS = [
@@ -171,6 +176,7 @@ export const WEAPON_CONFIGS = [
         magSize: 30, reserveAmmo: 120, reloadDuration: 1700, infiniteAmmo: false,
         color: 0x00f0ff, tracerWidth: 0.03, tracerLife: 0.09, holeSize: 0.26,
         kick: 0.05, kickRot: 0.05,
+        aimFov: 55, aimPos: [0, -0.172, -0.30], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false,
         buildModel: buildRifleModel
     },
     {
@@ -178,6 +184,7 @@ export const WEAPON_CONFIGS = [
         magSize: 12, reserveAmmo: 60, reloadDuration: 1100, infiniteAmmo: false,
         color: 0xffcc00, tracerWidth: 0.024, tracerLife: 0.08, holeSize: 0.22,
         kick: 0.06, kickRot: 0.09,
+        aimFov: 62, aimPos: [0, -0.108, -0.35], aimSpeed: 11, aimMoveFactor: 0.9, scopeOverlay: false,
         buildModel: buildPistolModel
     },
     {
@@ -185,6 +192,7 @@ export const WEAPON_CONFIGS = [
         magSize: 5, reserveAmmo: 20, reloadDuration: 2400, infiniteAmmo: false,
         color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
         kick: 0.14, kickRot: 0.16,
+        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true,
         buildModel: buildSniperModel
     }
 ];
@@ -226,6 +234,17 @@ export class Weapon {
         this.dryNudge = 0;     // "Klick" bei leerem Magazin
         this.reloadSink = 0;   // 0..1, Waffe wird beim Nachladen abgesenkt
         this.flashTimer = 0;
+
+        // --- Zielen (ADS) ---
+        this.aimFov = config.aimFov;
+        this.aimPos = new THREE.Vector3(...config.aimPos);
+        this.aimSpeed = config.aimSpeed;
+        this.aimMoveFactor = config.aimMoveFactor;
+        this.scopeOverlay = config.scopeOverlay;
+        this.aiming = false;   // Wunsch: Rechtsklick gehalten
+        this.aimT = 0;         // 0..1 linearer Fortschritt
+        this.aimE = 0;         // 0..1 geglättet (für Position/FOV)
+        this.active = false;   // vom WeaponManager gesetzt (aktuell ausgerüstet)
 
         this.weaponGroup = new THREE.Group();
         const m = config.buildModel(this.weaponGroup);
@@ -350,6 +369,7 @@ export class Weapon {
     // Rücksetzen beim Waffenwechsel (sonst bliebe ein halber Rückstoß "stehen")
     resetAnimation() {
         this.recoil = 0; this.dryNudge = 0; this.flashTimer = 0;
+        this.aiming = false; this.aimT = 0; this.aimE = 0;
         this.flash.visible = false;
         this.weaponGroup.position.copy(BASE_POS);
         this.weaponGroup.rotation.set(0, 0, 0);
@@ -362,14 +382,23 @@ export class Weapon {
         const sinkTarget = this.isReloading ? 1 : 0;
         this.reloadSink += (sinkTarget - this.reloadSink) * Math.min(1, delta * 10);
 
-        // Quadratisch: starker Anfangsimpuls, weicher Auslauf
-        const k = this.recoil * this.recoil;
+        // Zielen: beim Nachladen nicht möglich; aimT läuft linear, aimE ist die geglättete Version
+        const aimTarget = (this.aiming && !this.isReloading) ? 1 : 0;
+        const step = delta * this.aimSpeed;
+        this.aimT += Math.sign(aimTarget - this.aimT) * Math.min(step, Math.abs(aimTarget - this.aimT));
+        const e = this.aimE = this.aimT * this.aimT * (3 - 2 * this.aimT);
+
+        // Quadratisch: starker Anfangsimpuls, weicher Auslauf. Beim Zielen halber Rückstoß (Waffe bleibt im Bild).
+        const k = this.recoil * this.recoil * (1 - 0.5 * e);
         this.weaponGroup.position.set(
-            BASE_POS.x + this.dryNudge * 0.02,
-            BASE_POS.y - this.reloadSink * 0.15,
-            BASE_POS.z + k * this.kick
+            BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e + this.dryNudge * 0.02,
+            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e - this.reloadSink * 0.15,
+            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + k * this.kick
         );
         this.weaponGroup.rotation.x = k * this.kickRot + this.reloadSink * 0.35;
+
+        // Zielfernrohr-Ansicht: Waffenmodell ausblenden, sobald fast voll gezoomt (dann zeigt das Overlay das Rohr)
+        if (this.active) this.weaponGroup.visible = !(this.scopeOverlay && this.aimT > 0.9);
 
         if (this.flashTimer > 0) {
             this.flashTimer -= delta;
@@ -389,7 +418,9 @@ export class WeaponManager {
             config => new Weapon(camera, scene, config, (w) => this._handleWeaponAmmoChange(w))
         );
         this._ready = true;
+        this._aimWanted = false;
         this.weapons[this.activeIndex].weaponGroup.visible = true;
+        this.weapons[this.activeIndex].active = true;
         this._notify();
     }
 
@@ -409,6 +440,14 @@ export class WeaponManager {
     get infiniteAmmo() { return this.current.infiniteAmmo; }
     get automatic() { return this.current.automatic; }
 
+    // Zielen (Rechtsklick): setAiming(true/false). aimAmount = 0..1 (geglättet) für FOV-Zoom im Frame-Loop.
+    setAiming(on) { this._aimWanted = !!on; this.current.aiming = this._aimWanted; }
+    get aimWanted() { return this._aimWanted; }
+    get aimAmount() { return this.current.aimE; }
+    get aimFov() { return this.current.aimFov; }
+    get aimMoveFactor() { return this.current.aimMoveFactor; }
+    get scopeVisible() { return this.current.scopeOverlay && this.current.aimT > 0.9; }
+
     shoot() { return this.current.shoot(); }
     reload() { this.current.reload(); }
     refillAll() { this.weapons.forEach(w => w.refill()); }
@@ -419,8 +458,11 @@ export class WeaponManager {
         if (index < 0 || index >= this.weapons.length || index === this.activeIndex) return;
         this.current.cancelReload(); // Wechsel bricht Nachladen ab (kein Nachladen im Hintergrund)
         this.current.resetAnimation();
+        this.current.active = false;
         this.current.weaponGroup.visible = false;
         this.activeIndex = index;
+        this.current.active = true;
+        this.current.aiming = this._aimWanted; // Rechtsklick gehalten -> neue Waffe zielt sofort wieder
         this.current.weaponGroup.visible = true;
         this._notify();
     }
