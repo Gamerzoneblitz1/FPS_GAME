@@ -145,8 +145,21 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Schuss-Effekte weiterreichen (Tracer, Bullet Hole). Alles wird validiert, damit kein Client
+    // Müll/riesige Objekte an alle anderen schicken kann.
+    const toVec = (v) => {
+        if (!v) return null;
+        const x = Number(v.x), y = Number(v.y), z = Number(v.z);
+        return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
+    };
     socket.on('shoot', (shotData) => {
-        socket.broadcast.emit('playerShot', { id: socket.id, start: shotData.start, end: shotData.end });
+        const start = toVec(shotData?.start), end = toVec(shotData?.end);
+        if (!start || !end) return;
+        const w = Number.isInteger(shotData.w) && shotData.w >= 0 && shotData.w <= 2 ? shotData.w : 0;
+        socket.broadcast.emit('playerShot', {
+            id: socket.id, start, end, w,
+            n: toVec(shotData.n), hitPlayer: !!shotData.hitPlayer
+        });
     });
 
     socket.on('hitPlayer', (data) => {
