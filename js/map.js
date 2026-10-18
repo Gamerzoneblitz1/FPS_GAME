@@ -221,6 +221,13 @@ export function setupMap(scene) {
 
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 
+    // Portal-Maße zentral: Platte und Ringe sind aufeinander abgestimmt (vorher ragte der Ring mit
+    // Radius 1.8 seitlich über die nur 2.7 breite Platte hinaus und lag mit der Röhre bündig IN der
+    // Platte, also halb verdeckt). Jetzt: Ring passt in die Platte und steht auf beiden Seiten etwas vor.
+    const GATE_WIDTH = TILE_SIZE * 0.9;      // 2.7
+    const GATE_HEIGHT = WALL_HEIGHT * 0.85;  // 4.25
+    const GATE_THICK = 0.12;
+
     // Leuchtende Kanten für Blöcke: 12 dünne Balken pro Block, als InstancedMesh (ein Draw-Call je Farbe).
     function addEdgeBeams(positions, size, yCenter, material, t = 0.1) {
         if (positions.length === 0) return;
@@ -263,33 +270,52 @@ export function setupMap(scene) {
     // einer echten 90°-Rotation um die Y-Achse, braucht also keine eigene Rotation.
     const gatePosH = gatePos.filter(g => !g.vertical);
     const gatePosV = gatePos.filter(g => g.vertical);
-    createInstancedMesh(boxGeo, gateMat, gatePosH, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 });
-    createInstancedMesh(boxGeo, gateMat, gatePosV, { x: 0.2, y: WALL_HEIGHT * 0.85, z: TILE_SIZE * 0.9 });
+    createInstancedMesh(boxGeo, gateMat, gatePosH, { x: GATE_WIDTH, y: GATE_HEIGHT, z: GATE_THICK });
+    createInstancedMesh(boxGeo, gateMat, gatePosV, { x: GATE_THICK, y: GATE_HEIGHT, z: GATE_WIDTH });
     const pinkMesh = createInstancedMesh(boxGeo, pinkPillarMat, pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
     const greenMesh = createInstancedMesh(boxGeo, greenPillarMat, greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 });
     if (wallMesh) shootBlockers.push(wallMesh);
     if (pinkMesh) shootBlockers.push(pinkMesh);
     if (greenMesh) shootBlockers.push(greenMesh);
 
-    addEdgeBeams(gatePosH, { x: TILE_SIZE * 0.9, y: WALL_HEIGHT * 0.85, z: 0.2 }, WALL_HEIGHT / 2, beamCyan, 0.08);
-    addEdgeBeams(gatePosV, { x: 0.2, y: WALL_HEIGHT * 0.85, z: TILE_SIZE * 0.9 }, WALL_HEIGHT / 2, beamCyan, 0.08);
+    addEdgeBeams(gatePosH, { x: GATE_WIDTH, y: GATE_HEIGHT, z: GATE_THICK }, WALL_HEIGHT / 2, beamCyan, 0.08);
+    addEdgeBeams(gatePosV, { x: GATE_THICK, y: GATE_HEIGHT, z: GATE_WIDTH }, WALL_HEIGHT / 2, beamCyan, 0.08);
     addEdgeBeams(pinkPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 }, WALL_HEIGHT / 2, beamPink, 0.07);
     addEdgeBeams(greenPos, { x: TILE_SIZE * 0.5, y: WALL_HEIGHT, z: TILE_SIZE * 0.5 }, WALL_HEIGHT / 2, beamGreen, 0.07);
 
     // --- Portal-Ringe an Gates ---
-    const portalRings = [];
+    // Pro Gate: ein statischer Außenring (dicker als die Platte -> auf beiden Seiten sichtbar) und ein
+    // rotierender Innenring als offener Bogen (C-Form). Ein vollständiger Torus sieht beim Drehen um
+    // seine eigene Achse immer gleich aus -> die Drehung war vorher unsichtbar; der Bogen macht sie sichtbar.
+    // Aufbau: holder (Position + Ausrichtung der Platte) -> Ring bzw. spinner (dreht um die Lochachse).
+    const portalRings = [];   // enthält die DREHENDEN Teile; main.js dreht sie um z (userData.spin = Tempo)
+    const PORTAL_R = GATE_WIDTH / 2 - 0.2;          // Außenradius passt mit Röhre sicher in die Platte
+    const OUTER_TUBE = GATE_THICK;                  // ragt je 0.06 beidseitig aus der Platte
+    const INNER_R = PORTAL_R - OUTER_TUBE - 0.18;
+    const INNER_TUBE = GATE_THICK * 0.75;
+    const outerGeo = new THREE.TorusGeometry(PORTAL_R, OUTER_TUBE, 10, 40);
+    const arcGeo = new THREE.TorusGeometry(INNER_R, INNER_TUBE, 8, 32, Math.PI * 1.5);
     const portalRingMat = new THREE.MeshStandardMaterial({
         color: 0x0a1018, roughness: 0.75, emissive: 0x00f0ff, emissiveIntensity: 3.0
     });
-    gatePos.forEach(pos => {
-        const ring = new THREE.Mesh(
-            new THREE.TorusGeometry(TILE_SIZE * 0.6, 0.1, 8, 24),
-            portalRingMat
-        );
-        ring.position.set(pos.x, WALL_HEIGHT * 0.5, pos.z);
-        if (pos.vertical) ring.rotation.y = Math.PI / 2; // Lochachse von Z auf X drehen
-        scene.add(ring);
-        portalRings.push(ring);
+    const portalArcMat = new THREE.MeshStandardMaterial({
+        color: 0x0a1018, roughness: 0.75, emissive: 0x9d00ff, emissiveIntensity: 3.0
+    });
+    gatePos.forEach((pos, i) => {
+        const holder = new THREE.Group();
+        // Ringmitte = Plattenmitte (Plattenhöhe ist um WALL_HEIGHT/2 zentriert)
+        holder.position.set(pos.x, WALL_HEIGHT / 2, pos.z);
+        if (pos.vertical) holder.rotation.y = Math.PI / 2; // Lochachse von Z auf X drehen
+
+        holder.add(new THREE.Mesh(outerGeo, portalRingMat));
+
+        const spinner = new THREE.Mesh(arcGeo, portalArcMat);
+        spinner.userData.spin = (i % 2 === 0 ? 1 : -1) * 0.9; // benachbarte Portale drehen gegenläufig
+        spinner.rotation.z = (i * 1.3) % (Math.PI * 2);       // nicht alle im Gleichtakt starten
+        holder.add(spinner);
+
+        scene.add(holder);
+        portalRings.push(spinner);
     });
 
     // --- Erhoehte Sniper-Tuerme (T) ---
