@@ -75,6 +75,7 @@ let moveForward = false, moveBackward = false, moveLeft = false, moveRight = fal
 let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
 let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
 let sprintHeld = false;
+let hasEntered = false; // true, sobald man das Login einmal bestätigt hat -> danach zeigt ESC das Pause-Menü statt des Logins
 // Reset-Button (K halten): verhindert versehentliches Auslösen
 const RESET_HOLD_MS = 1000;
 let resetHeld = false;
@@ -140,6 +141,7 @@ function init() {
         playerName = name || 'Player' + Math.floor(Math.random() * 1000);
         socket.emit('setName', playerName);
         document.getElementById('own-name-display').textContent = playerName;
+        hasEntered = true;
 
         if (isTouchDevice) {
             touchActive = true;
@@ -162,8 +164,26 @@ function init() {
         document.getElementById('touch-controls').style.display = 'block';
         setupTouchControls();
     } else {
-        controls.addEventListener('lock', () => instructions.style.display = 'none');
-        controls.addEventListener('unlock', () => { instructions.style.display = 'flex'; });
+        const pauseMenu = document.getElementById('pause-menu');
+        const settingsPanel = document.getElementById('settings-panel');
+        controls.addEventListener('lock', () => {
+            instructions.style.display = 'none';
+            pauseMenu.style.display = 'none';
+            settingsPanel.style.display = 'none';
+        });
+        // ESC (bzw. jedes Ende der Maussperre): vor dem ersten Start Login, danach Pause-Menü
+        controls.addEventListener('unlock', () => {
+            if (hasEntered) pauseMenu.style.display = 'flex';
+            else instructions.style.display = 'flex';
+        });
+        document.getElementById('pause-resume').addEventListener('click', () => controls.lock());
+        document.getElementById('pause-reset').addEventListener('click', () => {
+            socket.emit('requestReset');
+            controls.lock();
+        });
+        document.getElementById('pause-settings').addEventListener('click', () => {
+            settingsPanel.style.display = (settingsPanel.style.display === 'block') ? 'none' : 'block';
+        });
     }
 
     // Map laden & Kollisions-/Boden-Objekte speichern. Abgesichert: falls setupMap() aus
