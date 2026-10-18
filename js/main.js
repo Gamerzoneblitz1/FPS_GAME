@@ -733,8 +733,9 @@ function addKillFeedEntry(killer, victim, iMadeKill, iDied) {
 const _scopeEl = () => document.getElementById('scope-overlay');
 let _scopeShown = false;
 function updateAimView() {
-    const e = weapon.aimAmount;
-    const fov = BASE_FOV + (weapon.aimFov - BASE_FOV) * e;
+    const e = Number.isFinite(weapon.aimAmount) ? weapon.aimAmount : 0;
+    const zoomFov = Number.isFinite(weapon.aimFov) ? weapon.aimFov : BASE_FOV;
+    const fov = BASE_FOV + (zoomFov - BASE_FOV) * e;
     if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
         camera.updateProjectionMatrix();
@@ -909,13 +910,19 @@ function animate() {
 
     updatePlayerAnimations(playerMeshesList, delta);
     updateResetHold(time);
-    if (weapon) {
-        weapon.update(delta);
-        // Automatische Waffe: solange die Feuertaste gehalten wird, feuert sie im Rhythmus ihres Cooldowns
-        if (fireHeld && weapon.automatic) handleShooting();
-        updateAimView();
+    // In try/catch: ein Fehler in Waffen-/Effekt-Code darf nie dazu führen, dass der Frame nicht mehr
+    // gerendert wird (= schwarzer Bildschirm). Der Fehler wird einmal in der Konsole gemeldet.
+    try {
+        if (weapon) {
+            weapon.update(delta);
+            // Automatische Waffe: solange die Feuertaste gehalten wird, feuert sie im Rhythmus ihres Cooldowns
+            if (fireHeld && weapon.automatic) handleShooting();
+            updateAimView();
+        }
+        updateEffects(delta);
+    } catch (err) {
+        if (!window.__frameErrLogged) { window.__frameErrLogged = true; console.error('Fehler im Frame-Update (Waffen/Effekte):', err); }
     }
-    updateEffects(delta);
 
     // Skybox folgt nur der Position der Kamera (nicht der Rotation) -> wirkt unendlich weit entfernt,
     // dreht sich aber nicht mit, wenn man sich umschaut
