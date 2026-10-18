@@ -161,26 +161,28 @@ function buildSniperModel(g) {
 }
 
 // ---------- Waffentypen ----------
+// automatic  = true: Dauerfeuer bei gehaltener Feuertaste (sonst ein Schuss pro Klick)
+// infiniteAmmo = false: Magazin + Reserve, Nachladen nötig (true = unendlich)
 // color      = Neon-Farbe für Tracer, Einschlagsfunken, Bullet Holes, Mündungsfeuer
 // kick/kickRot = Rückstoß (Rückwärtsversatz / Hochschlag in rad); holeSize = Größe des Einschussloches
 export const WEAPON_CONFIGS = [
     {
-        name: 'Rifle', damage: 20, fireCooldown: 0.1,
-        magSize: 12, reserveAmmo: 84, reloadDuration: 1500,
+        name: 'Rifle', damage: 20, fireCooldown: 0.1, automatic: true,
+        magSize: 30, reserveAmmo: 120, reloadDuration: 1700, infiniteAmmo: false,
         color: 0x00f0ff, tracerWidth: 0.03, tracerLife: 0.09, holeSize: 0.26,
         kick: 0.05, kickRot: 0.05,
         buildModel: buildRifleModel
     },
     {
         name: 'Pistol', damage: 15, fireCooldown: 0.18,
-        magSize: 10, reserveAmmo: 60, reloadDuration: 1000,
+        magSize: 12, reserveAmmo: 60, reloadDuration: 1100, infiniteAmmo: false,
         color: 0xffcc00, tracerWidth: 0.024, tracerLife: 0.08, holeSize: 0.22,
         kick: 0.06, kickRot: 0.09,
         buildModel: buildPistolModel
     },
     {
         name: 'Sniper', damage: 75, fireCooldown: 1.2,
-        magSize: 5, reserveAmmo: 25, reloadDuration: 2200,
+        magSize: 5, reserveAmmo: 20, reloadDuration: 2400, infiniteAmmo: false,
         color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
         kick: 0.14, kickRot: 0.16,
         buildModel: buildSniperModel
@@ -211,9 +213,13 @@ export class Weapon {
         this.magSize = config.magSize;
         this.ammoInMag = this.magSize;
         this.reserveAmmo = config.reserveAmmo;
+        this.maxReserve = config.reserveAmmo;   // Startwert, für refill() beim Respawn
+        this.automatic = config.automatic ?? false;
+        this.lastDryTime = -Infinity;
+        this._reloadTimer = null;
         this.isReloading = false;
         this.reloadDuration = config.reloadDuration;
-        this.infiniteAmmo = config.infiniteAmmo ?? true; // Magazin leert sich nie, kein Nachladen nötig
+        this.infiniteAmmo = config.infiniteAmmo ?? false;
 
         // --- Animationszustand (wird in update() abgebaut) ---
         this.recoil = 0;       // 0..1
@@ -276,7 +282,13 @@ export class Weapon {
         if (this.isReloading) return false;
 
         if (!this.infiniteAmmo && this.ammoInMag <= 0) {
-            this.dryNudge = 1;
+            // Leeres Magazin: "Klick" (max. 4x pro Sekunde, sonst zuckt die Waffe bei Dauerfeuer jeden Frame)
+            // und automatisch nachladen, falls noch Reserve da ist
+            if (now - this.lastDryTime > 0.25) {
+                this.lastDryTime = now;
+                this.dryNudge = 1;
+            }
+            this.reload();
             return false;
         }
 
@@ -306,7 +318,8 @@ export class Weapon {
         this.isReloading = true;
         this._notifyAmmoChange();
 
-        setTimeout(() => {
+        this._reloadTimer = setTimeout(() => {
+            this._reloadTimer = null;
             const needed = this.magSize - this.ammoInMag;
             const amount = Math.min(needed, this.reserveAmmo);
             this.ammoInMag += amount;
@@ -314,6 +327,24 @@ export class Weapon {
             this.isReloading = false;
             this._notifyAmmoChange();
         }, this.reloadDuration);
+    }
+
+    // Nachladen abbrechen (z.B. Waffenwechsel): die Patronen wandern erst NACH Ablauf ins Magazin,
+    // ein Abbruch kostet also nichts außer der verlorenen Zeit.
+    cancelReload() {
+        if (!this.isReloading) return;
+        clearTimeout(this._reloadTimer);
+        this._reloadTimer = null;
+        this.isReloading = false;
+        this._notifyAmmoChange();
+    }
+
+    // Volle Munition (Respawn)
+    refill() {
+        this.cancelReload();
+        this.ammoInMag = this.magSize;
+        this.reserveAmmo = this.maxReserve;
+        this._notifyAmmoChange();
     }
 
     // Rücksetzen beim Waffenwechsel (sonst bliebe ein halber Rückstoß "stehen")
@@ -376,14 +407,17 @@ export class WeaponManager {
     get magSize() { return this.current.magSize; }
     get isReloading() { return this.current.isReloading; }
     get infiniteAmmo() { return this.current.infiniteAmmo; }
+    get automatic() { return this.current.automatic; }
 
     shoot() { return this.current.shoot(); }
     reload() { this.current.reload(); }
+    refillAll() { this.weapons.forEach(w => w.refill()); }
     update(delta) { this.current.update(delta); }
     getMuzzleWorldPosition(out) { return this.current.getMuzzleWorldPosition(out); }
 
     switchTo(index) {
         if (index < 0 || index >= this.weapons.length || index === this.activeIndex) return;
+        this.current.cancelReload(); // Wechsel bricht Nachladen ab (kein Nachladen im Hintergrund)
         this.current.resetAnimation();
         this.current.weaponGroup.visible = false;
         this.activeIndex = index;
