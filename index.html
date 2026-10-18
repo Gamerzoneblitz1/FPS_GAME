@@ -288,6 +288,16 @@
 
     <div id="error-box"></div>
     <script>
+        // Pointer-Lock-Polyfill: ältere/strengere Safari-Versionen kennen nur die webkit-Variante der API.
+        (function () {
+            var E = Element.prototype, D = document;
+            if (!E.requestPointerLock) E.requestPointerLock = E.webkitRequestPointerLock || E.mozRequestPointerLock;
+            if (!D.exitPointerLock) D.exitPointerLock = D.webkitExitPointerLock || D.mozExitPointerLock;
+            if (!('pointerLockElement' in D)) {
+                Object.defineProperty(D, 'pointerLockElement', { get: function () { return D.webkitPointerLockElement || D.mozPointerLockElement || null; } });
+            }
+        })();
+
         // Zeigt Skript-/Ladefehler direkt im Spiel an (statt nur stillem Blackscreen)
         (function () {
             var box = document.getElementById('error-box');
@@ -301,7 +311,13 @@
     </script>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/libs/inflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/libs/inflate.min.js"></script>
+    <script>
+        // Reserve, falls jsdelivr nicht lädt (inflate.min.js definiert das globale "Zlib")
+        if (typeof Zlib === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/inflate.min.js"><\/script>');
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/FBXLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/utils/SkeletonUtils.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/shaders/CopyShader.js"></script>
