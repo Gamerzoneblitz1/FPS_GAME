@@ -1,5 +1,6 @@
 import { setupMap } from './map.js';
-import { WeaponManager, createTracer } from './weapon.js';
+import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
+import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations } from './player.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
@@ -114,6 +115,7 @@ function init() {
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000); // far erhöht für den Sternenhimmel/Planet-Backdrop
     camera.position.set(-177, 2, 0); // Sicherer Startwert (C-Zone), wird gleich durch einen zufälligen Map-Spawn / den Server-Spawn ersetzt
     scene.add(camera);
+    initEffects(scene); // Tracer-/Bullet-Hole-/Funken-Pools
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     // PC-Fenster haben oft deutlich mehr Pixel als ein Handy-Display (z.B. 1920x1080 vs. 400x850
@@ -235,7 +237,7 @@ function init() {
         }
     });
 
-    socket.on('playerShot', (data) => createTracer(scene, data.start, data.end));
+    socket.on('playerShot', (data) => playShotEffects(data.start, data.end, data.w, data.n, data.hitPlayer));
 
     socket.on('playerHealthUpdate', (data) => {
         if (data.id === socket.id) {
@@ -300,15 +302,20 @@ function handleShooting() {
     // bleiben durchlässig). Ohne das gingen Kugeln bisher durch jede Wand/Rampenseite hindurch.
     const wallHits = shootBlockers.length ? raycaster.intersectObjects(shootBlockers, false) : [];
 
-    const startPos = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(0.5));
+    // Tracer startet an der Mündung der Waffe (sieht man in der Ego-Ansicht als Linie zum Zielpunkt)
+    const startPos = weapon.getMuzzleWorldPosition(new THREE.Vector3());
     let endPos = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(100));
 
     const nearestPlayerHit = playerHits.length > 0 ? playerHits[0] : null;
     const nearestWallHit = wallHits.length > 0 ? wallHits[0] : null;
 
+    let wallNormal = null;
+    let hitPlayer = false;
+
     // Näherer Treffer gewinnt: steht eine Wand/Rampenwand im Weg, zählt kein Spielertreffer dahinter
     if (nearestPlayerHit && (!nearestWallHit || nearestPlayerHit.distance <= nearestWallHit.distance)) {
         endPos = nearestPlayerHit.point;
+        hitPlayer = true;
 
         let hitGroup = nearestPlayerHit.object;
         while (hitGroup.parent && !hitGroup.userData.id) {
@@ -320,10 +327,51 @@ function handleShooting() {
         }
     } else if (nearestWallHit) {
         endPos = nearestWallHit.point;
+        wallNormal = getHitWorldNormal(nearestWallHit, raycaster.ray.direction);
     }
 
-    createTracer(scene, startPos, endPos);
-    socket.emit('shoot', { start: startPos, end: endPos });
+    const weaponIndex = weapon.activeIndex;
+    playShotEffects(startPos, endPos, weaponIndex, wallNormal, hitPlayer);
+    socket.emit('shoot', {
+        start: { x: startPos.x, y: startPos.y, z: startPos.z },
+        end: { x: endPos.x, y: endPos.y, z: endPos.z },
+        w: weaponIndex,
+        n: wallNormal ? { x: wallNormal.x, y: wallNormal.y, z: wallNormal.z } : null,
+        hitPlayer
+    });
+}
+
+// Weltnormale der getroffenen Fläche. Bei InstancedMeshes (Wände, Türme, Rampen...) muss die Matrix der
+// einzelnen Instanz mit einbezogen werden; die Normalenmatrix (invers-transponiert) sorgt dafür, dass
+// auch schräge Flächen (Rampen mit ungleichmäßiger Skalierung) korrekt ausgerichtet sind.
+const _hitMat = new THREE.Matrix4();
+const _instMat = new THREE.Matrix4();
+const _normalMat = new THREE.Matrix3();
+function getHitWorldNormal(hit, rayDir) {
+    if (!hit.face) return null;
+    hit.object.updateMatrixWorld();
+    _hitMat.copy(hit.object.matrixWorld);
+    if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
+        hit.object.getMatrixAt(hit.instanceId, _instMat);
+        _hitMat.multiply(_instMat);
+    }
+    _normalMat.getNormalMatrix(_hitMat);
+    const n = hit.face.normal.clone().applyMatrix3(_normalMat).normalize();
+    if (n.dot(rayDir) > 0) n.negate(); // Normale muss zum Schützen zeigen (Rampen-Winding ist nicht garantiert)
+    return n;
+}
+
+// Gemeinsamer Effekt-Pfad für eigene UND fremde Schüsse: Neon-Tracer in Waffenfarbe, bei Wandtreffer
+// Bullet Hole + Funke, bei Spielertreffer nur Funke.
+function playShotEffects(start, end, weaponIndex, normal, hitPlayer) {
+    const cfg = WEAPON_CONFIGS[weaponIndex] || WEAPON_CONFIGS[0];
+    createTracer(start, end, cfg.color, cfg.tracerWidth, cfg.tracerLife);
+    if (normal) {
+        addBulletHole(end, normal, cfg.color, cfg.holeSize);
+        spawnImpactSpark(end, cfg.color, cfg.holeSize * 2);
+    } else if (hitPlayer) {
+        spawnImpactSpark(end, 0xffffff, 0.7);
+    }
 }
 
 function addOtherPlayer(id, position, name = '') {
@@ -792,6 +840,8 @@ function animate() {
 
     updatePlayerAnimations(playerMeshesList, delta);
     updateResetHold(time);
+    if (weapon) weapon.update(delta);
+    updateEffects(delta);
 
     // Skybox folgt nur der Position der Kamera (nicht der Rotation) -> wirkt unendlich weit entfernt,
     // dreht sich aber nicht mit, wenn man sich umschaut
@@ -799,7 +849,8 @@ function animate() {
 
     // Portal-Ringe an den Gates langsam rotieren lassen
     for (let i = 0; i < portalRings.length; i++) {
-        portalRings[i].rotation.z += delta * 0.6;
+        // userData.spin: Drehrichtung/-tempo je Ring (Außenring statisch = 0, Innenring dreht)
+        portalRings[i].rotation.z += delta * (portalRings[i].userData.spin ?? 0.6);
     }
 
     if (controls.isLocked || touchActive) {
