@@ -76,6 +76,8 @@ let moveForward = false, moveBackward = false, moveLeft = false, moveRight = fal
 let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
 let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
 let sprintHeld = false;
+const BASE_FOV = 75;
+let lookScale = 1; // Maus-/Touch-Empfindlichkeit relativ zum Zoom (beim Zielen langsamer)
 let fireHeld = false; // Feuertaste gehalten (Maus links / Touch-Fire) -> Dauerfeuer bei automatischen Waffen
 let hasEntered = false; // true, sobald man das Login einmal bestätigt hat -> danach zeigt ESC das Pause-Menü statt des Logins
 // Reset-Button (K halten): verhindert versehentliches Auslösen
@@ -176,6 +178,7 @@ function init() {
         // ESC (bzw. jedes Ende der Maussperre): vor dem ersten Start Login, danach Pause-Menü
         controls.addEventListener('unlock', () => {
             fireHeld = false;
+            if (weapon) weapon.setAiming(false);
             if (hasEntered) pauseMenu.style.display = 'flex';
             else instructions.style.display = 'flex';
         });
@@ -227,13 +230,20 @@ function init() {
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
     document.addEventListener('keyup', (e) => onKeyChange(e.keyCode, false));
     document.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
         if (!controls.isLocked && !touchActive) return; // Klicks auf Menü-Buttons zählen nicht
-        fireHeld = true;
-        handleShooting(); // sofortiger erster Schuss (reicht bei halbautomatischen Waffen)
+        if (e.button === 0) {
+            fireHeld = true;
+            handleShooting(); // sofortiger erster Schuss (reicht bei halbautomatischen Waffen)
+        } else if (e.button === 2) {
+            weapon.setAiming(true); // Rechtsklick halten = Zielen / Zielfernrohr
+        }
     });
-    document.addEventListener('mouseup', (e) => { if (e.button === 0) fireHeld = false; });
-    window.addEventListener('blur', () => { fireHeld = false; });
+    document.addEventListener('mouseup', (e) => {
+        if (e.button === 0) fireHeld = false;
+        else if (e.button === 2) weapon.setAiming(false);
+    });
+    document.addEventListener('contextmenu', (e) => e.preventDefault()); // kein Browser-Menü bei Rechtsklick
+    window.addEventListener('blur', () => { fireHeld = false; if (weapon) weapon.setAiming(false); });
 
     // Socket Events
     socket.on('currentPlayers', (players) => {
@@ -280,7 +290,7 @@ function init() {
             feetY = data.respawnPos.y - currentEyeHeight;
             velocity.set(0, 0, 0);
             canJump = true;
-            if (weapon) weapon.refillAll(); // nach dem Respawn wieder volle Magazine
+            if (weapon) { weapon.refillAll(); weapon.setAiming(false); } // nach dem Respawn volle Magazine, nicht mehr gezoomt
             showDeathOverlay(data.killerName);
         } else if (otherPlayers[data.victimId]) {
             otherPlayers[data.victimId].position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
@@ -572,6 +582,7 @@ function setupTouchControls() {
     const btnFire = document.getElementById('btn-fire');
     const btnReload = document.getElementById('btn-reload');
     const btnReset = document.getElementById('btn-reset');
+    const btnScope = document.getElementById('btn-scope');
 
     // --- Joystick: steuert dieselben move-Flags wie WASD ---
     joystickZone.addEventListener('touchstart', (e) => {
@@ -639,8 +650,8 @@ function setupTouchControls() {
             lookLastY = t.clientY;
 
             lookEuler.setFromQuaternion(camera.quaternion);
-            lookEuler.y -= dx * TOUCH_LOOK_SENSITIVITY;
-            lookEuler.x -= dy * TOUCH_LOOK_SENSITIVITY;
+            lookEuler.y -= dx * TOUCH_LOOK_SENSITIVITY * lookScale;
+            lookEuler.x -= dy * TOUCH_LOOK_SENSITIVITY * lookScale;
             lookEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, lookEuler.x));
             camera.quaternion.setFromEuler(lookEuler);
         }
@@ -678,6 +689,15 @@ function setupTouchControls() {
         e.preventDefault();
     }, { passive: false });
 
+    if (btnScope) {
+        // Touch hat keine rechte Maustaste -> Zielen per Antippen ein/aus
+        btnScope.addEventListener('touchstart', (e) => {
+            weapon.setAiming(!weapon.aimWanted);
+            btnScope.style.background = weapon.aimWanted ? 'rgba(0,240,255,0.35)' : '';
+            e.preventDefault();
+        }, { passive: false });
+    }
+
     if (btnReset) {
         btnReset.addEventListener('touchstart', (e) => { onKeyChange(75, true); e.preventDefault(); }, { passive: false });
         btnReset.addEventListener('touchend', (e) => { onKeyChange(75, false); e.preventDefault(); }, { passive: false });
@@ -706,6 +726,30 @@ function addKillFeedEntry(killer, victim, iMadeKill, iDied) {
     feed.prepend(el);
     while (feed.children.length > KILL_FEED_MAX) feed.lastChild.remove();
     setTimeout(() => el.remove(), KILL_FEED_DURATION);
+}
+
+// Zielen: FOV gleitend zur Zoomstufe der Waffe, Empfindlichkeit passend zum Zoom (sonst wirkt die
+// Maus im Zielfernrohr viel zu schnell), Zielfernrohr-Overlay bei Sniper, Fadenkreuz dabei ausblenden.
+const _scopeEl = () => document.getElementById('scope-overlay');
+let _scopeShown = false;
+function updateAimView() {
+    const e = weapon.aimAmount;
+    const fov = BASE_FOV + (weapon.aimFov - BASE_FOV) * e;
+    if (Math.abs(camera.fov - fov) > 0.01) {
+        camera.fov = fov;
+        camera.updateProjectionMatrix();
+    }
+    lookScale = Math.tan(fov * Math.PI / 360) / Math.tan(BASE_FOV * Math.PI / 360);
+    controls.pointerSpeed = lookScale; // wirkt bei PointerLockControls (Maus)
+
+    const scoped = weapon.scopeVisible;
+    if (scoped !== _scopeShown) {
+        _scopeShown = scoped;
+        const el = _scopeEl();
+        if (el) el.style.display = scoped ? 'block' : 'none';
+        const ch = document.getElementById('crosshair');
+        if (ch) ch.style.visibility = scoped ? 'hidden' : 'visible';
+    }
 }
 
 // Kurze Systemmeldung im Kill-Feed-Bereich (z.B. Reset-Cooldown)
@@ -869,6 +913,7 @@ function animate() {
         weapon.update(delta);
         // Automatische Waffe: solange die Feuertaste gehalten wird, feuert sie im Rhythmus ihres Cooldowns
         if (fireHeld && weapon.automatic) handleShooting();
+        updateAimView();
     }
     updateEffects(delta);
 
@@ -948,6 +993,10 @@ function animate() {
         } else {
             speedMultiplier = sprintHeld ? SPRINT_MULTIPLIER : 1.0;
             friction = isGrounded ? GROUND_FRICTION : AIR_FRICTION;
+        }
+        if (weapon && !sliding) {
+            // Beim Zielen langsamer laufen (Sniper am stärksten)
+            speedMultiplier *= 1 - (1 - weapon.aimMoveFactor) * weapon.aimAmount;
         }
         const accel = (isGrounded ? GROUND_ACCEL : AIR_ACCEL) * speedMultiplier;
 
