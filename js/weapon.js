@@ -1,14 +1,210 @@
-// --- Einzelne Waffe: nimmt jetzt eine Konfiguration (siehe WEAPON_CONFIGS unten) statt fester Werte,
-// damit mehrere unterschiedliche Waffentypen dieselbe Klasse nutzen können. ---
+// weapon.js — Waffen mit detaillierten Viewmodels. Jede Waffe nutzt dieselbe Klasse, die Unterschiede
+// (Werte, Optik, Tracer-Farbe, Rückstoß) stehen in WEAPON_CONFIGS unten.
+// Rückstoß/Nachladen laufen jetzt über update(delta) statt setTimeout -> flüssig und ohne "Drift",
+// wenn man mitten im Rückstoß die Waffe wechselt. WeaponManager.update(delta) pro Frame aufrufen!
+
+// ---------- Mesh-Helfer ----------
+const matCache = new Map();
+function mat(color) {
+    if (!matCache.has(color)) matCache.set(color, new THREE.MeshBasicMaterial({ color }));
+    return matCache.get(color);
+}
+const edgeMatCache = new Map();
+function edgeMat(color) {
+    if (!edgeMatCache.has(color)) edgeMatCache.set(color, new THREE.LineBasicMaterial({ color }));
+    return edgeMatCache.get(color);
+}
+
+// Box mit optionaler Rotation und hellerer Kantenlinie (gibt den ungelitteten Flächen Tiefe)
+function box(g, w, h, d, color, x, y, z, { rx = 0, ry = 0, rz = 0, edge = 0x4a4a5e } = {}) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    if (edge !== null) {
+        m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat(edge)));
+    }
+    g.add(m);
+    return m;
+}
+
+// Zylinder; axis 'z' = entlang des Laufs, 'x' = quer, 'y' = senkrecht
+function cyl(g, r, len, color, x, y, z, axis = 'z', { r2 = r, seg = 14 } = {}) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r2, r, len, seg), mat(color));
+    if (axis === 'z') m.rotation.x = Math.PI / 2;
+    else if (axis === 'x') m.rotation.z = Math.PI / 2;
+    m.position.set(x, y, z);
+    g.add(m);
+    return m;
+}
+
+// Leuchtstreifen (Neon-Akzent, ungelittet)
+function neon(g, w, h, d, color, x, y, z) {
+    return box(g, w, h, d, color, x, y, z, { edge: null });
+}
+
+// Alle Modellfunktionen geben die Mündungsposition [x,y,z] zurück (für Mündungsfeuer + Tracer-Start).
+
+function buildRifleModel(g) {
+    const BODY = 0x23232e, DARK = 0x15151b, MID = 0x2e2e3b, CYAN = 0x00f0ff;
+
+    // Gehäuse + Oberschiene
+    box(g, 0.09, 0.12, 0.40, BODY, 0, 0.04, -0.04);
+    box(g, 0.07, 0.025, 0.42, MID, 0, 0.113, -0.05);
+    for (let i = 0; i < 6; i++) box(g, 0.072, 0.012, 0.012, DARK, 0, 0.128, -0.22 + i * 0.07, { edge: null }); // Picatinny-Schlitze
+
+    // Handschutz + Neon-Seitenstreifen
+    box(g, 0.075, 0.085, 0.26, 0x1c1c26, 0, 0.045, -0.35);
+    neon(g, 0.004, 0.018, 0.20, CYAN, 0.039, 0.05, -0.35);
+    neon(g, 0.004, 0.018, 0.20, CYAN, -0.039, 0.05, -0.35);
+
+    // Lauf + Mündungsbremse
+    cyl(g, 0.016, 0.16, DARK, 0, 0.06, -0.56);
+    cyl(g, 0.026, 0.06, MID, 0, 0.06, -0.65, 'z', { r2: 0.022 });
+    box(g, 0.012, 0.03, 0.012, CYAN, 0, 0.105, -0.64, { edge: null }); // Korn
+
+    // Griff, Magazin (leicht gebogen), Abzugsbügel
+    box(g, 0.06, 0.17, 0.07, DARK, 0, -0.08, 0.09, { rx: 0.3 });
+    box(g, 0.052, 0.18, 0.07, DARK, 0, -0.09, -0.07, { rx: -0.12 });
+    neon(g, 0.054, 0.012, 0.072, CYAN, 0, -0.178, -0.093); // Leuchtkante am Magazinfuß
+    box(g, 0.012, 0.012, 0.09, DARK, 0, -0.03, 0.03, { edge: null });
+
+    // Schulterstütze
+    box(g, 0.06, 0.11, 0.22, BODY, 0, 0.02, 0.27);
+    box(g, 0.065, 0.13, 0.03, DARK, 0, 0.02, 0.385);
+
+    // Red-Dot-Visier
+    box(g, 0.05, 0.02, 0.07, DARK, 0, 0.14, -0.1);
+    box(g, 0.055, 0.05, 0.012, DARK, 0, 0.17, -0.07);
+    neon(g, 0.036, 0.028, 0.004, CYAN, 0, 0.172, -0.134);
+
+    return [0, 0.06, -0.69];
+}
+
+function buildPistolModel(g) {
+    const FRAME = 0x1d1d26, SLIDE = 0x2c2c38, DARK = 0x111116, YEL = 0xffcc00;
+
+    // Rahmen + Schlitten
+    box(g, 0.07, 0.06, 0.28, FRAME, 0, -0.01, -0.04);
+    box(g, 0.076, 0.066, 0.30, SLIDE, 0, 0.048, -0.07);
+    neon(g, 0.004, 0.012, 0.20, YEL, 0.039, 0.05, -0.1);
+    neon(g, 0.004, 0.012, 0.20, YEL, -0.039, 0.05, -0.1);
+
+    // Rillen am Schlittenende
+    for (let i = 0; i < 4; i++) box(g, 0.079, 0.05, 0.007, DARK, 0, 0.05, 0.03 + i * 0.016, { edge: null });
+
+    // Laufspitze
+    cyl(g, 0.017, 0.04, DARK, 0, 0.045, -0.235);
+
+    // Griff (leicht geneigt) + Griffschalen-Akzent
+    box(g, 0.066, 0.16, 0.085, DARK, 0, -0.105, 0.075, { rx: 0.2 });
+    neon(g, 0.004, 0.09, 0.05, YEL, 0.034, -0.1, 0.075);
+    neon(g, 0.004, 0.09, 0.05, YEL, -0.034, -0.1, 0.075);
+
+    // Abzugsbügel + Abzug
+    box(g, 0.02, 0.008, 0.075, FRAME, 0, -0.056, -0.012);
+    box(g, 0.02, 0.04, 0.008, FRAME, 0, -0.038, -0.05);
+    box(g, 0.01, 0.03, 0.01, DARK, 0, -0.035, -0.005, { rx: 0.3, edge: null });
+
+    // Kimme + Korn
+    box(g, 0.045, 0.02, 0.012, DARK, 0, 0.092, 0.07);
+    neon(g, 0.012, 0.022, 0.012, YEL, 0, 0.092, -0.2);
+
+    return [0, 0.048, -0.26];
+}
+
+function buildSniperModel(g) {
+    const BODY = 0x1a1a22, STOCK = 0x1a1512, DARK = 0x111116, MID = 0x2a2a35, MAG = 0xff2bd6;
+
+    // Gehäuse + Schaft mit Wangenauflage
+    box(g, 0.08, 0.10, 0.32, BODY, 0, 0.02, -0.05);
+    box(g, 0.07, 0.12, 0.26, STOCK, 0, 0.0, 0.24);
+    box(g, 0.06, 0.04, 0.15, STOCK, 0, 0.08, 0.22);
+    box(g, 0.075, 0.15, 0.03, DARK, 0, 0.0, 0.385);
+
+    // Handschutz + Neon
+    box(g, 0.07, 0.08, 0.42, BODY, 0, 0.03, -0.40);
+    neon(g, 0.004, 0.014, 0.34, MAG, 0.036, 0.035, -0.40);
+    neon(g, 0.004, 0.014, 0.34, MAG, -0.036, 0.035, -0.40);
+
+    // Langer Lauf + Schalldämpfer
+    cyl(g, 0.016, 0.50, MID, 0, 0.05, -0.78);
+    cyl(g, 0.032, 0.24, DARK, 0, 0.05, -1.0);
+    cyl(g, 0.034, 0.008, MAG, 0, 0.05, -0.90); // Leuchtring am Dämpfer
+
+    // Zweibein (eingeklappt)
+    box(g, 0.012, 0.012, 0.18, DARK, 0.035, -0.02, -0.55, { rx: 0.05, edge: null });
+    box(g, 0.012, 0.012, 0.18, DARK, -0.035, -0.02, -0.55, { rx: 0.05, edge: null });
+
+    // Magazin, Griff, Abzug
+    box(g, 0.05, 0.10, 0.07, DARK, 0, -0.07, -0.02);
+    box(g, 0.055, 0.14, 0.06, DARK, 0, -0.08, 0.1, { rx: 0.25 });
+    box(g, 0.012, 0.03, 0.01, DARK, 0, -0.04, 0.04, { rx: 0.3, edge: null });
+
+    // Zielfernrohr: Halterungen, Tubus, Vorder-/Okularglocke, Turm, Linse
+    box(g, 0.03, 0.05, 0.04, MID, 0, 0.105, -0.2);
+    box(g, 0.03, 0.05, 0.04, MID, 0, 0.105, 0.0);
+    cyl(g, 0.034, 0.38, DARK, 0, 0.15, -0.1);
+    cyl(g, 0.046, 0.09, DARK, 0, 0.15, -0.31, 'z', { r2: 0.05 });
+    cyl(g, 0.040, 0.07, DARK, 0, 0.15, 0.115, 'z', { r2: 0.036 });
+    cyl(g, 0.014, 0.04, MID, 0, 0.195, -0.1, 'y');
+    cyl(g, 0.014, 0.04, MID, 0.045, 0.15, -0.1, 'x');
+    cyl(g, 0.049, 0.006, MAG, 0, 0.15, -0.36);   // Leuchtring vorn
+    cyl(g, 0.044, 0.004, 0x330022, 0, 0.15, -0.355); // dunkle Linse
+
+    // Verschlussgriff
+    cyl(g, 0.01, 0.08, DARK, 0.07, 0.045, 0.02, 'x');
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), mat(MAG));
+    knob.position.set(0.112, 0.045, 0.02);
+    g.add(knob);
+
+    return [0, 0.05, -1.13];
+}
+
+// ---------- Waffentypen ----------
+// color      = Neon-Farbe für Tracer, Einschlagsfunken, Bullet Holes, Mündungsfeuer
+// kick/kickRot = Rückstoß (Rückwärtsversatz / Hochschlag in rad); holeSize = Größe des Einschussloches
+export const WEAPON_CONFIGS = [
+    {
+        name: 'Rifle', damage: 20, fireCooldown: 0.1,
+        magSize: 12, reserveAmmo: 84, reloadDuration: 1500,
+        color: 0x00f0ff, tracerWidth: 0.03, tracerLife: 0.09, holeSize: 0.26,
+        kick: 0.05, kickRot: 0.05,
+        buildModel: buildRifleModel
+    },
+    {
+        name: 'Pistol', damage: 15, fireCooldown: 0.18,
+        magSize: 10, reserveAmmo: 60, reloadDuration: 1000,
+        color: 0xffcc00, tracerWidth: 0.024, tracerLife: 0.08, holeSize: 0.22,
+        kick: 0.06, kickRot: 0.09,
+        buildModel: buildPistolModel
+    },
+    {
+        name: 'Sniper', damage: 75, fireCooldown: 1.2,
+        magSize: 5, reserveAmmo: 25, reloadDuration: 2200,
+        color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
+        kick: 0.14, kickRot: 0.16,
+        buildModel: buildSniperModel
+    }
+];
+
+// ---------- Einzelne Waffe ----------
+const BASE_POS = new THREE.Vector3(0.3, -0.25, -0.5);
+
 export class Weapon {
     constructor(camera, scene, config, onAmmoChange = null) {
         this.camera = camera;
         this.scene = scene;
-        this.onAmmoChange = onAmmoChange; // callback(this) - wird bei jeder Munitions-/Reload-Änderung aufgerufen
+        this.onAmmoChange = onAmmoChange; // callback(this) - bei jeder Munitions-/Reload-Änderung
 
         this.name = config.name;
         this.damage = config.damage;
-        this.fireCooldown = config.fireCooldown; // Sekunden zwischen zwei Schüssen (Feuerrate)
+        this.color = config.color;
+        this.tracerWidth = config.tracerWidth;
+        this.tracerLife = config.tracerLife;
+        this.holeSize = config.holeSize;
+        this.kick = config.kick;
+        this.kickRot = config.kickRot;
+        this.fireCooldown = config.fireCooldown;
         this.lastShotTime = -Infinity;
 
         // --- Munitionssystem ---
@@ -19,28 +215,68 @@ export class Weapon {
         this.reloadDuration = config.reloadDuration;
         this.infiniteAmmo = config.infiniteAmmo ?? true; // Magazin leert sich nie, kein Nachladen nötig
 
-        this.weaponGroup = new THREE.Group();
-        config.buildModel(this.weaponGroup);
-        this.weaponGroup.position.set(0.3, -0.25, -0.5);
-        this.weaponGroup.visible = false; // WeaponManager blendet die aktive Waffe ein
-        this.camera.add(this.weaponGroup);
+        // --- Animationszustand (wird in update() abgebaut) ---
+        this.recoil = 0;       // 0..1
+        this.dryNudge = 0;     // "Klick" bei leerem Magazin
+        this.reloadSink = 0;   // 0..1, Waffe wird beim Nachladen abgesenkt
+        this.flashTimer = 0;
 
+        this.weaponGroup = new THREE.Group();
+        const m = config.buildModel(this.weaponGroup);
+        this.weaponGroup.position.copy(BASE_POS);
+        this.weaponGroup.visible = false; // WeaponManager blendet die aktive Waffe ein
+
+        // Mündungspunkt (für Tracer-Start) + Mündungsfeuer (einmal gebaut, dann nur ein/aus)
+        this.muzzle = new THREE.Object3D();
+        this.muzzle.position.set(m[0], m[1], m[2]);
+        this.weaponGroup.add(this.muzzle);
+        this.flash = this._buildFlash(config.color);
+        this.muzzle.add(this.flash);
+
+        this.camera.add(this.weaponGroup);
         this._notifyAmmoChange();
+    }
+
+    _buildFlash(colorHex) {
+        const g = new THREE.Group();
+        const add = (geo, color, opacity) => {
+            const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+                color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+            }));
+            g.add(m);
+            return m;
+        };
+        add(new THREE.SphereGeometry(0.035, 8, 8), 0xffffff, 0.95);          // heller Kern
+        add(new THREE.SphereGeometry(0.075, 8, 8), colorHex, 0.5);           // farbiger Glow
+        const starGeo = new THREE.PlaneGeometry(0.28, 0.05);                 // Stern aus 2 gekreuzten Streifen
+        const s1 = add(starGeo, colorHex, 0.85);
+        const s2 = add(starGeo, colorHex, 0.85);
+        s2.rotation.z = Math.PI / 2;
+        const s3 = add(new THREE.PlaneGeometry(0.05, 0.4), colorHex, 0.5);   // Strahl nach vorn
+        s3.rotation.x = Math.PI / 2;
+        s3.position.z = -0.18;
+        g.visible = false;
+        return g;
     }
 
     _notifyAmmoChange() {
         if (this.onAmmoChange) this.onAmmoChange(this);
     }
 
-    // Gibt true zurück, wenn tatsächlich geschossen wurde (main.js nutzt das,
-    // um Tracer/Netzwerk-Events nur bei echten Treffern zu senden)
+    // Mündung in Weltkoordinaten (Matrizen vorher aktualisieren, falls nötig)
+    getMuzzleWorldPosition(out) {
+        this.camera.updateMatrixWorld(true);
+        return this.muzzle.getWorldPosition(out);
+    }
+
+    // Gibt true zurück, wenn tatsächlich geschossen wurde (main.js nutzt das für Tracer/Netzwerk)
     shoot() {
         const now = performance.now() / 1000;
-        if (now - this.lastShotTime < this.fireCooldown) return false; // Feuerrate noch nicht bereit
+        if (now - this.lastShotTime < this.fireCooldown) return false;
         if (this.isReloading) return false;
 
         if (!this.infiniteAmmo && this.ammoInMag <= 0) {
-            this._dryFire();
+            this.dryNudge = 1;
             return false;
         }
 
@@ -51,39 +287,24 @@ export class Weapon {
             this._notifyAmmoChange();
         }
 
-        // Rückstoß
-        this.weaponGroup.position.z += 0.08;
-        setTimeout(() => { this.weaponGroup.position.z -= 0.08; }, 50);
-
-        // Mündungsfeuer
-        const flashGeo = new THREE.SphereGeometry(0.08, 8, 8);
-        const flashMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-        const flash = new THREE.Mesh(flashGeo, flashMat);
-        flash.position.set(0.3, -0.15, -0.85);
-
-        this.camera.add(flash);
-        setTimeout(() => { this.camera.remove(flash); }, 40);
+        this.recoil = 1;
+        this.flashTimer = 0.045;
+        this.flash.rotation.z = Math.random() * Math.PI * 2; // jedes Mal anders gedreht
+        const s = 0.8 + Math.random() * 0.5;
+        this.flash.scale.set(s, s, s);
+        this.flash.visible = true;
 
         return true;
     }
 
-    // Leeres Magazin: kurzes "Klick"-Feedback statt Schuss
-    _dryFire() {
-        this.weaponGroup.position.x += 0.02;
-        setTimeout(() => { this.weaponGroup.position.x -= 0.02; }, 60);
-    }
-
     reload() {
-        if (this.infiniteAmmo) return; // nie nötig
+        if (this.infiniteAmmo) return;
         if (this.isReloading) return;
-        if (this.ammoInMag === this.magSize) return; // Magazin schon voll
-        if (this.reserveAmmo <= 0) return; // keine Reserve mehr übrig
+        if (this.ammoInMag === this.magSize) return;
+        if (this.reserveAmmo <= 0) return;
 
         this.isReloading = true;
         this._notifyAmmoChange();
-
-        // Waffe während des Nachladens leicht absenken (visuelles Feedback)
-        this.weaponGroup.position.y -= 0.15;
 
         setTimeout(() => {
             const needed = this.magSize - this.ammoInMag;
@@ -91,146 +312,48 @@ export class Weapon {
             this.ammoInMag += amount;
             this.reserveAmmo -= amount;
             this.isReloading = false;
-
-            this.weaponGroup.position.y += 0.15;
             this._notifyAmmoChange();
         }, this.reloadDuration);
     }
-}
 
-// Funktion für gelben Laser-Tracerstrahl im Raum
-export function createTracer(scene, startPos, endPos) {
-    const material = new THREE.LineBasicMaterial({ color: 0xffcc00, linewidth: 2 });
-    const points = [
-        new THREE.Vector3(startPos.x, startPos.y, startPos.z),
-        new THREE.Vector3(endPos.x, endPos.y, endPos.z)
-    ];
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geometry, material);
-    scene.add(line);
-
-    setTimeout(() => {
-        scene.remove(line);
-        geometry.dispose();
-        material.dispose();
-    }, 80);
-}
-
-// --- Modell-Baufunktionen pro Waffentyp (bauen die Meshes direkt in die übergebene Gruppe) ---
-
-function buildRifleModel(group) {
-    const handle = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.3, 0.1),
-        new THREE.MeshBasicMaterial({ color: 0x111111 })
-    );
-    group.add(handle);
-
-    const barrel = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.12, 0.6),
-        new THREE.MeshBasicMaterial({ color: 0x333333 })
-    );
-    barrel.position.set(0, 0.1, -0.2);
-    group.add(barrel);
-
-    const scopeBase = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.08, 0.3),
-        new THREE.MeshBasicMaterial({ color: 0x1a1a1a })
-    );
-    scopeBase.position.set(0, 0.19, -0.25);
-    group.add(scopeBase);
-
-    const scopeLens = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12),
-        new THREE.MeshBasicMaterial({ color: 0x00f0ff })
-    );
-    scopeLens.rotation.x = Math.PI / 2;
-    scopeLens.position.set(0, 0.19, -0.4);
-    group.add(scopeLens);
-}
-
-function buildPistolModel(group) {
-    const handle = new THREE.Mesh(
-        new THREE.BoxGeometry(0.09, 0.22, 0.09),
-        new THREE.MeshBasicMaterial({ color: 0x151515 })
-    );
-    handle.position.set(0, -0.08, 0.05);
-    group.add(handle);
-
-    const slide = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.09, 0.32),
-        new THREE.MeshBasicMaterial({ color: 0x2a2a2a })
-    );
-    slide.position.set(0, 0.02, -0.08);
-    group.add(slide);
-
-    const sight = new THREE.Mesh(
-        new THREE.BoxGeometry(0.03, 0.03, 0.03),
-        new THREE.MeshBasicMaterial({ color: 0xff0055 })
-    );
-    sight.position.set(0, 0.075, -0.22);
-    group.add(sight);
-}
-
-function buildSniperModel(group) {
-    const stock = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.1, 0.4),
-        new THREE.MeshBasicMaterial({ color: 0x1a1512 })
-    );
-    stock.position.set(0, -0.02, 0.1);
-    group.add(stock);
-
-    const barrel = new THREE.Mesh(
-        new THREE.BoxGeometry(0.07, 0.07, 1.0),
-        new THREE.MeshBasicMaterial({ color: 0x222222 })
-    );
-    barrel.position.set(0, 0.07, -0.55);
-    group.add(barrel);
-
-    const scopeBody = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 0.4, 12),
-        new THREE.MeshBasicMaterial({ color: 0x151515 })
-    );
-    scopeBody.rotation.x = Math.PI / 2;
-    scopeBody.position.set(0, 0.22, -0.35);
-    group.add(scopeBody);
-
-    const scopeLens = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.055, 0.055, 0.02, 12),
-        new THREE.MeshBasicMaterial({ color: 0xff0055 })
-    );
-    scopeLens.rotation.x = Math.PI / 2;
-    scopeLens.position.set(0, 0.22, -0.56);
-    group.add(scopeLens);
-}
-
-// --- Waffentypen: magSize/reserveAmmo/reloadDuration greifen nur, falls infiniteAmmo auf false
-// gesetzt wird. Reihenfolge hier = Reihenfolge beim Wechseln mit 1/2/3. ---
-export const WEAPON_CONFIGS = [
-    {
-        name: 'Rifle', damage: 20, fireCooldown: 0.1,
-        magSize: 12, reserveAmmo: 84, reloadDuration: 1500,
-        buildModel: buildRifleModel
-    },
-    {
-        name: 'Pistol', damage: 15, fireCooldown: 0.18,
-        magSize: 10, reserveAmmo: 60, reloadDuration: 1000,
-        buildModel: buildPistolModel
-    },
-    {
-        name: 'Sniper', damage: 75, fireCooldown: 1.2,
-        magSize: 5, reserveAmmo: 25, reloadDuration: 2200,
-        buildModel: buildSniperModel
+    // Rücksetzen beim Waffenwechsel (sonst bliebe ein halber Rückstoß "stehen")
+    resetAnimation() {
+        this.recoil = 0; this.dryNudge = 0; this.flashTimer = 0;
+        this.flash.visible = false;
+        this.weaponGroup.position.copy(BASE_POS);
+        this.weaponGroup.rotation.set(0, 0, 0);
     }
-];
 
-// --- WeaponManager: hält alle Waffen gleichzeitig (an derselben Kamera), blendet beim Wechsel nur
-// die jeweils aktive ein/aus (kein Neu-Erstellen nötig -> sofortiger, flüssiger Wechsel). ---
+    update(delta) {
+        // Rückstoß klingt schnell ab (ca. 0.1 s), Nachladen senkt sanft ab/hebt an
+        this.recoil = Math.max(0, this.recoil - delta * 10);
+        this.dryNudge = Math.max(0, this.dryNudge - delta * 14);
+        const sinkTarget = this.isReloading ? 1 : 0;
+        this.reloadSink += (sinkTarget - this.reloadSink) * Math.min(1, delta * 10);
+
+        // Quadratisch: starker Anfangsimpuls, weicher Auslauf
+        const k = this.recoil * this.recoil;
+        this.weaponGroup.position.set(
+            BASE_POS.x + this.dryNudge * 0.02,
+            BASE_POS.y - this.reloadSink * 0.15,
+            BASE_POS.z + k * this.kick
+        );
+        this.weaponGroup.rotation.x = k * this.kickRot + this.reloadSink * 0.35;
+
+        if (this.flashTimer > 0) {
+            this.flashTimer -= delta;
+            if (this.flashTimer <= 0) this.flash.visible = false;
+        }
+    }
+}
+
+// ---------- WeaponManager ----------
+// Hält alle Waffen gleichzeitig an derselben Kamera, blendet beim Wechsel nur die aktive ein.
 export class WeaponManager {
     constructor(camera, scene, onAmmoChange = null) {
         this.onAmmoChange = onAmmoChange;
         this.activeIndex = 0;
-        this._ready = false; // verhindert, dass der Ammo-Callback einer Waffe während des Aufbaus
-                              // (noch mitten in .map(), this.weapons existiert noch nicht) feuert
+        this._ready = false; // Ammo-Callback darf während des Aufbaus (this.weapons existiert noch nicht) nicht feuern
         this.weapons = WEAPON_CONFIGS.map(
             config => new Weapon(camera, scene, config, (w) => this._handleWeaponAmmoChange(w))
         );
@@ -241,10 +364,13 @@ export class WeaponManager {
 
     get current() { return this.weapons[this.activeIndex]; }
 
-    // Proxy-Eigenschaften, damit main.js/HUD-Code wie bisher einfach "weapon.xyz" lesen kann,
-    // ohne überall ".current" einfügen zu müssen.
+    // Proxy-Eigenschaften für HUD/main.js
     get name() { return this.current.name; }
     get damage() { return this.current.damage; }
+    get color() { return this.current.color; }
+    get tracerWidth() { return this.current.tracerWidth; }
+    get tracerLife() { return this.current.tracerLife; }
+    get holeSize() { return this.current.holeSize; }
     get ammoInMag() { return this.current.ammoInMag; }
     get reserveAmmo() { return this.current.reserveAmmo; }
     get magSize() { return this.current.magSize; }
@@ -253,9 +379,12 @@ export class WeaponManager {
 
     shoot() { return this.current.shoot(); }
     reload() { this.current.reload(); }
+    update(delta) { this.current.update(delta); }
+    getMuzzleWorldPosition(out) { return this.current.getMuzzleWorldPosition(out); }
 
     switchTo(index) {
         if (index < 0 || index >= this.weapons.length || index === this.activeIndex) return;
+        this.current.resetAnimation();
         this.current.weaponGroup.visible = false;
         this.activeIndex = index;
         this.current.weaponGroup.visible = true;
@@ -267,9 +396,7 @@ export class WeaponManager {
     }
 
     _handleWeaponAmmoChange(weapon) {
-        if (!this._ready) return; // Aufbau noch nicht fertig (this.weapons existiert noch nicht)
-        // Nur HUD aktualisieren, wenn sich die gerade AKTIVE Waffe ändert (z.B. Nachladen im
-        // Hintergrund einer nicht ausgerüsteten Waffe soll das HUD nicht beeinflussen)
+        if (!this._ready) return;
         if (weapon === this.current) this._notify();
     }
 
