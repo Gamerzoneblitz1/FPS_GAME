@@ -303,20 +303,27 @@
             var box = document.getElementById('error-box');
             function show(msg) { box.style.display = 'block'; box.textContent += (box.textContent ? '\n' : '') + msg; }
             window.addEventListener('error', function (e) {
+                if (e.target && e.target.getAttribute && e.target.getAttribute('data-optional')) return; // Fallback-Kette: Fehler einzelner Versuche nicht anzeigen
                 if (e.target && e.target !== window && (e.target.src || e.target.href)) show('Datei konnte nicht geladen werden: ' + (e.target.src || e.target.href));
                 else show('Fehler: ' + e.message + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
             }, true);
+            window.__showError = show;
             window.addEventListener('unhandledrejection', function (e) { show('Fehler: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
         })();
     </script>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/libs/inflate.min.js"></script>
+    <!-- FBXLoader r128 entpackt komprimierte Modelle mit "fflate" (inflate.min.js gibt es in r128 nicht mehr -> 404).
+         Kette: three-Beispieldatei (gh) -> three-Beispieldatei (npm) -> fflate-Paket direkt. Global heißt die Bibliothek "fflate". -->
+    <script data-optional="1" src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/libs/fflate.min.js"></script>
     <script>
-        // Reserve, falls jsdelivr nicht lädt (inflate.min.js definiert das globale "Zlib")
-        if (typeof Zlib === 'undefined') {
-            document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/inflate.min.js"><\/script>');
-        }
+        if (typeof fflate === 'undefined') document.write('<script data-optional="1" src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"><\/script>');
+    </script>
+    <script>
+        if (typeof fflate === 'undefined') document.write('<script data-optional="1" src="https://cdn.jsdelivr.net/npm/fflate@0.6.9/umd/index.js"><\/script>');
+    </script>
+    <script>
+        if (typeof fflate === 'undefined' && window.__showError) window.__showError('FBX-Modell: Entpack-Bibliothek (fflate) konnte nicht geladen werden - Spieler erscheinen als rote Box.');
     </script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/FBXLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/utils/SkeletonUtils.js"></script>
