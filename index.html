@@ -116,6 +116,23 @@
         #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
         #settings-close { width: 100%; padding: 8px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; }
 
+        /* --- Zielfernrohr (Sniper, Rechtsklick) --- */
+        #scope-overlay {
+            position: absolute; inset: 0; z-index: 1; display: none; pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, transparent 0, transparent 35.5vmin, rgba(0,0,0,0.9) 36.3vmin, #000 40vmin);
+        }
+        #scope-overlay .scope-ring {
+            position: absolute; left: 50%; top: 50%; width: 72vmin; height: 72vmin; border-radius: 50%;
+            transform: translate(-50%, -50%); border: 2px solid rgba(255,43,214,0.75); box-shadow: 0 0 14px rgba(255,43,214,0.6);
+        }
+        #scope-overlay .scope-h, #scope-overlay .scope-v { position: absolute; left: 50%; top: 50%; background: rgba(0,0,0,0.85); transform: translate(-50%, -50%); }
+        #scope-overlay .scope-h { width: 72vmin; height: 2px; }
+        #scope-overlay .scope-v { height: 72vmin; width: 2px; }
+        #scope-overlay .scope-dot { position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; border-radius: 50%; transform: translate(-50%, -50%); background: #ff2bd6; box-shadow: 0 0 8px #ff2bd6; }
+        /* HUD bleibt über dem Zielfernrohr-Overlay sichtbar */
+        #hud-bl, #hud-br, #kill-feed, #map-title, #own-name-display, #crosshair, #reset-hold { z-index: 2; }
+        #leaderboard, #death-overlay { z-index: 4; }
+
         /* --- Reset-Hold-Anzeige (K halten) --- */
         #reset-hold {
             position: absolute; top: calc(50% + 28px); left: 50%; transform: translateX(-50%);
@@ -135,6 +152,7 @@
         #btn-fire { right: 28px; bottom: 34px; width: 88px; height: 88px; background: rgba(255,60,60,0.25); border-color: rgba(255,90,90,0.6); font-size: 30px; }
         #btn-jump { right: 132px; bottom: 116px; width: 64px; height: 64px; }
         #btn-reload { right: 30px; bottom: 138px; width: 60px; height: 60px; font-size: 16px; }
+        #btn-scope { right: 104px; bottom: 214px; width: 52px; height: 52px; font-size: 20px; }
         #btn-reset { right: 36px; bottom: 214px; width: 48px; height: 48px; font-size: 18px; }
         #btn-switch-weapon { right: 100px; bottom: 138px; width: 60px; height: 60px; font-size: 22px; }
 
@@ -178,6 +196,7 @@
 </head>
 <body>
     <div id="crosshair"></div>
+    <div id="scope-overlay"><div class="scope-ring"></div><div class="scope-h"></div><div class="scope-v"></div><div class="scope-dot"></div></div>
     <div id="reset-hold">RESET<div id="reset-hold-bar"><div id="reset-hold-fill"></div></div></div>
     <div id="map-title">NEON VAULT MEGAPLEX</div>
     <div id="own-name-display"></div>
@@ -239,6 +258,7 @@
         <div id="btn-reload" class="touch-btn">R</div>
         <div id="btn-switch-weapon" class="touch-btn">🔄</div>
         <div id="btn-reset" class="touch-btn">↺</div>
+        <div id="btn-scope" class="touch-btn">◎</div>
         <div id="btn-fire" class="touch-btn">🔫</div>
     </div>
 
@@ -248,6 +268,7 @@
         <button id="pause-resume">WEITER</button>
         <button id="pause-reset" class="danger">RESET (RESPAWN)</button>
         <button id="pause-settings">EINSTELLUNGEN</button>
+        <p id="lock-error" style="display:none; color:#ffaa00;">Maus konnte nicht erfasst werden – bitte auf WEITER klicken.</p>
         <p>Reset: Kill geht an den letzten Angreifer, sonst an den nächsten Spieler</p>
     </div>
 
@@ -256,7 +277,7 @@
         <h1>NEON VAULT</h1>
         <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
         <button id="enter-btn">SPIELEN</button>
-        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | ESC = Pause/Reset/Einstellungen</p>
+        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | Rechtsklick = Zielen | ESC = Pause/Reset/Einstellungen</p>
     </div>
 
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
