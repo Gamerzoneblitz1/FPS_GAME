@@ -133,6 +133,12 @@
         #hud-bl, #hud-br, #kill-feed, #map-title, #own-name-display, #crosshair, #reset-hold { z-index: 2; }
         #leaderboard, #death-overlay { z-index: 4; }
 
+        #error-box {
+            position: fixed; left: 10px; right: 10px; bottom: 10px; z-index: 100; display: none;
+            background: rgba(120,0,20,0.92); color: #fff; font: 12px/1.4 monospace; padding: 10px 12px;
+            border: 1px solid #ff3355; border-radius: 8px; white-space: pre-wrap; word-break: break-word; pointer-events: auto;
+        }
+
         /* --- Reset-Hold-Anzeige (K halten) --- */
         #reset-hold {
             position: absolute; top: calc(50% + 28px); left: 50%; transform: translateX(-50%);
@@ -280,6 +286,19 @@
         <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | Rechtsklick = Zielen | ESC = Pause/Reset/Einstellungen</p>
     </div>
 
+    <div id="error-box"></div>
+    <script>
+        // Zeigt Skript-/Ladefehler direkt im Spiel an (statt nur stillem Blackscreen)
+        (function () {
+            var box = document.getElementById('error-box');
+            function show(msg) { box.style.display = 'block'; box.textContent += (box.textContent ? '\n' : '') + msg; }
+            window.addEventListener('error', function (e) {
+                if (e.target && e.target !== window && (e.target.src || e.target.href)) show('Datei konnte nicht geladen werden: ' + (e.target.src || e.target.href));
+                else show('Fehler: ' + e.message + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+            }, true);
+            window.addEventListener('unhandledrejection', function (e) { show('Fehler: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
+        })();
+    </script>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/three@0.128.0/examples/js/libs/inflate.min.js"></script>
