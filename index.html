@@ -158,6 +158,7 @@
         #btn-fire { right: 28px; bottom: 34px; width: 88px; height: 88px; background: rgba(255,60,60,0.25); border-color: rgba(255,90,90,0.6); font-size: 30px; }
         #btn-jump { right: 132px; bottom: 116px; width: 64px; height: 64px; }
         #btn-reload { right: 30px; bottom: 138px; width: 60px; height: 60px; font-size: 16px; }
+        #btn-heal { right: 172px; bottom: 214px; width: 52px; height: 52px; font-size: 20px; }
         #btn-scope { right: 104px; bottom: 214px; width: 52px; height: 52px; font-size: 20px; }
         #btn-reset { right: 36px; bottom: 214px; width: 48px; height: 48px; font-size: 18px; }
         #btn-switch-weapon { right: 100px; bottom: 138px; width: 60px; height: 60px; font-size: 22px; }
@@ -218,6 +219,12 @@
             <div class="hud-bar-bg"><div id="ammo-bar-fill" class="hud-bar-fill"></div></div>
             <span id="ammo-val" class="hud-val" style="color:#00f0ff;">∞</span>
         </div>
+        <div class="hud-row" id="syringe-row" style="opacity:0.55;">
+            <div class="hud-icon">💉</div>
+            <span id="syringe-val" class="hud-val" style="color:#ccc; min-width:30px;">x0</span>
+            <span id="syringe-progress" style="font-size:12px; color:rgba(255,255,255,0.55);">0/5 Kills</span>
+            <span style="font-size:11px; color:#00f0ff; border:1px solid rgba(0,240,255,0.5); border-radius:4px; padding:0 5px;">H</span>
+        </div>
         <div class="hud-row">
             <div class="hud-icon">❤</div>
             <div class="hud-bar-bg"><div id="health-bar-fill" class="hud-bar-fill"></div></div>
@@ -265,6 +272,7 @@
         <div id="btn-switch-weapon" class="touch-btn">🔄</div>
         <div id="btn-reset" class="touch-btn">↺</div>
         <div id="btn-scope" class="touch-btn">◎</div>
+        <div id="btn-heal" class="touch-btn">💉</div>
         <div id="btn-fire" class="touch-btn">🔫</div>
     </div>
 
@@ -283,7 +291,7 @@
         <h1>NEON VAULT</h1>
         <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
         <button id="enter-btn">SPIELEN</button>
-        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | Rechtsklick = Zielen | ESC = Pause/Reset/Einstellungen</p>
+        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | Rechtsklick = Zielen | H = Heilspritze | ESC = Pause/Reset/Einstellungen</p>
     </div>
 
     <div id="error-box"></div>
@@ -313,20 +321,6 @@
     </script>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- FBXLoader r128 entpackt komprimierte Modelle mit "fflate" (inflate.min.js gibt es in r128 nicht mehr -> 404).
-         Kette: three-Beispieldatei (gh) -> three-Beispieldatei (npm) -> fflate-Paket direkt. Global heißt die Bibliothek "fflate". -->
-    <script data-optional="1" src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/libs/fflate.min.js"></script>
-    <script>
-        if (typeof fflate === 'undefined') document.write('<script data-optional="1" src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"><\/script>');
-    </script>
-    <script>
-        if (typeof fflate === 'undefined') document.write('<script data-optional="1" src="https://cdn.jsdelivr.net/npm/fflate@0.6.9/umd/index.js"><\/script>');
-    </script>
-    <script>
-        if (typeof fflate === 'undefined' && window.__showError) window.__showError('FBX-Modell: Entpack-Bibliothek (fflate) konnte nicht geladen werden - Spieler erscheinen als rote Box.');
-    </script>
-    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/FBXLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/utils/SkeletonUtils.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/shaders/CopyShader.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/shaders/LuminosityHighPassShader.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/postprocessing/EffectComposer.js"></script>
