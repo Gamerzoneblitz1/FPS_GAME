@@ -56,7 +56,8 @@ const MIN_SAFE_SPAWN_DISTANCE = 40;
 
 // --- Reset-Button-Regeln ---
 const LAST_ATTACKER_WINDOW_MS = 10000; // Schaden älter als 10s zählt nicht mehr als "wurde getötet von"
-const RESET_COOLDOWN_MS = 5000;        // Mindestabstand zwischen zwei Resets pro Spieler (gegen Kill-Farming)
+const RESET_COOLDOWN_MS = 5000;
+const SYRINGE_KILL_INTERVAL = 5;       // alle 5 Kills gibt es eine Heilspritze
 
 function getRandomSpawnPoint(excludeId) {
     const others = Object.values(players).filter((_, i) => Object.keys(players)[i] !== excludeId);
@@ -87,7 +88,14 @@ function killPlayer(victimId, killerId, reason = 'hit') {
     if (!victim) return;
     const killer = (killerId && killerId !== victimId) ? players[killerId] : null;
 
-    if (killer) killer.kills = (killer.kills || 0) + 1;
+    if (killer) {
+        killer.kills = (killer.kills || 0) + 1;
+        // Heilspritze als Belohnung: alle SYRINGE_KILL_INTERVAL Kills (5, 10, 15, ...)
+        if (killer.kills % SYRINGE_KILL_INTERVAL === 0) {
+            killer.syringes = (killer.syringes || 0) + 1;
+            io.to(killerId).emit('syringeUpdate', { count: killer.syringes, awarded: true });
+        }
+    }
     if (killer || reason !== 'reset') victim.deaths = (victim.deaths || 0) + 1;
 
     victim.health = 100;
@@ -122,7 +130,7 @@ io.on('connection', (socket) => {
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
     const spawn = getRandomSpawnPoint(socket.id);
-    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0 };
+    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0 };
 
     socket.emit('currentPlayers', players);
     socket.broadcast.emit('newPlayer', { id: socket.id, position: players[socket.id], name: players[socket.id].name });
@@ -139,10 +147,31 @@ io.on('connection', (socket) => {
     });
 
     socket.on('playerMove', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x; players[socket.id].y = data.y; players[socket.id].z = data.z;
-            socket.broadcast.emit('playerMoved', { id: socket.id, position: data });
+        const p = players[socket.id];
+        if (!p) return;
+        const x = Number(data?.x), y = Number(data?.y), z = Number(data?.z);
+        if (![x, y, z].every(Number.isFinite)) return;
+        const ry = Number.isFinite(Number(data.ry)) ? Number(data.ry) : 0; // Blickrichtung (Yaw) für den Spieler-Skin
+        p.x = x; p.y = y; p.z = z;
+        socket.broadcast.emit('playerMoved', { id: socket.id, position: { x, y, z, ry } });
+    });
+
+    // Heilspritze benutzen: heilt voll. Der Server prüft Besitz und ob Heilung überhaupt nötig ist.
+    socket.on('useSyringe', () => {
+        const me = players[socket.id];
+        if (!me) return;
+        if (!me.syringes || me.syringes <= 0) {
+            socket.emit('syringeUpdate', { count: 0, denied: 'none' });
+            return;
         }
+        if (me.health >= 100) {
+            socket.emit('syringeUpdate', { count: me.syringes, denied: 'full' });
+            return;
+        }
+        me.syringes -= 1;
+        me.health = 100;
+        socket.emit('syringeUpdate', { count: me.syringes, used: true });
+        io.emit('playerHealthUpdate', { id: socket.id, health: 100 });
     });
 
     // Schuss-Effekte weiterreichen (Tracer, Bullet Hole). Alles wird validiert, damit kein Client
