@@ -1,7 +1,7 @@
 import { setupMap } from './map.js';
 import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
-import { createPlayerMesh, updatePlayerAnimations } from './player.js';
+import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing } from './player.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
 let playerName = ''; // wird beim ersten Spielstart abgefragt
@@ -76,6 +76,11 @@ let moveForward = false, moveBackward = false, moveLeft = false, moveRight = fal
 let spaceHeld = false; // Leertaste gedrückt halten = automatisch springen, sobald man den Boden berührt
 let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhängig gedrückt/losgelassen werden
 let sprintHeld = false;
+let syringes = 0;      // Anzahl Heilspritzen (Server-Wert)
+let myKills = 0;       // eigene Kills (aus dem Leaderboard) für die Fortschrittsanzeige
+let healHeld = false;  // verhindert Dauer-Auslösen durch Tastenwiederholung
+const SYRINGE_KILL_INTERVAL = 5;
+const _faceDir = new THREE.Vector3();
 const BASE_FOV = 75;
 let lookScale = 1; // Maus-/Touch-Empfindlichkeit relativ zum Zoom (beim Zielen langsamer)
 let fireHeld = false; // Feuertaste gehalten (Maus links / Touch-Fire) -> Dauerfeuer bei automatischen Waffen
@@ -285,6 +290,7 @@ function init() {
     socket.on('playerMoved', (data) => {
         if (otherPlayers[data.id]) {
             otherPlayers[data.id].position.set(data.position.x, data.position.y, data.position.z);
+            setPlayerFacing(otherPlayers[data.id], data.position.ry); // Blickrichtung des Skins
         }
     });
 
@@ -319,6 +325,21 @@ function init() {
 
     // Treffer-Bestätigung (nur für den Schützen: rotes Fadenkreuz-Flash)
     socket.on('hitConfirm', () => flashCrosshair());
+
+    socket.on('syringeUpdate', (d) => {
+        syringes = d.count || 0;
+        updateSyringeUI();
+        if (d.awarded) showNotice('💉 Heilspritze erhalten! (H drücken)');
+        else if (d.used) showNotice('💉 Voll geheilt!');
+        else if (d.denied === 'full') showNotice('Leben ist bereits voll');
+        else if (d.denied === 'none') showNotice(`Keine Heilspritze – alle ${SYRINGE_KILL_INTERVAL} Kills gibt es eine`);
+    });
+
+    // Eigene Kills aus dem Leaderboard lesen (Fortschritt bis zur nächsten Spritze)
+    socket.on('leaderboard', (board) => {
+        const me = board.find(e => e.id === socket.id);
+        if (me) { myKills = me.kills || 0; updateSyringeUI(); }
+    });
 
     socket.on('resetDenied', (data) => {
         showNotice(`Reset in ${Math.ceil(data.remainingMs / 1000)}s wieder möglich`);
@@ -470,6 +491,18 @@ function updateNameTag(id, name) {
     mesh.add(tag);
 }
 
+function updateSyringeUI() {
+    const val = document.getElementById('syringe-val');
+    const prog = document.getElementById('syringe-progress');
+    const row = document.getElementById('syringe-row');
+    if (val) {
+        val.innerText = 'x' + syringes;
+        val.style.color = syringes > 0 ? '#00ff99' : '#ccc';
+    }
+    if (prog) prog.innerText = `${myKills % SYRINGE_KILL_INTERVAL}/${SYRINGE_KILL_INTERVAL} Kills`;
+    if (row) row.style.opacity = syringes > 0 ? '1' : '0.55';
+}
+
 function updateHealthUI() {
     const healthVal = document.getElementById('health-val');
     const healthBar = document.getElementById('health-bar-fill');
@@ -501,7 +534,7 @@ function updateAmmoUI(ammoInMag, reserveAmmo, isReloading, weaponName, magSize) 
         return;
     }
 
-    ammoVal.innerText = `${ammoInMag} / ${reserveAmmo}`;
+    ammoVal.innerText = `${ammoInMag} / ${Number.isFinite(reserveAmmo) ? reserveAmmo : '∞'}`;
     ammoVal.style.color = ammoInMag === 0 ? '#ff0000' : ammoInMag <= Math.ceil(magSize * 0.3) ? '#ffff00' : '#00f0ff';
     if (ammoBar) ammoBar.style.width = (ammoInMag / magSize) * 100 + '%';
 }
@@ -579,6 +612,10 @@ function onKeyChange(keyCode, isPressed) {
             if (!isPressed) { resetHeld = false; resetLatch = false; resetHoldStart = null; }
             else if (!resetLatch) resetHeld = true;
             break;
+        case 72: // H = Heilspritze benutzen
+            if (!isPressed) healHeld = false;
+            else if (!healHeld) { healHeld = true; socket.emit('useSyringe'); }
+            break;
         case 82: // R
             if (isPressed) weapon.reload();
             break;
@@ -603,6 +640,7 @@ function setupTouchControls() {
     const btnReload = document.getElementById('btn-reload');
     const btnReset = document.getElementById('btn-reset');
     const btnScope = document.getElementById('btn-scope');
+    const btnHeal = document.getElementById('btn-heal');
 
     // --- Joystick: steuert dieselben move-Flags wie WASD ---
     joystickZone.addEventListener('touchstart', (e) => {
@@ -708,6 +746,10 @@ function setupTouchControls() {
         weapon.reload();
         e.preventDefault();
     }, { passive: false });
+
+    if (btnHeal) {
+        btnHeal.addEventListener('touchstart', (e) => { socket.emit('useSyringe'); e.preventDefault(); }, { passive: false });
+    }
 
     if (btnScope) {
         // Touch hat keine rechte Maustaste -> Zielen per Antippen ein/aus
@@ -1095,7 +1137,9 @@ function animate() {
         camera.position.y = feetY + currentEyeHeight;
 
         const pos = camera.position;
-        socket.emit('playerMove', { x: pos.x, y: pos.y - 1.5, z: pos.z });
+        camera.getWorldDirection(_faceDir);
+        const ry = Math.atan2(-_faceDir.x, -_faceDir.z); // Yaw: 0 = Blick nach -Z
+        socket.emit('playerMove', { x: pos.x, y: pos.y - 1.5, z: pos.z, ry });
     }
 
     updateNearestEnemyUI();
