@@ -165,7 +165,8 @@ function buildSniperModel(g) {
 
 // ---------- Waffentypen ----------
 // automatic  = true: Dauerfeuer bei gehaltener Feuertaste (sonst ein Schuss pro Klick)
-// infiniteAmmo = false: Magazin + Reserve, Nachladen nötig (true = unendlich)
+// infiniteAmmo = false: Magazin muss nachgeladen werden. reserveAmmo: Infinity = unbegrenzte Reserve (man kann
+//   immer nachladen, aber das Magazin leert sich); eine Zahl = begrenzte Reserve. infiniteAmmo: true = nie nachladen.
 // aimFov = Sichtfeld beim Zielen (Rechtsklick), aimPos = Waffenposition beim Zielen (Visier in Bildmitte),
 // aimSpeed = Zielgeschwindigkeit, aimMoveFactor = Lauftempo beim Zielen, scopeOverlay = Zielfernrohr-Ansicht
 // color      = Neon-Farbe für Tracer, Einschlagsfunken, Bullet Holes, Mündungsfeuer
@@ -173,7 +174,7 @@ function buildSniperModel(g) {
 export const WEAPON_CONFIGS = [
     {
         name: 'Rifle', damage: 20, fireCooldown: 0.1, automatic: true,
-        magSize: 30, reserveAmmo: 120, reloadDuration: 1700, infiniteAmmo: false,
+        magSize: 30, reserveAmmo: Infinity, reloadDuration: 1700, infiniteAmmo: false,
         color: 0x00f0ff, tracerWidth: 0.03, tracerLife: 0.09, holeSize: 0.26,
         kick: 0.05, kickRot: 0.05,
         aimFov: 55, aimPos: [0, -0.172, -0.30], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false,
@@ -181,7 +182,7 @@ export const WEAPON_CONFIGS = [
     },
     {
         name: 'Pistol', damage: 15, fireCooldown: 0.18,
-        magSize: 12, reserveAmmo: 60, reloadDuration: 1100, infiniteAmmo: false,
+        magSize: 12, reserveAmmo: Infinity, reloadDuration: 1100, infiniteAmmo: false,
         color: 0xffcc00, tracerWidth: 0.024, tracerLife: 0.08, holeSize: 0.22,
         kick: 0.06, kickRot: 0.09,
         aimFov: 62, aimPos: [0, -0.108, -0.35], aimSpeed: 11, aimMoveFactor: 0.9, scopeOverlay: false,
@@ -189,7 +190,7 @@ export const WEAPON_CONFIGS = [
     },
     {
         name: 'Sniper', damage: 75, fireCooldown: 1.2,
-        magSize: 5, reserveAmmo: 20, reloadDuration: 2400, infiniteAmmo: false,
+        magSize: 5, reserveAmmo: Infinity, reloadDuration: 2400, infiniteAmmo: false,
         color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
         kick: 0.14, kickRot: 0.16,
         aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true,
