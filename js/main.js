@@ -1,5 +1,6 @@
 import { setupMap } from './map.js';
 import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
+import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing } from './player.js';
 
@@ -16,11 +17,12 @@ const savedSettings = (() => {
     try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; }
 })();
 let userPixelRatioPercent = savedSettings.pixelRatio ?? 90; // 90% Standard, im Menü 50-100% einstellbar
+let showNametags = savedSettings.showNametags ?? false; // Namensschilder über Spielern: Standard AUS (unsichtbar), im Menü einschaltbar
 let bloomEnabled = savedSettings.bloomEnabled ?? false; // Standard jetzt AUS (war zu hell) - im Menü weiter an-/abschaltbar
 
 function saveSettings() {
     try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ pixelRatio: userPixelRatioPercent, bloomEnabled }));
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ pixelRatio: userPixelRatioPercent, bloomEnabled, showNametags }));
     } catch (e) { /* localStorage evtl. nicht verfügbar (z.B. privates Fenster) - dann halt nicht speichern */ }
 }
 let weapon;
@@ -78,6 +80,8 @@ let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhäng
 let sprintHeld = false;
 let syringes = 0;      // Anzahl Heilspritzen (Server-Wert)
 let myKills = 0;       // eigene Kills (aus dem Leaderboard) für die Fortschrittsanzeige
+let stepTimer = 0;         // Schritt-Sound-Takt
+let wasSlidingSfx = false;
 let healHeld = false;  // verhindert Dauer-Auslösen durch Tastenwiederholung
 const SYRINGE_KILL_INTERVAL = 5;
 const _faceDir = new THREE.Vector3();
@@ -251,6 +255,8 @@ function init() {
     portalRings = colliders.portalRings || [];
     shootBlockers = colliders.shootBlockers || [];
     weapon = new WeaponManager(camera, scene, updateAmmoUI);
+    weapon.onEvent = handleWeaponEvent;
+    sfx.initAudio(); // Audio-Kontext startet beim ersten Klick/Tastendruck
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
     document.addEventListener('keyup', (e) => onKeyChange(e.keyCode, false));
@@ -294,10 +300,14 @@ function init() {
         }
     });
 
-    socket.on('playerShot', (data) => playShotEffects(data.start, data.end, data.w, data.n, data.hitPlayer));
+    socket.on('playerShot', (data) => {
+        playShotEffects(data.start, data.end, data.w, data.n, data.hitPlayer);
+        sfx.playShotRemote(data.w, data.start, camera); // Schuss anderer Spieler: nach Entfernung/Richtung
+    });
 
     socket.on('playerHealthUpdate', (data) => {
         if (data.id === socket.id) {
+            if (data.health < health) sfx.playHurt(); // Schaden bekommen
             health = data.health;
             updateHealthUI();
         }
@@ -306,6 +316,8 @@ function init() {
     socket.on('playerKilled', (data) => {
         // Kill-Feed anzeigen (für alle)
         addKillFeedEntry(data.killerName, data.victimName, data.killerId === socket.id, data.victimId === socket.id);
+        if (data.killerId === socket.id && data.victimId !== socket.id) sfx.playKill();
+        if (data.victimId === socket.id) sfx.playDeath();
 
         if (data.victimId === socket.id) {
             // Ich wurde getötet
@@ -324,13 +336,13 @@ function init() {
     });
 
     // Treffer-Bestätigung (nur für den Schützen: rotes Fadenkreuz-Flash)
-    socket.on('hitConfirm', () => flashCrosshair());
+    socket.on('hitConfirm', () => { flashCrosshair(); sfx.playHitMarker(); });
 
     socket.on('syringeUpdate', (d) => {
         syringes = d.count || 0;
         updateSyringeUI();
         if (d.awarded) showNotice('💉 Heilspritze erhalten! (H drücken)');
-        else if (d.used) showNotice('💉 Voll geheilt!');
+        else if (d.used) { showNotice('💉 Voll geheilt!'); sfx.playHeal(); }
         else if (d.denied === 'full') showNotice('Leben ist bereits voll');
         else if (d.denied === 'none') showNotice(`Keine Heilspritze – alle ${SYRINGE_KILL_INTERVAL} Kills gibt es eine`);
     });
@@ -463,6 +475,13 @@ function addOtherPlayer(id, position, name = '') {
     scene.add(pMesh);
 }
 
+// Unsichtbar = nicht gerendert UND auf Layer 1 (der Raycast für Treffer prüft nur Layer 0, ein verstecktes
+// Schild kann also auch keine Schüsse mehr "auffangen")
+function setNametagVisible(tag, on) {
+    tag.visible = on;
+    tag.layers.set(on ? 0 : 1);
+}
+
 function makeNameSprite(name) {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 64;
@@ -477,6 +496,7 @@ function makeNameSprite(name) {
     const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
     const sprite = new THREE.Sprite(mat);
     sprite.scale.set(2.8, 0.7, 1);
+    setNametagVisible(sprite, showNametags);
     return sprite;
 }
 
@@ -790,6 +810,18 @@ function addKillFeedEntry(killer, victim, iMadeKill, iDied) {
     setTimeout(() => el.remove(), KILL_FEED_DURATION);
 }
 
+// Waffen-Ereignisse -> Sounds (die Waffen selbst wissen nichts von Audio)
+function handleWeaponEvent(type, idx) {
+    switch (type) {
+        case 'shoot': sfx.playShot(idx); break;
+        case 'dry': sfx.playDry(); break;
+        case 'reloadStart': sfx.playReload('out', idx); break;
+        case 'reloadMid': sfx.playReload('in', idx); break;
+        case 'reloadEnd': sfx.playReload('bolt', idx); break;
+        case 'draw': sfx.playDraw(idx); break;
+    }
+}
+
 // Zielen: FOV gleitend zur Zoomstufe der Waffe, Empfindlichkeit passend zum Zoom (sonst wirkt die
 // Maus im Zielfernrohr viel zu schnell), Zielfernrohr-Overlay bei Sniper, Fadenkreuz dabei ausblenden.
 const _scopeEl = () => document.getElementById('scope-overlay');
@@ -955,6 +987,36 @@ function setupSettingsPanel() {
         }
         saveSettings();
     });
+
+    // Namensschilder ein-/ausblenden
+    const nametagToggle = document.getElementById('nametag-toggle');
+    if (nametagToggle) {
+        nametagToggle.checked = showNametags;
+        nametagToggle.addEventListener('change', () => {
+            showNametags = nametagToggle.checked;
+            playerMeshesList.forEach(m => {
+                const t = m.getObjectByName('nametag');
+                if (t) setNametagVisible(t, showNametags);
+            });
+            saveSettings();
+        });
+    }
+
+    // Sound: Lautstärke + Stumm (speichert audio.js selbst)
+    const volSlider = document.getElementById('vol-slider');
+    const volVal = document.getElementById('vol-val');
+    const muteToggle = document.getElementById('mute-toggle');
+    if (volSlider && volVal && muteToggle) {
+        volSlider.value = Math.round(sfx.getVolume() * 100);
+        volVal.textContent = volSlider.value + '%';
+        muteToggle.checked = sfx.isMuted();
+        volSlider.addEventListener('input', () => {
+            sfx.setVolume(parseInt(volSlider.value, 10) / 100);
+            volVal.textContent = volSlider.value + '%';
+            sfx.playHitMarker(); // kurzer Hörtest
+        });
+        muteToggle.addEventListener('change', () => sfx.setMuted(muteToggle.checked));
+    }
 }
 
 function onWindowResize() {
@@ -1010,6 +1072,7 @@ function animate() {
         if (spaceHeld && isGrounded) {
             velocity.y += JUMP_VELOCITY;
             canJump = false;
+            sfx.playJump();
             if ((sliding || crouchInput) && speedBeforeJump > 0.5) {
                 velocity.x *= SLIDE_JUMP_BOOST;
                 velocity.z *= SLIDE_JUMP_BOOST;
@@ -1127,6 +1190,7 @@ function animate() {
         const groundY = groundHits.length > 0 ? groundHits[0].point.y : 0;
 
         if (feetY <= groundY) {
+            if (!canJump && velocity.y < -6) sfx.playLand(Math.min(1, -velocity.y / 22)); // Aufprall-Geräusch
             velocity.y = 0;
             feetY = groundY;
             canJump = true;
@@ -1135,6 +1199,21 @@ function animate() {
         // Kamera-Höhe = Fuß-Position + aktuelle Augenhöhe -> Ducken/Sliden wirkt sich SOFORT aus,
         // unabhängig davon ob man gerade am Boden steht oder in der Luft ist.
         camera.position.y = feetY + currentEyeHeight;
+
+        // --- Sounds: Schritte (zeitgesteuert, schneller beim Sprinten, leise beim Ducken) und Rutschen ---
+        const hSpeed = Math.hypot(velocity.x, velocity.z);
+        if (canJump && !sliding && hSpeed > 1.5) {
+            stepTimer += delta;
+            const interval = sprintHeld ? 0.30 : (crouchInput ? 0.52 : 0.38);
+            if (stepTimer >= interval) {
+                stepTimer = 0;
+                sfx.playFootstep(crouchInput ? 0.35 : (sprintHeld ? 1 : 0.7));
+            }
+        } else if (!canJump) {
+            stepTimer = 0.2; // nach der Landung bald ein Schritt
+        }
+        if (sliding && !wasSlidingSfx) sfx.playSlide();
+        wasSlidingSfx = sliding;
 
         const pos = camera.position;
         camera.getWorldDirection(_faceDir);
