@@ -169,6 +169,7 @@ function buildSniperModel(g) {
 //   immer nachladen, aber das Magazin leert sich); eine Zahl = begrenzte Reserve. infiniteAmmo: true = nie nachladen.
 // aimFov = Sichtfeld beim Zielen (Rechtsklick), aimPos = Waffenposition beim Zielen (Visier in Bildmitte),
 // aimSpeed = Zielgeschwindigkeit, aimMoveFactor = Lauftempo beim Zielen, scopeOverlay = Zielfernrohr-Ansicht
+// drawTime = Dauer der Zieh-Animation in Sekunden (Waffe kann währenddessen nicht schießen/zielen)
 // color      = Neon-Farbe für Tracer, Einschlagsfunken, Bullet Holes, Mündungsfeuer
 // kick/kickRot = Rückstoß (Rückwärtsversatz / Hochschlag in rad); holeSize = Größe des Einschussloches
 export const WEAPON_CONFIGS = [
@@ -177,7 +178,7 @@ export const WEAPON_CONFIGS = [
         magSize: 30, reserveAmmo: Infinity, reloadDuration: 1700, infiniteAmmo: false,
         color: 0x00f0ff, tracerWidth: 0.03, tracerLife: 0.09, holeSize: 0.26,
         kick: 0.05, kickRot: 0.05,
-        aimFov: 55, aimPos: [0, -0.172, -0.30], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false,
+        aimFov: 55, aimPos: [0, -0.172, -0.30], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false, drawTime: 0.42,
         buildModel: buildRifleModel
     },
     {
@@ -185,7 +186,7 @@ export const WEAPON_CONFIGS = [
         magSize: 12, reserveAmmo: Infinity, reloadDuration: 1100, infiniteAmmo: false,
         color: 0xffcc00, tracerWidth: 0.024, tracerLife: 0.08, holeSize: 0.22,
         kick: 0.06, kickRot: 0.09,
-        aimFov: 62, aimPos: [0, -0.108, -0.35], aimSpeed: 11, aimMoveFactor: 0.9, scopeOverlay: false,
+        aimFov: 62, aimPos: [0, -0.108, -0.35], aimSpeed: 11, aimMoveFactor: 0.9, scopeOverlay: false, drawTime: 0.30,
         buildModel: buildPistolModel
     },
     {
@@ -193,7 +194,7 @@ export const WEAPON_CONFIGS = [
         magSize: 5, reserveAmmo: Infinity, reloadDuration: 2400, infiniteAmmo: false,
         color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
         kick: 0.14, kickRot: 0.16,
-        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true,
+        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true, drawTime: 0.60,
         buildModel: buildSniperModel
     }
 ];
@@ -242,6 +243,10 @@ export class Weapon {
         this.aimSpeed = config.aimSpeed;
         this.aimMoveFactor = config.aimMoveFactor;
         this.scopeOverlay = config.scopeOverlay;
+        this.drawTime = config.drawTime ?? 0.4;
+        this.drawT = 1;        // 0..1 Fortschritt der Zieh-Animation (1 = fertig gezogen)
+        this.emitEvent = null; // Callback(type) für Sounds: 'shoot','dry','reloadStart','reloadMid','reloadEnd'
+        this._midTimer = null;
         this.aiming = false;   // Wunsch: Rechtsklick gehalten
         this.aimT = 0;         // 0..1 linearer Fortschritt
         this.aimE = 0;         // 0..1 geglättet (für Position/FOV)
@@ -285,6 +290,17 @@ export class Weapon {
         return g;
     }
 
+    _emit(type) {
+        if (this.emitEvent) this.emitEvent(type);
+    }
+
+    // Zieh-Animation neu starten (Waffenwechsel, Respawn, Spielstart)
+    startDraw() {
+        this.drawT = 0;
+        this.recoil = 0;
+        this.flash.visible = false;
+    }
+
     _notifyAmmoChange() {
         if (this.onAmmoChange) this.onAmmoChange(this);
     }
@@ -298,6 +314,7 @@ export class Weapon {
     // Gibt true zurück, wenn tatsächlich geschossen wurde (main.js nutzt das für Tracer/Netzwerk)
     shoot() {
         const now = performance.now() / 1000;
+        if (this.drawT < 0.75) return false; // Waffe wird noch gezogen
         if (now - this.lastShotTime < this.fireCooldown) return false;
         if (this.isReloading) return false;
 
@@ -307,6 +324,7 @@ export class Weapon {
             if (now - this.lastDryTime > 0.25) {
                 this.lastDryTime = now;
                 this.dryNudge = 1;
+                this._emit('dry');
             }
             this.reload();
             return false;
@@ -319,6 +337,7 @@ export class Weapon {
             this._notifyAmmoChange();
         }
 
+        this._emit('shoot');
         this.recoil = 1;
         this.flashTimer = 0.045;
         this.flash.rotation.z = Math.random() * Math.PI * 2; // jedes Mal anders gedreht
@@ -334,12 +353,16 @@ export class Weapon {
         if (this.isReloading) return;
         if (this.ammoInMag === this.magSize) return;
         if (this.reserveAmmo <= 0) return;
+        if (this.drawT < 0.75) return; // erst fertig ziehen
 
         this.isReloading = true;
         this._notifyAmmoChange();
+        this._emit('reloadStart');
+        this._midTimer = setTimeout(() => { this._midTimer = null; this._emit('reloadMid'); }, this.reloadDuration * 0.55);
 
         this._reloadTimer = setTimeout(() => {
             this._reloadTimer = null;
+            this._emit('reloadEnd');
             const needed = this.magSize - this.ammoInMag;
             const amount = Math.min(needed, this.reserveAmmo);
             this.ammoInMag += amount;
@@ -354,7 +377,9 @@ export class Weapon {
     cancelReload() {
         if (!this.isReloading) return;
         clearTimeout(this._reloadTimer);
+        clearTimeout(this._midTimer);
         this._reloadTimer = null;
+        this._midTimer = null;
         this.isReloading = false;
         this._notifyAmmoChange();
     }
@@ -384,19 +409,29 @@ export class Weapon {
         this.reloadSink += (sinkTarget - this.reloadSink) * Math.min(1, delta * 10);
 
         // Zielen: beim Nachladen nicht möglich; aimT läuft linear, aimE ist die geglättete Version
-        const aimTarget = (this.aiming && !this.isReloading) ? 1 : 0;
+        const aimTarget = (this.aiming && !this.isReloading && this.drawT >= 0.75) ? 1 : 0;
         const step = delta * this.aimSpeed;
         this.aimT += Math.sign(aimTarget - this.aimT) * Math.min(step, Math.abs(aimTarget - this.aimT));
         const e = this.aimE = this.aimT * this.aimT * (3 - 2 * this.aimT);
 
+        // Zieh-Animation: Waffe schwingt von unten/seitlich hoch, kippt nach oben und federt leicht über
+        // (easeOutBack). d = 1 am Anfang (ganz unten), 0 am Ende, kurz negativ beim Überschwingen.
+        let d = 0;
+        if (this.drawT < 1) {
+            this.drawT = Math.min(1, this.drawT + delta / this.drawTime);
+            const t = this.drawT - 1;
+            d = 1 - (1 + 2.70158 * t * t * t + 1.70158 * t * t);
+        }
+
         // Quadratisch: starker Anfangsimpuls, weicher Auslauf. Beim Zielen halber Rückstoß (Waffe bleibt im Bild).
         const k = this.recoil * this.recoil * (1 - 0.5 * e);
         this.weaponGroup.position.set(
-            BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e + this.dryNudge * 0.02,
-            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e - this.reloadSink * 0.15,
-            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + k * this.kick
+            BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e + this.dryNudge * 0.02 + d * 0.14,
+            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e - this.reloadSink * 0.15 - d * 0.40,
+            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + k * this.kick + d * 0.08
         );
-        this.weaponGroup.rotation.x = k * this.kickRot + this.reloadSink * 0.35;
+        this.weaponGroup.rotation.x = k * this.kickRot + this.reloadSink * 0.35 - d * 0.95;
+        this.weaponGroup.rotation.z = d * 0.45;
 
         // Zielfernrohr-Ansicht: Waffenmodell ausblenden, sobald fast voll gezoomt (dann zeigt das Overlay das Rohr)
         if (this.active) this.weaponGroup.visible = !(this.scopeOverlay && this.aimT > 0.9);
@@ -420,6 +455,11 @@ export class WeaponManager {
         );
         this._ready = true;
         this._aimWanted = false;
+        this.onEvent = null; // Callback(type, weaponIndex) für Sounds; wird von main.js gesetzt
+        this.weapons.forEach((w, i) => {
+            w.emitEvent = (type) => { if (w === this.current && this.onEvent) this.onEvent(type, i); };
+        });
+        this.weapons[this.activeIndex].startDraw();
         this.weapons[this.activeIndex].weaponGroup.visible = true;
         this.weapons[this.activeIndex].active = true;
         this._notify();
@@ -451,7 +491,10 @@ export class WeaponManager {
 
     shoot() { return this.current.shoot(); }
     reload() { this.current.reload(); }
-    refillAll() { this.weapons.forEach(w => w.refill()); }
+    refillAll() {
+        this.weapons.forEach(w => w.refill());
+        this.current.startDraw(); // nach dem Respawn: Waffe wieder ziehen
+    }
     update(delta) { this.current.update(delta); }
     getMuzzleWorldPosition(out) { return this.current.getMuzzleWorldPosition(out); }
 
@@ -465,6 +508,8 @@ export class WeaponManager {
         this.current.active = true;
         this.current.aiming = this._aimWanted; // Rechtsklick gehalten -> neue Waffe zielt sofort wieder
         this.current.weaponGroup.visible = true;
+        this.current.startDraw();
+        if (this.onEvent) this.onEvent('draw', this.activeIndex);
         this._notify();
     }
 
