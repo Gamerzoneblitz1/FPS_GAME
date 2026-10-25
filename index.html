@@ -116,6 +116,48 @@
         #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
         #settings-close { width: 100%; padding: 8px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; }
 
+        /* --- Level / XP / Waffenleiste --- */
+        #xp-wrap { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); width: 260px; z-index: 2; pointer-events: none; }
+        #xp-top { display: flex; justify-content: space-between; font-size: 12px; letter-spacing: 1px; color: #00f0ff; text-shadow: 0 0 6px #00f0ff; margin-bottom: 3px; }
+        #xp-bar { height: 8px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; overflow: hidden; }
+        #xp-fill { height: 100%; width: 0; background: linear-gradient(90deg, #9d00ff, #00f0ff); box-shadow: 0 0 8px #00f0ff; transition: width 0.3s; }
+        #weapon-slots { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 6px; z-index: 2; pointer-events: none; }
+        .wslot { min-width: 62px; padding: 4px 6px; text-align: center; font-size: 10px; letter-spacing: 1px; color: rgba(255,255,255,0.8); background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 5px; }
+        .wslot b { display: block; color: #00f0ff; font-size: 12px; }
+        .wslot.active { border-color: #00f0ff; box-shadow: 0 0 8px rgba(0,240,255,0.6); color: #fff; }
+        .wslot.locked { opacity: 0.45; border-style: dashed; }
+        .wslot.locked b { color: #aaa; }
+        @media (pointer: coarse) { #weapon-slots { display: none; } }
+        #xp-pop { position: absolute; left: 50%; top: calc(50% + 46px); transform: translateX(-50%); z-index: 2; pointer-events: none; color: #ffe14d; font-size: 15px; font-weight: bold; text-shadow: 0 0 8px #ffaa00; opacity: 0; white-space: nowrap; }
+        #xp-pop.show { animation: xp-float 1.1s ease-out; }
+        @keyframes xp-float { 0% { opacity: 0; transform: translate(-50%, 6px); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -28px); } }
+        #levelup-banner { position: absolute; top: 16%; left: 50%; transform: translateX(-50%); z-index: 5; display: none; text-align: center; pointer-events: none; }
+        #levelup-banner.show { display: block; animation: lu-in 0.4s ease; }
+        #levelup-banner .lu-title { font-size: 44px; color: #ffe14d; text-shadow: 0 0 24px #ffaa00; letter-spacing: 6px; }
+        #levelup-banner .lu-level { font-size: 20px; color: #00f0ff; text-shadow: 0 0 10px #00f0ff; margin-top: 4px; }
+        #levelup-banner .lu-unlocks { margin-top: 10px; font-size: 15px; color: #fff; line-height: 1.7; text-shadow: 0 0 8px #000; }
+        @keyframes lu-in { from { opacity: 0; transform: translateX(-50%) scale(0.7); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+
+        /* --- Loadout (Skins + Waffen) --- */
+        #loadout-panel {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: min(720px, 94vw); max-height: 88vh; overflow: auto; z-index: 45; display: none;
+            background: rgba(5,5,18,0.97); border: 2px solid rgba(0,240,255,0.45); border-radius: 12px; padding: 18px 22px; color: #fff;
+        }
+        #loadout-panel h2 { color: #00f0ff; text-shadow: 0 0 10px #00f0ff; letter-spacing: 3px; font-size: 18px; margin-bottom: 4px; }
+        #loadout-panel h3 { color: #9d00ff; letter-spacing: 2px; font-size: 13px; margin: 16px 0 8px; }
+        #loadout-level { font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 6px; }
+        .skin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .skin-card { border: 2px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px; cursor: pointer; text-align: center; background: rgba(255,255,255,0.04); font-size: 13px; }
+        .skin-card:hover:not(.locked) { border-color: rgba(0,240,255,0.7); }
+        .skin-card.selected { border-color: #00ff99; box-shadow: 0 0 10px rgba(0,255,153,0.5); }
+        .skin-card.locked { opacity: 0.4; cursor: not-allowed; }
+        .skin-card small { display: block; color: rgba(255,255,255,0.55); margin-top: 3px; }
+        .skin-swatch { height: 26px; border-radius: 5px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.3); }
+        .weapon-row { display: flex; justify-content: space-between; padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 13px; }
+        .weapon-row.locked { opacity: 0.45; }
+        #loadout-close { margin-top: 16px; width: 100%; padding: 9px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 14px; }
+
         /* --- Zielfernrohr (Sniper, Rechtsklick) --- */
         #scope-overlay {
             position: absolute; inset: 0; z-index: 1; display: none; pointer-events: none;
@@ -203,6 +245,13 @@
 </head>
 <body>
     <div id="crosshair"></div>
+    <div id="xp-wrap">
+        <div id="xp-top"><span id="xp-level">LV 1</span><span id="xp-text">0 / 200 XP</span></div>
+        <div id="xp-bar"><div id="xp-fill"></div></div>
+    </div>
+    <div id="weapon-slots"></div>
+    <div id="xp-pop"></div>
+    <div id="levelup-banner"><div class="lu-title">LEVEL UP!</div><div class="lu-level"></div><div class="lu-unlocks"></div></div>
     <div id="scope-overlay"><div class="scope-ring"></div><div class="scope-h"></div><div class="scope-v"></div><div class="scope-dot"></div></div>
     <div id="reset-hold">RESET<div id="reset-hold-bar"><div id="reset-hold-fill"></div></div></div>
     <div id="map-title">NEON VAULT MEGAPLEX</div>
@@ -242,7 +291,7 @@
     <div id="leaderboard">
         <h2>LEADERBOARD</h2>
         <table>
-            <thead><tr><th>#</th><th>Name</th><th>Kills</th><th>Deaths</th><th>K/D</th></tr></thead>
+            <thead><tr><th>#</th><th>Name</th><th>Lv</th><th>Kills</th><th>Deaths</th><th>K/D</th></tr></thead>
             <tbody id="leaderboard-body"></tbody>
         </table>
         <div id="lb-hint">TAB GEDRÜCKT HALTEN</div>
@@ -283,10 +332,22 @@
     <div id="pause-menu">
         <h1>PAUSE</h1>
         <button id="pause-resume">WEITER</button>
+        <button id="pause-loadout">LOADOUT &amp; SKINS</button>
         <button id="pause-reset" class="danger">RESET (RESPAWN)</button>
         <button id="pause-settings">EINSTELLUNGEN</button>
         <p id="lock-error" style="display:none; color:#ffaa00;">Maus konnte nicht erfasst werden – bitte auf WEITER klicken.</p>
         <p>Reset: Kill geht an den letzten Angreifer, sonst an den nächsten Spieler</p>
+    </div>
+
+    <!-- Loadout: Skins wählen + Waffen-Freischaltungen ansehen -->
+    <div id="loadout-panel">
+        <h2>LOADOUT</h2>
+        <div id="loadout-level"></div>
+        <h3>SKINS</h3>
+        <div class="skin-grid" id="skin-grid"></div>
+        <h3>WAFFEN</h3>
+        <div id="weapon-list"></div>
+        <button id="loadout-close">SCHLIESSEN</button>
     </div>
 
     <!-- Einloggen / Instructions -->
@@ -294,7 +355,7 @@
         <h1>NEON VAULT</h1>
         <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
         <button id="enter-btn">SPIELEN</button>
-        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2/3 = Waffe wechseln | Tab = Leaderboard | Rechtsklick = Zielen | H = Heilspritze | ESC = Pause/Reset/Einstellungen</p>
+        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1-6 = Waffe wechseln | Tab = Leaderboard | Rechtsklick = Zielen | H = Heilspritze | ESC = Pause/Reset/Einstellungen</p>
     </div>
 
     <div id="error-box"></div>
