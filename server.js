@@ -119,7 +119,7 @@ function killPlayer(victimId, killerId, reason = 'hit') {
 // Leaderboard an alle schicken (nach jeder Änderung von kills/deaths)
 function broadcastLeaderboard() {
     const board = Object.entries(players).map(([id, p]) => ({
-        id, name: p.name || id.slice(0, 6), kills: p.kills || 0, deaths: p.deaths || 0
+        id, name: p.name || id.slice(0, 6), kills: p.kills || 0, deaths: p.deaths || 0, level: p.level || 1
     })).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     io.emit('leaderboard', board);
 }
@@ -130,7 +130,7 @@ io.on('connection', (socket) => {
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
     const spawn = getRandomSpawnPoint(socket.id);
-    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0 };
+    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0 };
 
     socket.emit('currentPlayers', players);
     socket.broadcast.emit('newPlayer', { id: socket.id, position: players[socket.id], name: players[socket.id].name });
@@ -144,6 +144,20 @@ io.on('connection', (socket) => {
             io.emit('playerNameUpdate', { id: socket.id, name });
             broadcastLeaderboard();
         }
+    });
+
+    // Profil: Level (Anzeige im Leaderboard) und gewählter Skin (sichtbar für alle). Nur Zahlen im erlaubten Bereich.
+    const clampInt = (v, min, max, fallback) => {
+        const n = Math.floor(Number(v));
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+    };
+    socket.on('setProfile', (p) => {
+        const me = players[socket.id];
+        if (!me) return;
+        me.level = clampInt(p?.level, 1, 99, 1);
+        me.skin = clampInt(p?.skin, 0, 15, 0);
+        io.emit('playerProfile', { id: socket.id, level: me.level, skin: me.skin });
+        broadcastLeaderboard();
     });
 
     socket.on('playerMove', (data) => {
@@ -184,10 +198,12 @@ io.on('connection', (socket) => {
     socket.on('shoot', (shotData) => {
         const start = toVec(shotData?.start), end = toVec(shotData?.end);
         if (!start || !end) return;
-        const w = Number.isInteger(shotData.w) && shotData.w >= 0 && shotData.w <= 2 ? shotData.w : 0;
+        const w = Number.isInteger(shotData.w) && shotData.w >= 0 && shotData.w <= 5 ? shotData.w : 0;
+        const c = Number.isInteger(shotData.c) && shotData.c >= 0 && shotData.c <= 0xffffff ? shotData.c : null;
         socket.broadcast.emit('playerShot', {
-            id: socket.id, start, end, w,
-            n: toVec(shotData.n), hitPlayer: !!shotData.hitPlayer
+            id: socket.id, start, end, w, c,
+            n: toVec(shotData.n), hitPlayer: !!shotData.hitPlayer,
+            silent: !!shotData.silent // weitere Schrotkugeln desselben Schusses: Effekt ja, Sound nein
         });
     });
 
