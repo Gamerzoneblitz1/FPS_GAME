@@ -2,7 +2,9 @@ import { setupMap } from './map.js';
 import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
 import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
-import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing } from './player.js';
+import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } from './player.js';
+import { SKINS } from './skins.js';
+import * as prog from './progression.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
 let playerName = ''; // wird beim ersten Spielstart abgefragt
@@ -80,6 +82,9 @@ let crouchKeyC = false, crouchKeyCtrl = false; // beide Tasten können unabhäng
 let sprintHeld = false;
 let syringes = 0;      // Anzahl Heilspritzen (Server-Wert)
 let myKills = 0;       // eigene Kills (aus dem Leaderboard) für die Fortschrittsanzeige
+const playerLevels = {};   // id -> Level der anderen Spieler
+let lastSlotKey = '';      // verhindert unnötiges Neuzeichnen der Waffenleiste
+let levelBannerTimer = null;
 let stepTimer = 0;         // Schritt-Sound-Takt
 let wasSlidingSfx = false;
 let healHeld = false;  // verhindert Dauer-Auslösen durch Tastenwiederholung
@@ -154,6 +159,7 @@ function init() {
         const name = input ? input.value.trim().slice(0, 20) : '';
         playerName = name || 'Player' + Math.floor(Math.random() * 1000);
         socket.emit('setName', playerName);
+        sendProfile();
         document.getElementById('own-name-display').textContent = playerName;
         hasEntered = true;
 
@@ -186,6 +192,8 @@ function init() {
             instructions.style.display = 'none';
             pauseMenu.style.display = 'none';
             settingsPanel.style.display = 'none';
+            const lp = document.getElementById('loadout-panel');
+            if (lp) lp.style.display = 'none';
         });
         // ESC (bzw. jedes Ende der Maussperre): vor dem ersten Start Login, danach Pause-Menü
         controls.addEventListener('unlock', () => {
@@ -225,6 +233,13 @@ function init() {
         controls.addEventListener('lock', () => { if (lockError) lockError.style.display = 'none'; });
 
         document.getElementById('pause-resume').addEventListener('click', () => controls.lock());
+        document.getElementById('pause-loadout').addEventListener('click', () => {
+            document.getElementById('loadout-panel').style.display = 'block';
+            renderLoadout();
+        });
+        document.getElementById('loadout-close').addEventListener('click', () => {
+            document.getElementById('loadout-panel').style.display = 'none';
+        });
         document.getElementById('pause-reset').addEventListener('click', () => {
             socket.emit('requestReset');
             controls.lock();
@@ -256,6 +271,9 @@ function init() {
     shootBlockers = colliders.shootBlockers || [];
     weapon = new WeaponManager(camera, scene, updateAmmoUI);
     weapon.onEvent = handleWeaponEvent;
+    weapon.setLevel(prog.getProgress().level); // Waffen nach gespeichertem Level freischalten
+    applyOwnSkin();
+    updateXpUI();
     sfx.initAudio(); // Audio-Kontext startet beim ersten Klick/Tastendruck
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
@@ -293,6 +311,12 @@ function init() {
 
     socket.on('newPlayer', (data) => addOtherPlayer(data.id, data.position, data.name));
 
+    // Profil-Update (Skin/Level) eines Spielers
+    socket.on('playerProfile', (data) => {
+        playerLevels[data.id] = data.level;
+        if (data.id !== socket.id && otherPlayers[data.id]) applySkin(otherPlayers[data.id], data.skin);
+    });
+
     socket.on('playerMoved', (data) => {
         if (otherPlayers[data.id]) {
             otherPlayers[data.id].position.set(data.position.x, data.position.y, data.position.z);
@@ -301,8 +325,8 @@ function init() {
     });
 
     socket.on('playerShot', (data) => {
-        playShotEffects(data.start, data.end, data.w, data.n, data.hitPlayer);
-        sfx.playShotRemote(data.w, data.start, camera); // Schuss anderer Spieler: nach Entfernung/Richtung
+        playShotEffects(data.start, data.end, data.w, data.n, data.hitPlayer, data.c);
+        if (!data.silent) sfx.playShotRemote(data.w, data.start, camera); // Schuss anderer Spieler: nach Entfernung/Richtung
     });
 
     socket.on('playerHealthUpdate', (data) => {
@@ -316,7 +340,7 @@ function init() {
     socket.on('playerKilled', (data) => {
         // Kill-Feed anzeigen (für alle)
         addKillFeedEntry(data.killerName, data.victimName, data.killerId === socket.id, data.victimId === socket.id);
-        if (data.killerId === socket.id && data.victimId !== socket.id) sfx.playKill();
+        if (data.killerId === socket.id && data.victimId !== socket.id) { sfx.playKill(); awardXp(prog.XP_PER_KILL, true); }
         if (data.victimId === socket.id) sfx.playDeath();
 
         if (data.victimId === socket.id) {
@@ -336,7 +360,11 @@ function init() {
     });
 
     // Treffer-Bestätigung (nur für den Schützen: rotes Fadenkreuz-Flash)
-    socket.on('hitConfirm', () => { flashCrosshair(); sfx.playHitMarker(); });
+    socket.on('hitConfirm', (d) => {
+        flashCrosshair();
+        sfx.playHitMarker();
+        awardXp(Math.floor((d?.damage || 0) * prog.XP_PER_DAMAGE)); // kleine XP pro Schaden
+    });
 
     socket.on('syringeUpdate', (d) => {
         syringes = d.count || 0;
@@ -375,55 +403,77 @@ function init() {
     window.addEventListener('resize', onWindowResize);
 }
 
+const _pRight = new THREE.Vector3();
+const _pUp = new THREE.Vector3();
 function handleShooting() {
     if (!controls.isLocked && !touchActive) return;
 
     const fired = weapon.shoot();
-    if (!fired) return; // Magazin leer oder wird gerade nachgeladen -> kein Schuss
+    if (!fired) return; // Magazin leer, wird gerade nachgeladen oder gezogen -> kein Schuss
 
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const playerHits = raycaster.intersectObjects(playerMeshesList, true);
-    // Wände/Türme/Kisten/Rampen blockieren Schüsse jetzt auch (Gates bewusst ausgenommen - Portale
-    // bleiben durchlässig). Ohne das gingen Kugeln bisher durch jede Wand/Rampenseite hindurch.
-    const wallHits = shootBlockers.length ? raycaster.intersectObjects(shootBlockers, false) : [];
-
+    camera.updateMatrixWorld(true);
     // Tracer startet an der Mündung der Waffe (sieht man in der Ego-Ansicht als Linie zum Zielpunkt)
     const startPos = weapon.getMuzzleWorldPosition(new THREE.Vector3());
-    let endPos = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(100));
+    const baseDir = camera.getWorldDirection(new THREE.Vector3());
 
-    const nearestPlayerHit = playerHits.length > 0 ? playerHits[0] : null;
-    const nearestWallHit = wallHits.length > 0 ? wallHits[0] : null;
+    const pellets = weapon.pellets;                                  // 1 bei normalen Waffen, 8 bei der Shotgun
+    const spread = weapon.spread * (1 - 0.45 * weapon.aimAmount);   // Zielen verengt die Streuung
+    const weaponIndex = weapon.activeIndex;
+    const color = weapon.color;                                      // Skin-Farbe
+    const damageByTarget = {};                                       // Schrot: Schaden aller Kugeln pro Ziel summieren
 
-    let wallNormal = null;
-    let hitPlayer = false;
-
-    // Näherer Treffer gewinnt: steht eine Wand/Rampenwand im Weg, zählt kein Spielertreffer dahinter
-    if (nearestPlayerHit && (!nearestWallHit || nearestPlayerHit.distance <= nearestWallHit.distance)) {
-        endPos = nearestPlayerHit.point;
-        hitPlayer = true;
-
-        let hitGroup = nearestPlayerHit.object;
-        while (hitGroup.parent && !hitGroup.userData.id) {
-            hitGroup = hitGroup.parent;
+    for (let p = 0; p < pellets; p++) {
+        const dir = baseDir.clone();
+        if (spread > 0) {
+            // zufälliger Punkt im Streukegel
+            _pRight.crossVectors(dir, camera.up).normalize();
+            _pUp.crossVectors(_pRight, dir).normalize();
+            const ang = Math.random() * Math.PI * 2;
+            const rad = Math.sqrt(Math.random()) * spread;
+            dir.addScaledVector(_pRight, Math.cos(ang) * rad).addScaledVector(_pUp, Math.sin(ang) * rad).normalize();
         }
 
-        if (hitGroup.userData.id) {
-            socket.emit('hitPlayer', { targetId: hitGroup.userData.id, damage: weapon.damage });
+        raycaster.set(camera.position, dir);
+        const playerHits = raycaster.intersectObjects(playerMeshesList, true);
+        // Wände/Türme/Kisten/Rampen blockieren Schüsse (Gates bewusst ausgenommen - Portale bleiben durchlässig)
+        const wallHits = shootBlockers.length ? raycaster.intersectObjects(shootBlockers, false) : [];
+
+        let endPos = camera.position.clone().add(dir.clone().multiplyScalar(100));
+        const nearestPlayerHit = playerHits.length > 0 ? playerHits[0] : null;
+        const nearestWallHit = wallHits.length > 0 ? wallHits[0] : null;
+
+        let wallNormal = null;
+        let hitPlayer = false;
+
+        // Näherer Treffer gewinnt: steht eine Wand/Rampenwand im Weg, zählt kein Spielertreffer dahinter
+        if (nearestPlayerHit && (!nearestWallHit || nearestPlayerHit.distance <= nearestWallHit.distance)) {
+            endPos = nearestPlayerHit.point;
+            hitPlayer = true;
+            let hitGroup = nearestPlayerHit.object;
+            while (hitGroup.parent && !hitGroup.userData.id) hitGroup = hitGroup.parent;
+            if (hitGroup.userData.id) {
+                damageByTarget[hitGroup.userData.id] = (damageByTarget[hitGroup.userData.id] || 0) + weapon.damage;
+            }
+        } else if (nearestWallHit) {
+            endPos = nearestWallHit.point;
+            wallNormal = getHitWorldNormal(nearestWallHit, dir);
         }
-    } else if (nearestWallHit) {
-        endPos = nearestWallHit.point;
-        wallNormal = getHitWorldNormal(nearestWallHit, raycaster.ray.direction);
+
+        playShotEffects(startPos, endPos, weaponIndex, wallNormal, hitPlayer, color);
+        socket.emit('shoot', {
+            start: { x: startPos.x, y: startPos.y, z: startPos.z },
+            end: { x: endPos.x, y: endPos.y, z: endPos.z },
+            w: weaponIndex,
+            c: color,
+            n: wallNormal ? { x: wallNormal.x, y: wallNormal.y, z: wallNormal.z } : null,
+            hitPlayer,
+            silent: p > 0 // nur die erste Kugel macht Sound bei den anderen
+        });
     }
 
-    const weaponIndex = weapon.activeIndex;
-    playShotEffects(startPos, endPos, weaponIndex, wallNormal, hitPlayer);
-    socket.emit('shoot', {
-        start: { x: startPos.x, y: startPos.y, z: startPos.z },
-        end: { x: endPos.x, y: endPos.y, z: endPos.z },
-        w: weaponIndex,
-        n: wallNormal ? { x: wallNormal.x, y: wallNormal.y, z: wallNormal.z } : null,
-        hitPlayer
-    });
+    for (const [targetId, dmg] of Object.entries(damageByTarget)) {
+        socket.emit('hitPlayer', { targetId, damage: Math.min(dmg, 100) });
+    }
 }
 
 // Weltnormale der getroffenen Fläche. Bei InstancedMeshes (Wände, Türme, Rampen...) muss die Matrix der
@@ -448,12 +498,13 @@ function getHitWorldNormal(hit, rayDir) {
 
 // Gemeinsamer Effekt-Pfad für eigene UND fremde Schüsse: Neon-Tracer in Waffenfarbe, bei Wandtreffer
 // Bullet Hole + Funke, bei Spielertreffer nur Funke.
-function playShotEffects(start, end, weaponIndex, normal, hitPlayer) {
+function playShotEffects(start, end, weaponIndex, normal, hitPlayer, color) {
     const cfg = WEAPON_CONFIGS[weaponIndex] || WEAPON_CONFIGS[0];
-    createTracer(start, end, cfg.color, cfg.tracerWidth, cfg.tracerLife);
+    const col = color ?? cfg.color; // Skin-Farbe des Schützen, sonst Waffenfarbe
+    createTracer(start, end, col, cfg.tracerWidth, cfg.tracerLife);
     if (normal) {
-        addBulletHole(end, normal, cfg.color, cfg.holeSize);
-        spawnImpactSpark(end, cfg.color, cfg.holeSize * 2);
+        addBulletHole(end, normal, col, cfg.holeSize);
+        spawnImpactSpark(end, col, cfg.holeSize * 2);
     } else if (hitPlayer) {
         spawnImpactSpark(end, 0xffffff, 0.7);
     }
@@ -461,7 +512,8 @@ function playShotEffects(start, end, weaponIndex, normal, hitPlayer) {
 
 function addOtherPlayer(id, position, name = '') {
     playerNames[id] = name || id.slice(0, 6);
-    const pMesh = createPlayerMesh(id);
+    const pMesh = createPlayerMesh(id, position.skin || 0);
+    playerLevels[id] = position.level || 1;
     pMesh.position.set(position.x || 0, position.y || 2, position.z || 0);
 
     // Nametag als Sprite über dem Spieler
@@ -534,6 +586,7 @@ function updateHealthUI() {
 }
 
 function updateAmmoUI(ammoInMag, reserveAmmo, isReloading, weaponName, magSize) {
+    renderWeaponSlots();
     const ammoVal = document.getElementById('ammo-val');
     const ammoBar = document.getElementById('ammo-bar-fill');
     const weaponNameEl = document.getElementById('weapon-name');
@@ -640,13 +693,22 @@ function onKeyChange(keyCode, isPressed) {
             if (isPressed) weapon.reload();
             break;
         case 49: // 1
-            if (isPressed) weapon.switchTo(0);
+            if (isPressed) trySwitch(0);
             break;
         case 50: // 2
-            if (isPressed) weapon.switchTo(1);
+            if (isPressed) trySwitch(1);
             break;
         case 51: // 3
-            if (isPressed) weapon.switchTo(2);
+            if (isPressed) trySwitch(2);
+            break;
+        case 52: // 4
+            if (isPressed) trySwitch(3);
+            break;
+        case 53: // 5
+            if (isPressed) trySwitch(4);
+            break;
+        case 54: // 6
+            if (isPressed) trySwitch(5);
             break;
     }
 }
@@ -822,6 +884,120 @@ function handleWeaponEvent(type, idx) {
     }
 }
 
+// ================= Level / XP / Skins =================
+
+// Waffe per Zahlentaste: gesperrte Waffen zeigen den nötigen Level
+function trySwitch(i) {
+    if (!weapon.isUnlocked(i)) {
+        const c = WEAPON_CONFIGS[i];
+        showNotice(`🔒 ${c.name} ab Level ${c.unlockLevel}`);
+        return;
+    }
+    weapon.switchTo(i);
+}
+
+function applyOwnSkin() {
+    const skin = SKINS[prog.getSkinId()] || SKINS[0];
+    weapon.setSkin(skin.accent, !!skin.rainbow);
+}
+
+function sendProfile() {
+    socket.emit('setProfile', { level: prog.getProgress().level, skin: prog.getSkinId() });
+}
+
+function updateXpUI() {
+    const p = prog.getProgress();
+    const lv = document.getElementById('xp-level');
+    const tx = document.getElementById('xp-text');
+    const fill = document.getElementById('xp-fill');
+    if (lv) lv.textContent = 'LV ' + p.level;
+    if (tx) tx.textContent = p.max ? 'MAX' : `${p.xpInLevel} / ${p.need} XP`;
+    if (fill) fill.style.width = (p.max ? 100 : (p.xpInLevel / p.need) * 100) + '%';
+}
+
+function popXp(text) {
+    const el = document.getElementById('xp-pop');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('show');
+    void el.offsetWidth; // Animation neu starten
+    el.classList.add('show');
+}
+
+function awardXp(amount, isKill = false) {
+    if (!(amount > 0)) return;
+    const r = prog.addXp(amount);
+    if (isKill) popXp(`KILL +${amount} XP`);
+    updateXpUI();
+    if (r.levelUp) onLevelUp(r.from, r.to);
+}
+
+function onLevelUp(from, to) {
+    weapon.setLevel(to);
+    lastSlotKey = '';
+    renderWeaponSlots();
+    sendProfile();
+    sfx.playLevelUp();
+
+    const lines = [];
+    WEAPON_CONFIGS.forEach(c => { if (c.unlockLevel > from && c.unlockLevel <= to) lines.push(`🔫 Neue Waffe: ${c.name}`); });
+    SKINS.forEach(s => { if (s.unlockLevel > from && s.unlockLevel <= to) lines.push(`🎨 Neuer Skin: ${s.name}`); });
+
+    const banner = document.getElementById('levelup-banner');
+    if (!banner) return;
+    banner.querySelector('.lu-level').textContent = `Level ${to}`;
+    banner.querySelector('.lu-unlocks').innerHTML = lines.map(esc).join('<br>');
+    banner.classList.remove('show');
+    void banner.offsetWidth;
+    banner.classList.add('show');
+    if (levelBannerTimer) clearTimeout(levelBannerTimer);
+    levelBannerTimer = setTimeout(() => banner.classList.remove('show'), 4200);
+}
+
+// Waffenleiste unten: aktive Waffe hervorgehoben, gesperrte mit nötigem Level
+function renderWeaponSlots() {
+    const el = document.getElementById('weapon-slots');
+    if (!el || !weapon) return;
+    const key = weapon.activeIndex + '|' + WEAPON_CONFIGS.map((_, i) => (weapon.isUnlocked(i) ? 1 : 0)).join('');
+    if (key === lastSlotKey) return;
+    lastSlotKey = key;
+    el.innerHTML = WEAPON_CONFIGS.map((c, i) => {
+        const unlocked = weapon.isUnlocked(i);
+        return `<div class="wslot${i === weapon.activeIndex ? ' active' : ''}${unlocked ? '' : ' locked'}"><b>${i + 1}</b>${unlocked ? esc(c.name) : '🔒 Lv ' + c.unlockLevel}</div>`;
+    }).join('');
+}
+
+// Loadout-Panel: Skins wählen, Waffenübersicht
+function renderLoadout() {
+    const p = prog.getProgress();
+    const lvl = document.getElementById('loadout-level');
+    if (lvl) lvl.textContent = `Level ${p.level}` + (p.max ? ' (MAX)' : ` — ${p.xpInLevel} / ${p.need} XP bis Level ${p.level + 1}`) + ` — Kill: +${prog.XP_PER_KILL} XP`;
+
+    const grid = document.getElementById('skin-grid');
+    const selected = prog.getSkinId();
+    grid.innerHTML = SKINS.map(s => {
+        const unlocked = p.level >= s.unlockLevel;
+        return `<div class="skin-card${s.id === selected ? ' selected' : ''}${unlocked ? '' : ' locked'}" data-skin="${s.id}">
+            <div class="skin-swatch" style="background:${s.preview}"></div>${esc(s.name)}
+            <small>${unlocked ? (s.id === selected ? 'ausgerüstet' : 'wählen') : '🔒 Level ' + s.unlockLevel}</small></div>`;
+    }).join('');
+    grid.querySelectorAll('.skin-card').forEach(card => {
+        card.addEventListener('click', () => {
+            if (prog.setSkinId(parseInt(card.dataset.skin, 10))) {
+                applyOwnSkin();
+                sendProfile();
+                renderLoadout();
+            }
+        });
+    });
+
+    document.getElementById('weapon-list').innerHTML = WEAPON_CONFIGS.map((c, i) => {
+        const unlocked = p.level >= c.unlockLevel;
+        const dmg = c.pellets ? `${c.damage} x ${c.pellets}` : c.damage;
+        return `<div class="weapon-row${unlocked ? '' : ' locked'}"><span>${i + 1} — ${esc(c.name)}${c.automatic ? ' (Auto)' : ''}</span><span>Schaden ${dmg} · ${unlocked ? 'freigeschaltet' : '🔒 Level ' + c.unlockLevel}</span></div>`;
+    }).join('');
+}
+
 // Zielen: FOV gleitend zur Zoomstufe der Waffe, Empfindlichkeit passend zum Zoom (sonst wirkt die
 // Maus im Zielfernrohr viel zu schnell), Zielfernrohr-Overlay bei Sniper, Fadenkreuz dabei ausblenden.
 const _scopeEl = () => document.getElementById('scope-overlay');
@@ -896,7 +1072,7 @@ function updateLeaderboard(board) {
     el.innerHTML = board.map((p, i) => {
         const isMe = p.id === socket.id;
         const kd = p.deaths > 0 ? (p.kills / p.deaths).toFixed(2) : p.kills.toFixed(2);
-        return `<tr class="${isMe ? 'lb-me' : ''}"><td>${i + 1}</td><td>${esc(p.name)}</td><td>${p.kills}</td><td>${p.deaths}</td><td>${kd}</td></tr>`;
+        return `<tr class="${isMe ? 'lb-me' : ''}"><td>${i + 1}</td><td>${esc(p.name)}</td><td>${p.level || 1}</td><td>${p.kills}</td><td>${p.deaths}</td><td>${kd}</td></tr>`;
     }).join('');
 }
 
