@@ -38,8 +38,14 @@ function cyl(g, r, len, color, x, y, z, axis = 'z', { r2 = r, seg = 14 } = {}) {
 }
 
 // Leuchtstreifen (Neon-Akzent, ungelittet)
+// Eigenes Material + Markierung, damit Skins die Akzentfarbe später umfärben können
+function markAccent(mesh, color) {
+    mesh.material = new THREE.MeshBasicMaterial({ color });
+    mesh.userData.accent = color;
+    return mesh;
+}
 function neon(g, w, h, d, color, x, y, z) {
-    return box(g, w, h, d, color, x, y, z, { edge: null });
+    return markAccent(box(g, w, h, d, color, x, y, z, { edge: null }), color);
 }
 
 // Alle Modellfunktionen geben die Mündungsposition [x,y,z] zurück (für Mündungsfeuer + Tracer-Start).
@@ -132,7 +138,7 @@ function buildSniperModel(g) {
     // Langer Lauf + Schalldämpfer
     cyl(g, 0.016, 0.50, MID, 0, 0.05, -0.78);
     cyl(g, 0.032, 0.24, DARK, 0, 0.05, -1.0);
-    cyl(g, 0.034, 0.008, MAG, 0, 0.05, -0.90); // Leuchtring am Dämpfer
+    markAccent(cyl(g, 0.034, 0.008, MAG, 0, 0.05, -0.90), MAG); // Leuchtring am Dämpfer
 
     // Zweibein (eingeklappt)
     box(g, 0.012, 0.012, 0.18, DARK, 0.035, -0.02, -0.55, { rx: 0.05, edge: null });
@@ -151,16 +157,111 @@ function buildSniperModel(g) {
     cyl(g, 0.040, 0.07, DARK, 0, 0.15, 0.115, 'z', { r2: 0.036 });
     cyl(g, 0.014, 0.04, MID, 0, 0.195, -0.1, 'y');
     cyl(g, 0.014, 0.04, MID, 0.045, 0.15, -0.1, 'x');
-    cyl(g, 0.049, 0.006, MAG, 0, 0.15, -0.36);   // Leuchtring vorn
+    markAccent(cyl(g, 0.049, 0.006, MAG, 0, 0.15, -0.36), MAG);   // Leuchtring vorn
     cyl(g, 0.044, 0.004, 0x330022, 0, 0.15, -0.355); // dunkle Linse
 
     // Verschlussgriff
     cyl(g, 0.01, 0.08, DARK, 0.07, 0.045, 0.02, 'x');
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), mat(MAG));
+    const knob = markAccent(new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), mat(MAG)), MAG);
     knob.position.set(0.112, 0.045, 0.02);
     g.add(knob);
 
     return [0, 0.05, -1.13];
+}
+
+
+function buildSmgModel(g) {
+    const BODY = 0x20242a, DARK = 0x121418, MID = 0x2d333b, GRN = 0x39ff14;
+
+    // Kompaktes Gehäuse + Oberschiene
+    box(g, 0.085, 0.11, 0.34, BODY, 0, 0.035, -0.02);
+    box(g, 0.07, 0.02, 0.36, MID, 0, 0.10, -0.03);
+
+    // Lauf-Mantel mit Lüftungsschlitzen + Neon
+    box(g, 0.07, 0.08, 0.18, 0x181b20, 0, 0.04, -0.28);
+    for (let i = 0; i < 4; i++) box(g, 0.072, 0.012, 0.02, DARK, 0, 0.055, -0.22 - i * 0.04, { edge: null });
+    neon(g, 0.004, 0.016, 0.16, GRN, 0.037, 0.045, -0.28);
+    neon(g, 0.004, 0.016, 0.16, GRN, -0.037, 0.045, -0.28);
+
+    // Lauf + Mündung
+    cyl(g, 0.014, 0.12, DARK, 0, 0.04, -0.43);
+    cyl(g, 0.024, 0.05, MID, 0, 0.04, -0.52);
+
+    // Griff + langes Magazin
+    box(g, 0.058, 0.15, 0.07, DARK, 0, -0.07, 0.09, { rx: 0.28 });
+    box(g, 0.05, 0.24, 0.065, DARK, 0, -0.12, -0.10, { rx: -0.1 });
+    neon(g, 0.052, 0.012, 0.067, GRN, 0, -0.245, -0.112);
+
+    // Drahtschulterstütze
+    box(g, 0.012, 0.012, 0.24, MID, 0.032, 0.04, 0.22, { edge: null });
+    box(g, 0.012, 0.012, 0.24, MID, -0.032, 0.04, 0.22, { edge: null });
+    box(g, 0.075, 0.09, 0.02, DARK, 0, 0.04, 0.345);
+
+    // Visier: Korn (Leuchtpunkt auf Zielhöhe y=0.16) + Kimme
+    box(g, 0.012, 0.035, 0.012, DARK, 0, 0.133, -0.36, { edge: null });
+    neon(g, 0.008, 0.008, 0.008, GRN, 0, 0.157, -0.36);
+    box(g, 0.008, 0.045, 0.012, DARK, 0.024, 0.12, 0.02, { edge: null });
+    box(g, 0.008, 0.045, 0.012, DARK, -0.024, 0.12, 0.02, { edge: null });
+
+    return [0, 0.04, -0.55];
+}
+
+function buildShotgunModel(g) {
+    const BODY = 0x1c1f24, DARK = 0x111216, MID = 0x2a2e36, WOOD = 0x2c1e14, ORG = 0xff7a00;
+
+    // Gehäuse + Neon-Seiten
+    box(g, 0.085, 0.11, 0.32, BODY, 0, 0.03, 0.0);
+    neon(g, 0.004, 0.02, 0.20, ORG, 0.044, 0.04, 0.0);
+    neon(g, 0.004, 0.02, 0.20, ORG, -0.044, 0.04, 0.0);
+
+    // Lauf (dick), Magazinrohr darunter, Laufschiene
+    cyl(g, 0.03, 0.78, MID, 0, 0.075, -0.53);
+    cyl(g, 0.024, 0.66, DARK, 0, 0.015, -0.47);
+    box(g, 0.012, 0.006, 0.74, DARK, 0, 0.112, -0.53, { edge: null });
+    cyl(g, 0.036, 0.05, DARK, 0, 0.075, -0.93);   // Mündungsring
+
+    // Pumpgriff (Vorderschaft) mit Neon-Rillen
+    box(g, 0.085, 0.075, 0.22, WOOD, 0, 0.0, -0.40);
+    for (let i = 0; i < 4; i++) neon(g, 0.087, 0.008, 0.01, ORG, 0, 0.0, -0.33 - i * 0.045);
+
+    // Griff + Schaft
+    box(g, 0.06, 0.14, 0.07, DARK, 0, -0.09, 0.12, { rx: 0.25 });
+    box(g, 0.07, 0.13, 0.30, WOOD, 0, 0.0, 0.28, { rx: -0.05 });
+    box(g, 0.075, 0.15, 0.03, DARK, 0, 0.0, 0.44);
+
+    // Korn (Leuchtpunkt) + Kimme
+    neon(g, 0.01, 0.012, 0.01, ORG, 0, 0.123, -0.90);
+    box(g, 0.04, 0.012, 0.02, DARK, 0, 0.092, 0.08, { edge: null });
+
+    return [0, 0.075, -0.97];
+}
+
+function buildRevolverModel(g) {
+    const BODY = 0x23262d, DARK = 0x111216, MID = 0x32363f, WOOD = 0x2c1e14, RED = 0xff3355;
+
+    // Rahmen + Trommel mit Neon-Ringen
+    box(g, 0.075, 0.10, 0.18, BODY, 0, 0.0, 0.0);
+    cyl(g, 0.042, 0.12, MID, 0, 0.01, -0.06);
+    markAccent(cyl(g, 0.044, 0.008, RED, 0, 0.01, -0.115), RED);
+    markAccent(cyl(g, 0.044, 0.008, RED, 0, 0.01, -0.005), RED);
+
+    // Lauf + Unterlauf
+    box(g, 0.05, 0.055, 0.38, MID, 0, 0.035, -0.28);
+    box(g, 0.045, 0.04, 0.28, DARK, 0, 0.0, -0.25);
+    neon(g, 0.004, 0.012, 0.30, RED, 0.027, 0.04, -0.28);
+    neon(g, 0.004, 0.012, 0.30, RED, -0.027, 0.04, -0.28);
+
+    // Hahn, Abzugsbügel, Holzgriff
+    box(g, 0.016, 0.04, 0.02, DARK, 0, 0.07, 0.10, { rx: -0.5 });
+    box(g, 0.02, 0.008, 0.08, BODY, 0, -0.07, 0.0);
+    box(g, 0.06, 0.16, 0.09, WOOD, 0, -0.12, 0.10, { rx: 0.3 });
+
+    // Korn (Leuchtpunkt, Zielhöhe y=0.098) + Kimme
+    box(g, 0.012, 0.02, 0.012, DARK, 0, 0.083, -0.45, { edge: null });
+    neon(g, 0.01, 0.01, 0.01, RED, 0, 0.093, -0.45);
+    box(g, 0.05, 0.022, 0.02, DARK, 0, 0.068, 0.07, { edge: null });
+
+    return [0, 0.035, -0.49];
 }
 
 // ---------- Waffentypen ----------
@@ -169,6 +270,7 @@ function buildSniperModel(g) {
 //   immer nachladen, aber das Magazin leert sich); eine Zahl = begrenzte Reserve. infiniteAmmo: true = nie nachladen.
 // aimFov = Sichtfeld beim Zielen (Rechtsklick), aimPos = Waffenposition beim Zielen (Visier in Bildmitte),
 // aimSpeed = Zielgeschwindigkeit, aimMoveFactor = Lauftempo beim Zielen, scopeOverlay = Zielfernrohr-Ansicht
+// unlockLevel = ab diesem Spieler-Level nutzbar; pellets/spread = Schrot (mehrere Strahlen pro Schuss, Streuung in rad)
 // drawTime = Dauer der Zieh-Animation in Sekunden (Waffe kann währenddessen nicht schießen/zielen)
 // color      = Neon-Farbe für Tracer, Einschlagsfunken, Bullet Holes, Mündungsfeuer
 // kick/kickRot = Rückstoß (Rückwärtsversatz / Hochschlag in rad); holeSize = Größe des Einschussloches
@@ -178,7 +280,7 @@ export const WEAPON_CONFIGS = [
         magSize: 30, reserveAmmo: Infinity, reloadDuration: 1700, infiniteAmmo: false,
         color: 0x00f0ff, tracerWidth: 0.03, tracerLife: 0.09, holeSize: 0.26,
         kick: 0.05, kickRot: 0.05,
-        aimFov: 55, aimPos: [0, -0.172, -0.30], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false, drawTime: 0.42,
+        aimFov: 55, aimPos: [0, -0.172, -0.30], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false, drawTime: 0.42, unlockLevel: 1,
         buildModel: buildRifleModel
     },
     {
@@ -186,7 +288,7 @@ export const WEAPON_CONFIGS = [
         magSize: 12, reserveAmmo: Infinity, reloadDuration: 1100, infiniteAmmo: false,
         color: 0xffcc00, tracerWidth: 0.024, tracerLife: 0.08, holeSize: 0.22,
         kick: 0.06, kickRot: 0.09,
-        aimFov: 62, aimPos: [0, -0.108, -0.35], aimSpeed: 11, aimMoveFactor: 0.9, scopeOverlay: false, drawTime: 0.30,
+        aimFov: 62, aimPos: [0, -0.108, -0.35], aimSpeed: 11, aimMoveFactor: 0.9, scopeOverlay: false, drawTime: 0.30, unlockLevel: 1,
         buildModel: buildPistolModel
     },
     {
@@ -194,13 +296,38 @@ export const WEAPON_CONFIGS = [
         magSize: 5, reserveAmmo: Infinity, reloadDuration: 2400, infiniteAmmo: false,
         color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
         kick: 0.14, kickRot: 0.16,
-        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true, drawTime: 0.60,
+        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true, drawTime: 0.60, unlockLevel: 4,
         buildModel: buildSniperModel
+    },
+    {
+        name: 'SMG', damage: 11, fireCooldown: 0.055, automatic: true,
+        magSize: 40, reserveAmmo: Infinity, reloadDuration: 1600, infiniteAmmo: false,
+        color: 0x39ff14, tracerWidth: 0.022, tracerLife: 0.07, holeSize: 0.2,
+        kick: 0.035, kickRot: 0.035,
+        aimFov: 60, aimPos: [0, -0.16, -0.32], aimSpeed: 11, aimMoveFactor: 0.85, scopeOverlay: false, drawTime: 0.32, unlockLevel: 2,
+        buildModel: buildSmgModel
+    },
+    {
+        name: 'Shotgun', damage: 12, pellets: 8, spread: 0.05, fireCooldown: 0.85,
+        magSize: 6, reserveAmmo: Infinity, reloadDuration: 2300, infiniteAmmo: false,
+        color: 0xff7a00, tracerWidth: 0.02, tracerLife: 0.08, holeSize: 0.16,
+        kick: 0.16, kickRot: 0.14,
+        aimFov: 65, aimPos: [0, -0.13, -0.38], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false, drawTime: 0.50, unlockLevel: 6,
+        buildModel: buildShotgunModel
+    },
+    {
+        name: 'Revolver', damage: 55, fireCooldown: 0.5,
+        magSize: 6, reserveAmmo: Infinity, reloadDuration: 2100, infiniteAmmo: false,
+        color: 0xff3355, tracerWidth: 0.045, tracerLife: 0.16, holeSize: 0.3,
+        kick: 0.12, kickRot: 0.15,
+        aimFov: 50, aimPos: [0, -0.098, -0.36], aimSpeed: 10, aimMoveFactor: 0.85, scopeOverlay: false, drawTime: 0.38, unlockLevel: 9,
+        buildModel: buildRevolverModel
     }
 ];
 
 // ---------- Einzelne Waffe ----------
 const BASE_POS = new THREE.Vector3(0.3, -0.25, -0.5);
+const _tmpColor = new THREE.Color();
 
 export class Weapon {
     constructor(camera, scene, config, onAmmoChange = null) {
@@ -218,6 +345,13 @@ export class Weapon {
         this.kickRot = config.kickRot;
         this.fireCooldown = config.fireCooldown;
         this.lastShotTime = -Infinity;
+        this.baseColor = config.color;
+        this.unlockLevel = config.unlockLevel ?? 1;
+        this.unlocked = this.unlockLevel <= 1;
+        this.pellets = config.pellets ?? 1;
+        this.spread = config.spread ?? 0;
+        this.rainbow = false;
+        this._hue = 0;
 
         // --- Munitionssystem ---
         this.magSize = config.magSize;
@@ -264,26 +398,45 @@ export class Weapon {
         this.flash = this._buildFlash(config.color);
         this.muzzle.add(this.flash);
 
+        // Alle Akzent-Meshes einsammeln (per Skin umfärbbar)
+        this.accentMeshes = [];
+        this.weaponGroup.traverse((o) => { if (o.userData && o.userData.accent !== undefined) this.accentMeshes.push(o); });
+
         this.camera.add(this.weaponGroup);
         this._notifyAmmoChange();
     }
 
+    // Skin anwenden: accent = Hex-Farbe oder null (Originalfarben), rainbow = Dauer-Farbwechsel
+    setSkin(accent, rainbow = false) {
+        this.rainbow = !!rainbow;
+        this._recolor(accent ?? null);
+    }
+
+    _recolor(hexOrNull) {
+        for (const m of this.accentMeshes) m.material.color.setHex(hexOrNull ?? m.userData.accent);
+        const c = hexOrNull ?? this.baseColor;
+        this.color = c; // Tracer, Einschusslöcher, Funken
+        for (const fm of this.flashTintMats) fm.color.setHex(c);
+    }
+
     _buildFlash(colorHex) {
         const g = new THREE.Group();
-        const add = (geo, color, opacity) => {
+        this.flashTintMats = [];
+        const add = (geo, color, opacity, tint = false) => {
             const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
                 color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
             }));
+            if (tint) this.flashTintMats.push(m.material);
             g.add(m);
             return m;
         };
         add(new THREE.SphereGeometry(0.035, 8, 8), 0xffffff, 0.95);          // heller Kern
-        add(new THREE.SphereGeometry(0.075, 8, 8), colorHex, 0.5);           // farbiger Glow
+        add(new THREE.SphereGeometry(0.075, 8, 8), colorHex, 0.5, true);     // farbiger Glow
         const starGeo = new THREE.PlaneGeometry(0.28, 0.05);                 // Stern aus 2 gekreuzten Streifen
-        const s1 = add(starGeo, colorHex, 0.85);
-        const s2 = add(starGeo, colorHex, 0.85);
+        const s1 = add(starGeo, colorHex, 0.85, true);
+        const s2 = add(starGeo, colorHex, 0.85, true);
         s2.rotation.z = Math.PI / 2;
-        const s3 = add(new THREE.PlaneGeometry(0.05, 0.4), colorHex, 0.5);   // Strahl nach vorn
+        const s3 = add(new THREE.PlaneGeometry(0.05, 0.4), colorHex, 0.5, true); // Strahl nach vorn
         s3.rotation.x = Math.PI / 2;
         s3.position.z = -0.18;
         g.visible = false;
@@ -402,6 +555,11 @@ export class Weapon {
     }
 
     update(delta) {
+        if (this.rainbow && this.active) {
+            this._hue = (this._hue + delta * 0.35) % 1;
+            _tmpColor.setHSL(this._hue, 1, 0.55);
+            this._recolor(_tmpColor.getHex());
+        }
         // Rückstoß klingt schnell ab (ca. 0.1 s), Nachladen senkt sanft ab/hebt an
         this.recoil = Math.max(0, this.recoil - delta * 10);
         this.dryNudge = Math.max(0, this.dryNudge - delta * 14);
@@ -480,6 +638,14 @@ export class WeaponManager {
     get isReloading() { return this.current.isReloading; }
     get infiniteAmmo() { return this.current.infiniteAmmo; }
     get automatic() { return this.current.automatic; }
+    get pellets() { return this.current.pellets; }
+    get spread() { return this.current.spread; }
+
+    // Freischaltung nach Spieler-Level
+    isUnlocked(i) { return !!(this.weapons[i] && this.weapons[i].unlocked); }
+    setLevel(level) { this.weapons.forEach(w => { w.unlocked = level >= w.unlockLevel; }); }
+    // Skin auf alle Waffen anwenden
+    setSkin(accent, rainbow = false) { this.weapons.forEach(w => w.setSkin(accent, rainbow)); }
 
     // Zielen (Rechtsklick): setAiming(true/false). aimAmount = 0..1 (geglättet) für FOV-Zoom im Frame-Loop.
     setAiming(on) { this._aimWanted = !!on; this.current.aiming = this._aimWanted; }
@@ -500,6 +666,7 @@ export class WeaponManager {
 
     switchTo(index) {
         if (index < 0 || index >= this.weapons.length || index === this.activeIndex) return;
+        if (!this.weapons[index].unlocked) return; // noch nicht freigeschaltet
         this.current.cancelReload(); // Wechsel bricht Nachladen ab (kein Nachladen im Hintergrund)
         this.current.resetAnimation();
         this.current.active = false;
@@ -514,7 +681,11 @@ export class WeaponManager {
     }
 
     switchNext() {
-        this.switchTo((this.activeIndex + 1) % this.weapons.length);
+        const n = this.weapons.length;
+        for (let k = 1; k <= n; k++) {
+            const i = (this.activeIndex + k) % n;
+            if (this.weapons[i].unlocked) { this.switchTo(i); return; }
+        }
     }
 
     _handleWeaponAmmoChange(weapon) {
