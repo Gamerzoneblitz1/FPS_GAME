@@ -136,6 +136,22 @@ function shotSound(out, t, weaponIndex) {
         tone(out, t, { f0: 115 * v, f1: 28, dur: 0.6, gain: 1.1 });
         tone(out, t, { type: 'sawtooth', f0: 760 * v, f1: 60, dur: 0.35, gain: 0.28 });
         noise(out, t + 0.14, { filter: 'lowpass', f0: 600, f1: 200, dur: 0.7, gain: 0.3 }); // Hall
+    } else if (weaponIndex === 3) {     // SMG: kurzes, dichtes Rattern
+        noise(out, t, { f0: 2700 * v, q: 0.9, dur: 0.05, gain: 0.6 });
+        tone(out, t, { type: 'sawtooth', f0: 1700 * v, f1: 260, dur: 0.05, gain: 0.2 });
+        tone(out, t, { f0: 190, f1: 60, dur: 0.07, gain: 0.45 });
+    } else if (weaponIndex === 4) {     // Shotgun: dumpfer, breiter Knall + Nachladen der Pumpe
+        noise(out, t, { filter: 'lowpass', f0: 1500, f1: 280, dur: 0.38, gain: 1.0 });
+        noise(out, t, { filter: 'highpass', f0: 2500, dur: 0.06, gain: 0.6 });
+        tone(out, t, { f0: 100 * v, f1: 32, dur: 0.4, gain: 1.0 });
+        noise(out, t + 0.36, { f0: 1500, q: 1.4, dur: 0.03, gain: 0.35 });   // Pumpe zurück
+        noise(out, t + 0.52, { f0: 2000, q: 1.4, dur: 0.03, gain: 0.4 });    // Pumpe vor
+    } else if (weaponIndex === 5) {     // Revolver: fetter Schlag mit Nachhall
+        noise(out, t, { f0: 1800 * v, q: 0.7, dur: 0.16, gain: 0.9 });
+        noise(out, t, { filter: 'highpass', f0: 3500, dur: 0.05, gain: 0.6 });
+        tone(out, t, { f0: 145 * v, f1: 40, dur: 0.28, gain: 1.0 });
+        tone(out, t, { type: 'sawtooth', f0: 900 * v, f1: 120, dur: 0.16, gain: 0.28 });
+        noise(out, t + 0.1, { filter: 'lowpass', f0: 700, f1: 250, dur: 0.4, gain: 0.25 });
     } else {                            // Rifle: Neon-Laser-Knall
         noise(out, t, { f0: 2200 * v, q: 0.8, dur: 0.09, gain: 0.85 });
         tone(out, t, { type: 'sawtooth', f0: 1500 * v, f1: 190, dur: 0.09, gain: 0.3 });
@@ -157,7 +173,7 @@ export function playShotRemote(weaponIndex, pos, camera) {
     if (dist > 260) return; // zu weit: unhörbar
     const e = camera.matrixWorld.elements; // erste Spalte = Rechts-Vektor der Kamera
     const pan = dist > 0.01 ? Math.max(-0.9, Math.min(0.9, (rx * e[0] + ry * e[1] + rz * e[2]) / dist)) : 0;
-    const gain = (weaponIndex === 2 ? 1.5 : 1) / (1 + Math.pow(dist / 20, 1.5));
+    const gain = ([1, 1, 1.5, 0.9, 1.4, 1.3][weaponIndex] ?? 1) / (1 + Math.pow(dist / 20, 1.5));
     const lp = Math.max(700, 16000 / (1 + dist / 18));
     shotSound(spatialOut(gain, pan, lp), ctx.currentTime, weaponIndex);
 }
@@ -173,7 +189,7 @@ export function playDry() {
 export function playReload(stage, weaponIndex = 0) {
     if (!ready()) return;
     const t = ctx.currentTime;
-    const heavy = weaponIndex === 2 ? 0.75 : 1; // Sniper tiefer/dumpfer
+    const heavy = [1, 1, 0.75, 1.05, 0.8, 0.85][weaponIndex] ?? 1; // schwere Waffen tiefer/dumpfer
     if (stage === 'out') {
         noise(master, t, { f0: 2500 * heavy, q: 1.2, dur: 0.035, gain: 0.5 });
         tone(master, t, { type: 'square', f0: 320 * heavy, f1: 150, dur: 0.05, gain: 0.15 });
@@ -193,7 +209,7 @@ export function playReload(stage, weaponIndex = 0) {
 export function playDraw(weaponIndex = 0) {
     if (!ready()) return;
     const t = ctx.currentTime;
-    const dur = weaponIndex === 2 ? 0.26 : weaponIndex === 1 ? 0.15 : 0.2;
+    const dur = [0.2, 0.15, 0.26, 0.17, 0.24, 0.2][weaponIndex] ?? 0.2;
     noise(master, t, { f0: 400, f1: 1900, q: 0.7, dur, gain: 0.22, attack: 0.05 });
     const tc = t + dur * 0.85;
     noise(master, tc, { f0: weaponIndex === 2 ? 1800 : 2800, q: 1.4, dur: 0.03, gain: 0.5 });
@@ -238,6 +254,18 @@ export function playHeal() {
     [520, 660, 880, 1320].forEach((f, i) => {
         tone(master, t + 0.08 + i * 0.07, { type: 'sine', f0: f, dur: 0.22, gain: 0.26 });
     });
+}
+
+// Level-Up: aufsteigender Dur-Akkord mit Glanz
+export function playLevelUp() {
+    if (!ready()) return;
+    const t = ctx.currentTime;
+    tone(master, t, { type: 'triangle', f0: 130, f1: 130, dur: 0.9, gain: 0.3 });
+    [523, 659, 784, 1047, 1319].forEach((f, i) => {
+        tone(master, t + i * 0.09, { type: 'sine', f0: f, dur: 0.5, gain: 0.3 });
+        tone(master, t + i * 0.09, { type: 'triangle', f0: f * 2, dur: 0.3, gain: 0.08 });
+    });
+    noise(master, t + 0.35, { filter: 'highpass', f0: 5000, dur: 0.6, gain: 0.12, attack: 0.1 });
 }
 
 // ---------- Bewegung ----------
