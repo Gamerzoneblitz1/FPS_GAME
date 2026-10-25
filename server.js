@@ -116,6 +116,91 @@ function killPlayer(victimId, killerId, reason = 'hit') {
     broadcastLeaderboard();
 }
 
+// ---------- Spielstand-Speicher (Fortschritt pro Name) ----------
+// Standard: JSON-Datei. ACHTUNG Render (Free): Das Dateisystem wird bei jedem Neustart/Deploy zurückgesetzt!
+// Dauerhaft wird es auf zwei Wegen:
+//   1) Render "Persistent Disk" einbinden und DATA_DIR auf den Mount-Pfad setzen (z.B. /var/data), oder
+//   2) kostenlose Redis-Datenbank bei Upstash anlegen und UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
+//      als Environment-Variablen setzen (dann wird automatisch Upstash benutzt).
+// Zusätzlich hält jeder Client eine lokale Kopie (localStorage), die beim Einloggen mit dem Server abgeglichen wird
+// (das jeweils höhere XP gewinnt) - so geht auch nach einem Server-Reset nichts verloren, solange man denselben Browser nutzt.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'progress.json');
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const useUpstash = !!(UPSTASH_URL && UPSTASH_TOKEN && typeof fetch === 'function');
+const MAX_XP = 10000000;
+const MAX_XP_PER_SAVE = 5000;   // so viel XP kann zwischen zwei Speicherungen (ca. 4 s) nie legitim dazukommen
+const SAVE_INTERVAL_MS = 5000;
+
+const profileCache = new Map(); // nameKey -> { name, xp, skin, updated }
+const dirtyKeys = new Set();
+let fileDb = {};
+if (!useUpstash) {
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* ignorieren */ }
+    try { fileDb = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) || {}; } catch (e) { fileDb = {}; }
+}
+console.log('Spielstand-Speicher:', useUpstash ? 'Upstash Redis (dauerhaft)' : `Datei ${DATA_FILE} (auf Render Free NICHT dauerhaft, siehe Kommentar)`);
+
+const nameKey = (name) => String(name || '').trim().toLowerCase().slice(0, 20);
+
+async function upstash(cmd) {
+    const res = await fetch(UPSTASH_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(cmd)
+    });
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+    return json.result;
+}
+
+// Gibt { ok, prof } zurück. ok=false heißt: Speicher nicht erreichbar (dann NICHT überschreiben!)
+async function loadProfile(key) {
+    if (profileCache.has(key)) return { ok: true, prof: profileCache.get(key) };
+    try {
+        let prof = null;
+        if (useUpstash) {
+            const raw = await upstash(['GET', 'nv:' + key]);
+            prof = raw ? JSON.parse(raw) : null;
+        } else {
+            prof = fileDb[key] || null;
+        }
+        if (prof) profileCache.set(key, prof);
+        return { ok: true, prof };
+    } catch (e) {
+        console.warn('Spielstand laden fehlgeschlagen:', e.message);
+        return { ok: false, prof: null };
+    }
+}
+
+function queueSave(key, prof) {
+    profileCache.set(key, prof);
+    dirtyKeys.add(key);
+}
+
+async function flushSaves() {
+    if (dirtyKeys.size === 0) return;
+    const keys = [...dirtyKeys];
+    dirtyKeys.clear();
+    try {
+        if (useUpstash) {
+            await Promise.all(keys.map(k => upstash(['SET', 'nv:' + k, JSON.stringify(profileCache.get(k))])));
+        } else {
+            keys.forEach(k => { fileDb[k] = profileCache.get(k); });
+            const tmp = DATA_FILE + '.tmp';
+            fs.writeFileSync(tmp, JSON.stringify(fileDb));
+            fs.renameSync(tmp, DATA_FILE); // atomar: keine halb geschriebene Datei bei Absturz
+        }
+    } catch (e) {
+        console.warn('Spielstand speichern fehlgeschlagen:', e.message);
+        keys.forEach(k => dirtyKeys.add(k)); // beim nächsten Durchlauf erneut versuchen
+    }
+}
+setInterval(flushSaves, SAVE_INTERVAL_MS);
+// Render beendet den Server bei Deploy/Neustart mit SIGTERM -> vorher noch alles wegschreiben
+process.on('SIGTERM', async () => { await flushSaves(); process.exit(0); });
+
 // Leaderboard an alle schicken (nach jeder Änderung von kills/deaths)
 function broadcastLeaderboard() {
     const board = Object.entries(players).map(([id, p]) => ({
@@ -158,6 +243,44 @@ io.on('connection', (socket) => {
         me.skin = clampInt(p?.skin, 0, 15, 0);
         io.emit('playerProfile', { id: socket.id, level: me.level, skin: me.skin });
         broadcastLeaderboard();
+    });
+
+    // Spielstand beim Einloggen abgleichen: der höhere XP-Wert (Server oder Client-Backup) gewinnt.
+    // Wird nur gesendet, wenn der Spieler einen Namen eingegeben hat (Gäste werden nicht gespeichert).
+    socket.on('syncProgress', async (d) => {
+        const me = players[socket.id];
+        if (!me) return;
+        const key = nameKey(me.name);
+        if (!key) return;
+        const clientXp = clampInt(d?.xp, 0, MAX_XP, 0);
+        const clientSkin = clampInt(d?.skin, 0, 15, 0);
+
+        const { ok, prof } = await loadProfile(key);
+        if (!players[socket.id]) return; // währenddessen getrennt
+        if (!ok) { socket.emit('progressSynced', { xp: clientXp, skin: clientSkin, saved: false }); return; } // Speicher down: nichts überschreiben
+
+        let chosen;
+        if (!prof || clientXp > prof.xp) {
+            chosen = { name: me.name, xp: clientXp, skin: clientSkin, updated: Date.now() };
+            queueSave(key, chosen);
+        } else {
+            chosen = prof;
+        }
+        me.persistKey = key;
+        me.progressXp = chosen.xp;
+        socket.emit('progressSynced', { xp: chosen.xp, skin: chosen.skin, saved: true, restored: !!prof && prof.xp >= clientXp });
+    });
+
+    // Laufende Speicherung (Client sendet gedrosselt alle paar Sekunden + bei Level-Up/Skinwechsel)
+    socket.on('saveProgress', (d) => {
+        const me = players[socket.id];
+        if (!me || !me.persistKey) return;
+        let xp = clampInt(d?.xp, 0, MAX_XP, -1);
+        if (xp < 0 || xp < (me.progressXp || 0)) return;                 // XP gehen nie zurück
+        xp = Math.min(xp, (me.progressXp || 0) + MAX_XP_PER_SAVE);       // und wachsen nur plausibel
+        const skin = clampInt(d?.skin, 0, 15, 0);
+        me.progressXp = xp;
+        queueSave(me.persistKey, { name: me.name, xp, skin, updated: Date.now() });
     });
 
     socket.on('playerMove', (data) => {
