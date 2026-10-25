@@ -84,6 +84,8 @@ let syringes = 0;      // Anzahl Heilspritzen (Server-Wert)
 let myKills = 0;       // eigene Kills (aus dem Leaderboard) für die Fortschrittsanzeige
 const playerLevels = {};   // id -> Level der anderen Spieler
 let lastSlotKey = '';      // verhindert unnötiges Neuzeichnen der Waffenleiste
+let progressSaveTimer = null;
+let progressSynced = false; // true, sobald der Server den Spielstand abgeglichen hat
 let levelBannerTimer = null;
 let stepTimer = 0;         // Schritt-Sound-Takt
 let wasSlidingSfx = false;
@@ -159,6 +161,11 @@ function init() {
         const name = input ? input.value.trim().slice(0, 20) : '';
         playerName = name || 'Player' + Math.floor(Math.random() * 1000);
         socket.emit('setName', playerName);
+        // Mit eigenem Namen wird der Fortschritt gespeichert (lokal + Server); ohne Namen (Gast) nicht
+        prog.setActiveName(name);
+        refreshProgressUI();
+        progressSynced = false;
+        if (name) socket.emit('syncProgress', prog.getState());
         sendProfile();
         document.getElementById('own-name-display').textContent = playerName;
         hasEntered = true;
@@ -271,6 +278,13 @@ function init() {
     shootBlockers = colliders.shootBlockers || [];
     weapon = new WeaponManager(camera, scene, updateAmmoUI);
     weapon.onEvent = handleWeaponEvent;
+    // Zuletzt benutzten Namen vorbelegen und dessen lokalen Spielstand laden (Level/Skin sofort sichtbar)
+    const lastName = prog.getLastName();
+    const savedNameField = document.getElementById('name-input');
+    if (lastName && savedNameField && !savedNameField.value) {
+        savedNameField.value = lastName;
+        prog.setActiveName(lastName);
+    }
     weapon.setLevel(prog.getProgress().level); // Waffen nach gespeichertem Level freischalten
     applyOwnSkin();
     updateXpUI();
@@ -293,8 +307,34 @@ function init() {
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault()); // kein Browser-Menü bei Rechtsklick
     window.addEventListener('blur', () => { fireHeld = false; if (weapon) weapon.setAiming(false); });
+    // Tab verlassen / Seite schließen: Spielstand noch schnell an den Server schicken
+    document.addEventListener('visibilitychange', () => { if (document.hidden) flushProgress(); });
+    window.addEventListener('pagehide', flushProgress);
 
     // Socket Events
+
+    // Nach Verbindungsabbruch/Server-Neustart: Name, Spielstand und Profil erneut anmelden
+    socket.on('connect', () => {
+        if (!hasEntered) return;
+        socket.emit('setName', playerName);
+        progressSynced = false;
+        if (prog.isPersistent()) socket.emit('syncProgress', prog.getState());
+        sendProfile();
+    });
+
+    // Server hat Spielstand abgeglichen (Maximum aus Server und lokalem Backup) -> übernehmen
+    socket.on('progressSynced', (d) => {
+        const before = prog.getProgress().level;
+        prog.applyServer(d);
+        progressSynced = !!d.saved;
+        refreshProgressUI();
+        sendProfile();
+        const lvl = prog.getProgress().level;
+        if (d.restored && lvl > 1) showNotice(`💾 Spielstand geladen: Level ${lvl}`);
+        else if (d.saved === false) showNotice('⚠ Server-Speicher nicht erreichbar – Spielstand nur lokal');
+        if (lvl !== before) lastSlotKey = '';
+    });
+
     socket.on('currentPlayers', (players) => {
         Object.keys(players).forEach((id) => {
             if (id !== socket.id) addOtherPlayer(id, players[id], players[id].name);
@@ -896,6 +936,26 @@ function trySwitch(i) {
     weapon.switchTo(i);
 }
 
+// Nach Wechsel des Spielstands (Login, Server-Abgleich): Waffen, Skin und HUD neu setzen
+function refreshProgressUI() {
+    weapon.setLevel(prog.getProgress().level);
+    if (!weapon.isUnlocked(weapon.activeIndex)) weapon.switchTo(0); // aktuelle Waffe nicht mehr freigeschaltet
+    lastSlotKey = '';
+    applyOwnSkin();
+    updateXpUI();
+    renderWeaponSlots();
+}
+
+// Speichern an den Server: gedrosselt (max. alle 4 s), sofort bei Level-Up/Skinwechsel/Seite verlassen
+function queueProgressSave() {
+    if (!prog.isPersistent() || progressSaveTimer) return;
+    progressSaveTimer = setTimeout(flushProgress, 4000);
+}
+function flushProgress() {
+    if (progressSaveTimer) { clearTimeout(progressSaveTimer); progressSaveTimer = null; }
+    if (prog.isPersistent() && progressSynced) socket.emit('saveProgress', prog.getState());
+}
+
 function applyOwnSkin() {
     const skin = SKINS[prog.getSkinId()] || SKINS[0];
     weapon.setSkin(skin.accent, !!skin.rainbow);
@@ -929,6 +989,7 @@ function awardXp(amount, isKill = false) {
     const r = prog.addXp(amount);
     if (isKill) popXp(`KILL +${amount} XP`);
     updateXpUI();
+    queueProgressSave();
     if (r.levelUp) onLevelUp(r.from, r.to);
 }
 
@@ -937,6 +998,7 @@ function onLevelUp(from, to) {
     lastSlotKey = '';
     renderWeaponSlots();
     sendProfile();
+    flushProgress(); // Level-Up sofort sichern
     sfx.playLevelUp();
 
     const lines = [];
@@ -986,6 +1048,7 @@ function renderLoadout() {
             if (prog.setSkinId(parseInt(card.dataset.skin, 10))) {
                 applyOwnSkin();
                 sendProfile();
+                flushProgress(); // Skinwechsel sofort sichern
                 renderLoadout();
             }
         });
