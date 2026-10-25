@@ -6,12 +6,11 @@
 // Maße: Der Gruppen-Ursprung liegt 0.5 über dem Boden (main.js sendet pos.y - 1.5, Augenhöhe = 2.0 über
 // dem Boden). Die Füße liegen deshalb bei y = -0.5, die Augen bei y = +1.5.
 
+import { SKINS } from './skins.js';
+
 const FOOT_Y = -0.5;
 const PALETTE = [0x00f0ff, 0xff2bd6, 0xffaa00, 0x39ff14, 0x9d00ff, 0xff3355, 0xffee00, 0x3d7bff];
 
-const ARMOR = 0x23232e;
-const ARMOR_MID = 0x2f2f3d;
-const DARK = 0x111118;
 const EDGE = 0x4a4a5e;
 
 // Geometrien/Materialien werden geteilt -> kaum Speicher pro Spieler
@@ -35,7 +34,7 @@ const edgeMat = new THREE.LineBasicMaterial({ color: EDGE });
 // Ein Körperteil: Box, optional mit heller Kantenlinie (gibt der ungelitteten Fläche Kontur)
 function part(parent, w, h, d, color, x, y, z, edge = true) {
     const geo = boxGeo(w, h, d);
-    const m = new THREE.Mesh(geo, mat(color));
+    const m = new THREE.Mesh(geo, typeof color === 'object' ? color : mat(color)); // Zahl = geteiltes Material, Objekt = eigenes Material
     m.position.set(x, y, z);
     if (edge) {
         const lines = new THREE.LineSegments(geo.userData.edges, edgeMat);
@@ -52,11 +51,20 @@ function hashId(id) {
     return Math.abs(h);
 }
 
-export function createPlayerMesh(id) {
-    const group = new THREE.Group();
-    group.userData.id = id; // Wichtig für Raycasting-Treffererkennung (main.js sucht userData.id nach oben)
+// Baut den Körper (Rüstung, Kopf, Arme, Gewehr ...) passend zum Skin in "group" und gibt die animierten Teile zurück
+function buildBody(group, id, skinId) {
+    const skin = SKINS[skinId] || SKINS[0];
+    const ARMOR = skin.armor, ARMOR_MID = skin.mid, DARK = skin.dark;
 
-    const accent = PALETTE[hashId(String(id)) % PALETTE.length];
+    // Akzentfarbe: Standard = pro Spieler (nach ID), sonst vom Skin. Regenbogen = eigenes Material, das jedes Frame umgefärbt wird.
+    let rainbowMat = null;
+    let accent;
+    if (skin.rainbow) {
+        rainbowMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        accent = rainbowMat;
+    } else {
+        accent = skin.accent ?? PALETTE[hashId(String(id)) % PALETTE.length];
+    }
 
     // "body" wird für die Blickrichtung gedreht; Nametag-Sprite hängt an "group" und bleibt unberührt
     const body = new THREE.Group();
@@ -119,7 +127,17 @@ export function createPlayerMesh(id) {
     part(rifle, 0.09, 0.10, 0.16, DARK, 0, -0.01, 0.37);              // Schulterstütze
     body.add(rifle);
 
-    group.userData.parts = { body, legs, arms, rifle };
+    return { body, legs, arms, rifle, rainbowMat };
+}
+
+export function createPlayerMesh(id, skinId = 0) {
+    const group = new THREE.Group();
+    group.userData.id = id; // Wichtig für Raycasting-Treffererkennung (main.js sucht userData.id nach oben)
+
+    const parts = buildBody(group, id, skinId);
+    group.userData.parts = parts;
+    group.userData.skinId = skinId;
+    group.userData.rainbowMat = parts.rainbowMat;
     group.userData.phase = Math.random() * Math.PI * 2;
     group.userData.blend = 0;       // 0 = steht, 1 = läuft (weich übergeblendet)
     group.userData.lastMove = 0;
@@ -128,6 +146,16 @@ export function createPlayerMesh(id) {
     group.userData.hasNetYaw = false;
 
     return group;
+}
+
+// Skin eines vorhandenen Spielers wechseln (Körper neu aufbauen; Nametag und Animationszustand bleiben erhalten)
+export function applySkin(mesh, skinId) {
+    if (!mesh || !mesh.userData.parts || mesh.userData.skinId === skinId) return;
+    mesh.remove(mesh.userData.parts.body);
+    const parts = buildBody(mesh, mesh.userData.id, skinId);
+    mesh.userData.parts = parts;
+    mesh.userData.skinId = skinId;
+    mesh.userData.rainbowMat = parts.rainbowMat;
 }
 
 // Blickrichtung (Yaw in Radiant, 0 = nach -Z) setzen — kommt von main.js aus dem 'playerMoved'-Event
@@ -169,6 +197,7 @@ export function updatePlayerAnimations(playerMeshesList, delta) {
 
         // Blickrichtung weich nachführen (kürzester Weg)
         u.yaw -= angleDiff(u.yaw, u.targetYaw) * smooth;
+        if (u.rainbowMat) u.rainbowMat.color.setHSL((now / 2500) % 1, 1, 0.55); // Regenbogen-Skin
         const { body, legs, arms, rifle } = u.parts;
         body.rotation.y = u.yaw;
 
