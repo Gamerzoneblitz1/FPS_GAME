@@ -4,6 +4,7 @@ import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } from './player.js';
 import { SKINS } from './skins.js';
+import { getSkinPreview } from './skintex.js';
 import * as prog from './progression.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
@@ -958,7 +959,7 @@ function flushProgress() {
 
 function applyOwnSkin() {
     const skin = SKINS[prog.getSkinId()] || SKINS[0];
-    weapon.setSkin(skin.accent, !!skin.rainbow);
+    weapon.setSkin(skin); // Muster auf der ganzen Waffe + Akzentfarbe
 }
 
 function sendProfile() {
@@ -1037,10 +1038,13 @@ function renderLoadout() {
 
     const grid = document.getElementById('skin-grid');
     const selected = prog.getSkinId();
-    grid.innerHTML = SKINS.map(s => {
+    // nach Freischalt-Level sortiert; Vorschau = echtes Muster des Skins
+    grid.innerHTML = [...SKINS].sort((a, b) => a.unlockLevel - b.unlockLevel).map(s => {
         const unlocked = p.level >= s.unlockLevel;
+        const pv = getSkinPreview(s);
+        const swatch = pv ? `${pv} center / cover` : s.preview;
         return `<div class="skin-card${s.id === selected ? ' selected' : ''}${unlocked ? '' : ' locked'}" data-skin="${s.id}">
-            <div class="skin-swatch" style="background:${s.preview}"></div>${esc(s.name)}
+            <div class="skin-swatch" style="background:${swatch}"></div>${esc(s.name)}
             <small>${unlocked ? (s.id === selected ? 'ausgerüstet' : 'wählen') : '🔒 Level ' + s.unlockLevel}</small></div>`;
     }).join('');
     grid.querySelectorAll('.skin-card').forEach(card => {
