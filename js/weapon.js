@@ -1,7 +1,38 @@
+import { weaponSkinMaterial, shadeForColor, scrollSkinTextures } from './skintex.js';
+
 // weapon.js — Waffen mit detaillierten Viewmodels. Jede Waffe nutzt dieselbe Klasse, die Unterschiede
 // (Werte, Optik, Tracer-Farbe, Rückstoß) stehen in WEAPON_CONFIGS unten.
 // Rückstoß/Nachladen laufen jetzt über update(delta) statt setTimeout -> flüssig und ohne "Drift",
 // wenn man mitten im Rückstoß die Waffe wechselt. WeaponManager.update(delta) pro Frame aufrufen!
+
+// ---------- Skin-UVs ----------
+// Die eingebauten UVs der Boxen/Zylinder gehen pro Fläche von 0 bis 1 - ein Muster würde auf langen dünnen Teilen
+// (Lauf) extrem gestreckt. Stattdessen projizieren wir jede Fläche entlang ihrer Hauptachse in Metern (Waffenraum).
+// Dadurch ist das Muster überall gleich groß und läuft von Gehäuse zu Lauf durchgehend weiter.
+const _m4 = new THREE.Matrix4();
+const _n3 = new THREE.Matrix3();
+const _pv = new THREE.Vector3();
+const _nv = new THREE.Vector3();
+function projectSkinUVs(mesh) {
+    const geo = mesh.geometry;
+    const pos = geo.attributes.position, nor = geo.attributes.normal;
+    if (!pos || !nor) return;
+    mesh.updateMatrix();
+    _m4.copy(mesh.matrix);
+    _n3.getNormalMatrix(_m4);
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+        _pv.fromBufferAttribute(pos, i).applyMatrix4(_m4);
+        _nv.fromBufferAttribute(nor, i).applyMatrix3(_n3);
+        const ax = Math.abs(_nv.x), ay = Math.abs(_nv.y), az = Math.abs(_nv.z);
+        let u, v;
+        if (ax >= ay && ax >= az) { u = _pv.z; v = _pv.y; }       // Seitenflächen
+        else if (ay >= az) { u = _pv.x; v = _pv.z; }               // Ober-/Unterseiten
+        else { u = _pv.x; v = _pv.y; }                             // Vorder-/Rückseiten
+        uv[i * 2] = u; uv[i * 2 + 1] = v;
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
 
 // ---------- Mesh-Helfer ----------
 const matCache = new Map();
@@ -20,6 +51,8 @@ function box(g, w, h, d, color, x, y, z, { rx = 0, ry = 0, rz = 0, edge = 0x4a4a
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
     m.position.set(x, y, z);
     m.rotation.set(rx, ry, rz);
+    m.userData.body = true;        // bekommt beim Skin das Muster
+    m.userData.baseColor = color;  // Originalfarbe -> bestimmt, wie hell das Muster an diesem Teil erscheint
     if (edge !== null) {
         m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat(edge)));
     }
@@ -30,6 +63,8 @@ function box(g, w, h, d, color, x, y, z, { rx = 0, ry = 0, rz = 0, edge = 0x4a4a
 // Zylinder; axis 'z' = entlang des Laufs, 'x' = quer, 'y' = senkrecht
 function cyl(g, r, len, color, x, y, z, axis = 'z', { r2 = r, seg = 14 } = {}) {
     const m = new THREE.Mesh(new THREE.CylinderGeometry(r2, r, len, seg), mat(color));
+    m.userData.body = true;
+    m.userData.baseColor = color;
     if (axis === 'z') m.rotation.x = Math.PI / 2;
     else if (axis === 'x') m.rotation.z = Math.PI / 2;
     m.position.set(x, y, z);
@@ -42,6 +77,7 @@ function cyl(g, r, len, color, x, y, z, axis = 'z', { r2 = r, seg = 14 } = {}) {
 function markAccent(mesh, color) {
     mesh.material = new THREE.MeshBasicMaterial({ color });
     mesh.userData.accent = color;
+    mesh.userData.body = false; // Leuchtteile bleiben Leuchtteile (Akzentfarbe), kein Muster
     return mesh;
 }
 function neon(g, w, h, d, color, x, y, z) {
@@ -158,7 +194,7 @@ function buildSniperModel(g) {
     cyl(g, 0.014, 0.04, MID, 0, 0.195, -0.1, 'y');
     cyl(g, 0.014, 0.04, MID, 0.045, 0.15, -0.1, 'x');
     markAccent(cyl(g, 0.049, 0.006, MAG, 0, 0.15, -0.36), MAG);   // Leuchtring vorn
-    cyl(g, 0.044, 0.004, 0x330022, 0, 0.15, -0.355); // dunkle Linse
+    cyl(g, 0.044, 0.004, 0x330022, 0, 0.15, -0.355).userData.body = false; // dunkle Linse bleibt glatt
 
     // Verschlussgriff
     cyl(g, 0.01, 0.08, DARK, 0.07, 0.045, 0.02, 'x');
@@ -402,14 +438,30 @@ export class Weapon {
         this.accentMeshes = [];
         this.weaponGroup.traverse((o) => { if (o.userData && o.userData.accent !== undefined) this.accentMeshes.push(o); });
 
+        // Körperteile für Skin-Muster: Originalmaterial merken, UVs in Metern berechnen
+        this.skin = null;
+        this.bodyMeshes = [];
+        this.weaponGroup.traverse((o) => {
+            if (o.isMesh && o.userData && o.userData.body) {
+                o.userData.baseMat = o.material;
+                projectSkinUVs(o);
+                this.bodyMeshes.push(o);
+            }
+        });
+
         this.camera.add(this.weaponGroup);
         this._notifyAmmoChange();
     }
 
-    // Skin anwenden: accent = Hex-Farbe oder null (Originalfarben), rainbow = Dauer-Farbwechsel
-    setSkin(accent, rainbow = false) {
-        this.rainbow = !!rainbow;
-        this._recolor(accent ?? null);
+    // Skin anwenden (Objekt aus skins.js): Muster auf der ganzen Waffe + Akzentfarbe. null/Standard = Originaldesign
+    setSkin(skin) {
+        this.skin = skin || null;
+        this.rainbow = !!(skin && skin.rainbow);
+        this._recolor(skin ? (skin.accent ?? null) : null);
+        const patterned = !!(skin && skin.pattern);
+        for (const m of this.bodyMeshes) {
+            m.material = patterned ? weaponSkinMaterial(skin, shadeForColor(m.userData.baseColor)) : m.userData.baseMat;
+        }
     }
 
     _recolor(hexOrNull) {
@@ -555,6 +607,7 @@ export class Weapon {
     }
 
     update(delta) {
+        if (this.active && this.skin && this.skin.scroll) scrollSkinTextures(delta);
         if (this.rainbow && this.active) {
             this._hue = (this._hue + delta * 0.35) % 1;
             _tmpColor.setHSL(this._hue, 1, 0.55);
@@ -645,7 +698,7 @@ export class WeaponManager {
     isUnlocked(i) { return !!(this.weapons[i] && this.weapons[i].unlocked); }
     setLevel(level) { this.weapons.forEach(w => { w.unlocked = level >= w.unlockLevel; }); }
     // Skin auf alle Waffen anwenden
-    setSkin(accent, rainbow = false) { this.weapons.forEach(w => w.setSkin(accent, rainbow)); }
+    setSkin(skin) { this.weapons.forEach(w => w.setSkin(skin)); }
 
     // Zielen (Rechtsklick): setAiming(true/false). aimAmount = 0..1 (geglättet) für FOV-Zoom im Frame-Loop.
     setAiming(on) { this._aimWanted = !!on; this.current.aiming = this._aimWanted; }
