@@ -7,6 +7,7 @@
 // dem Boden). Die Füße liegen deshalb bei y = -0.5, die Augen bei y = +1.5.
 
 import { SKINS } from './skins.js';
+import { playerSkinMaterial } from './skintex.js';
 
 const FOOT_Y = -0.5;
 const PALETTE = [0x00f0ff, 0xff2bd6, 0xffaa00, 0x39ff14, 0x9d00ff, 0xff3355, 0xffee00, 0x3d7bff];
@@ -54,7 +55,10 @@ function hashId(id) {
 // Baut den Körper (Rüstung, Kopf, Arme, Gewehr ...) passend zum Skin in "group" und gibt die animierten Teile zurück
 function buildBody(group, id, skinId) {
     const skin = SKINS[skinId] || SKINS[0];
-    const ARMOR = skin.armor, ARMOR_MID = skin.mid, DARK = skin.dark;
+    const DARK = skin.dark;
+    // Mit Muster-Skin tragen Rüstung und Polster das Muster (zwei Helligkeiten für Tiefe), sonst einfache Farben
+    const ARMOR = skin.pattern ? playerSkinMaterial(skin, 1.0) : skin.armor;
+    const ARMOR_MID = skin.pattern ? playerSkinMaterial(skin, 0.8) : skin.mid;
 
     // Akzentfarbe: Standard = pro Spieler (nach ID), sonst vom Skin. Regenbogen = eigenes Material, das jedes Frame umgefärbt wird.
     let rainbowMat = null;
