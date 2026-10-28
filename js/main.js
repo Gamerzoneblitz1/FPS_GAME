@@ -333,6 +333,7 @@ function init() {
         const lvl = prog.getProgress().level;
         if (d.restored && lvl > 1) showNotice(`💾 Spielstand geladen: Level ${lvl}`);
         else if (d.saved === false) showNotice('⚠ Server-Speicher nicht erreichbar – Spielstand nur lokal');
+        if (d.storageWarning) showNotice('⚠ Server-Speicher NICHT dauerhaft – bei Neustart gehen Spielstände verloren (Upstash einrichten)');
         if (lvl !== before) lastSlotKey = '';
     });
 
