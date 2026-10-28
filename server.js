@@ -129,6 +129,8 @@ const DATA_FILE = path.join(DATA_DIR, 'progress.json');
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const useUpstash = !!(UPSTASH_URL && UPSTASH_TOKEN && typeof fetch === 'function');
+// "Dauerhaft" = der Spielstand überlebt Neustarts/Deploys: Upstash-Datenbank oder eingebundene Render-Disk (DATA_DIR gesetzt)
+const storageDurable = useUpstash || !!process.env.DATA_DIR;
 const MAX_XP = 10000000;
 const MAX_XP_PER_SAVE = 5000;   // so viel XP kann zwischen zwei Speicherungen (ca. 4 s) nie legitim dazukommen
 const SAVE_INTERVAL_MS = 5000;
@@ -140,9 +142,19 @@ if (!useUpstash) {
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { /* ignorieren */ }
     try { fileDb = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) || {}; } catch (e) { fileDb = {}; }
 }
-console.log('Spielstand-Speicher:', useUpstash ? 'Upstash Redis (dauerhaft)' : `Datei ${DATA_FILE} (auf Render Free NICHT dauerhaft, siehe Kommentar)`);
+console.log('Spielstand-Speicher:', useUpstash ? 'Upstash Redis (dauerhaft)'
+    : process.env.DATA_DIR ? `Datei ${DATA_FILE} (DATA_DIR gesetzt - dauerhaft, falls dort eine Render Persistent Disk eingebunden ist)`
+    : `Datei ${DATA_FILE} (auf Render Free NICHT dauerhaft, siehe Kommentar)`);
 
 const nameKey = (name) => String(name || '').trim().toLowerCase().slice(0, 20);
+
+// Test-Accounts: diese Namen bekommen beim Einloggen immer Maximal-Level (Level 30 = alle Waffen + alle Skins).
+// Standard: "Tester". Ändern/erweitern per Environment-Variable TEST_ACCOUNTS (Namen mit Komma getrennt,
+// Groß-/Kleinschreibung egal), z.B. TEST_ACCOUNTS=tester,nicolas. Leer lassen (TEST_ACCOUNTS=) schaltet sie ab.
+// Achtung: Wer den Namen kennt, bekommt den Max-Stand - für Tests praktisch, für ein öffentliches Spiel abschalten.
+const TEST_ACCOUNTS = new Set(String(process.env.TEST_ACCOUNTS ?? 'tester').split(',').map(nameKey).filter(Boolean));
+const TEST_XP = 50000; // Level 30 braucht 46400 XP (200 + 300 + ... , siehe progression.js)
+if (TEST_ACCOUNTS.size) console.log('Test-Accounts (Max-Level):', [...TEST_ACCOUNTS].join(', '));
 
 async function upstash(cmd) {
     const res = await fetch(UPSTASH_URL, {
@@ -153,6 +165,15 @@ async function upstash(cmd) {
     const json = await res.json();
     if (json.error) throw new Error(json.error);
     return json.result;
+}
+
+// Beim Start prüfen, ob die Upstash-Zugangsdaten stimmen (Fehler stehen dann sofort im Render-Log statt erst beim ersten Spieler)
+if (useUpstash) {
+    upstash(['PING'])
+        .then(() => console.log('Upstash: Verbindung OK - Spielstände werden dauerhaft gespeichert.'))
+        .catch(e => console.warn('Upstash: Verbindung FEHLGESCHLAGEN - bitte URL/Token prüfen:', e.message));
+} else if (UPSTASH_URL || UPSTASH_TOKEN) {
+    console.warn('Upstash: URL und TOKEN müssen BEIDE gesetzt sein (und Node >= 18). Es wird die Datei benutzt.');
 }
 
 // Gibt { ok, prof } zurück. ok=false heißt: Speicher nicht erreichbar (dann NICHT überschreiben!)
@@ -255,9 +276,13 @@ io.on('connection', (socket) => {
         const clientXp = clampInt(d?.xp, 0, MAX_XP, 0);
         const clientSkin = clampInt(d?.skin, 0, 15, 0);
 
+        const isTest = TEST_ACCOUNTS.has(key);
         const { ok, prof } = await loadProfile(key);
         if (!players[socket.id]) return; // währenddessen getrennt
-        if (!ok) { socket.emit('progressSynced', { xp: clientXp, skin: clientSkin, saved: false }); return; } // Speicher down: nichts überschreiben
+        if (!ok) { // Speicher down: nichts überschreiben (Test-Accounts bekommen trotzdem Max-Level)
+            socket.emit('progressSynced', { xp: isTest ? Math.max(clientXp, TEST_XP) : clientXp, skin: clientSkin, saved: false, storageWarning: isTest });
+            return;
+        }
 
         let chosen;
         if (!prof || clientXp > prof.xp) {
@@ -266,9 +291,14 @@ io.on('connection', (socket) => {
         } else {
             chosen = prof;
         }
+        if (isTest && chosen.xp < TEST_XP) { // Test-Account: immer Maximal-Level
+            chosen = { name: me.name, xp: TEST_XP, skin: chosen.skin, updated: Date.now() };
+            queueSave(key, chosen);
+        }
         me.persistKey = key;
         me.progressXp = chosen.xp;
-        socket.emit('progressSynced', { xp: chosen.xp, skin: chosen.skin, saved: true, restored: !!prof && prof.xp >= clientXp });
+        // storageWarning: nur Test-Accounts (= du als Entwickler) sehen den Hinweis, normale Spieler nicht
+        socket.emit('progressSynced', { xp: chosen.xp, skin: chosen.skin, saved: true, restored: !!prof && prof.xp >= clientXp, storageWarning: isTest && !storageDurable });
     });
 
     // Laufende Speicherung (Client sendet gedrosselt alle paar Sekunden + bei Level-Up/Skinwechsel)
