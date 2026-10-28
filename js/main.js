@@ -704,6 +704,101 @@ function checkCollisions(oldPosition) {
     camera.position.z = oldPosition.z;
 }
 
+// ================= Vertikale Kollision =================
+// Ursache des "Stuck"-Bugs: checkCollisions() prüft nur die X/Z-Bewegung. Wer von oben (Turm, Rampe, Sprung) auf eine
+// Wand fiel, sank ungebremst in den Block hinein - und weil dann auch die alte Position im Block lag, schlug jede
+// weitere Bewegung fehl. Jetzt: (1) Landung auf Kollisionsboxen von oben, (2) Notausstieg, falls man trotzdem drinsteckt.
+
+// true  = man landet auf Wand-/Säulen-Oberkanten und kann darauf stehen und laufen
+// false = man wird von der Oberkante seitlich heruntergeschoben (Wände bleiben unbetretbar)
+const COLLIDER_TOPS_WALKABLE = true;
+const _stuckBox = new THREE.Box3();
+
+// Sinkflug: wurde in diesem Frame die Oberkante einer Box von oben durchquert (und die Füße sind darüber)? -> darauf landen
+function landOnColliderTops(prevFeetY) {
+    if (!COLLIDER_TOPS_WALKABLE || velocity.y > 0 || colliders.length === 0) return;
+    const px = camera.position.x, pz = camera.position.z;
+    let top = -Infinity;
+    for (let i = 0; i < colliders.length; i++) {
+        const c = colliders[i];
+        // nicht unter den Füßen (Spielerradius berücksichtigt)
+        if (c.max.x <= px - PLAYER_RADIUS || c.min.x >= px + PLAYER_RADIUS || c.max.z <= pz - PLAYER_RADIUS || c.min.z >= pz + PLAYER_RADIUS) continue;
+        if (c.max.y <= prevFeetY + 0.05 && c.max.y > feetY && c.max.y > top) top = c.max.y;
+    }
+    if (top > -Infinity) {
+        feetY = top;
+        velocity.y = 0;
+        canJump = true;
+    }
+}
+
+// Notausstieg: steckt die Spielermitte mitten in einer Box (z.B. nach Teleport/Respawn/sehr schnellem Fall), auf dem
+// kürzesten Weg herausschieben (zur Seite oder hinauf auf die Oberkante). Greift bewusst nur bei "Mitte im Block" -
+// normales Anstoßen an Wänden (Spielerradius) bleibt Sache von checkCollisions() und löst dies nie aus.
+
+// Box, in der die Spielermitte (x,z) auf der Höhe von "feet" steckt - oder null
+function colliderAroundCenter(px, pz, feet) {
+    const lowY = feet + currentEyeHeight * 0.25;   // Unterkante der Kollisionsbox
+    const highY = feet + currentEyeHeight * 1.25;  // Oberkante
+    for (let i = 0; i < colliders.length; i++) {
+        const c = colliders[i];
+        if (px > c.min.x && px < c.max.x && pz > c.min.z && pz < c.max.z && lowY < c.max.y && highY > c.min.y) return c;
+    }
+    return null;
+}
+
+// Wäre die komplette Spielerbox (mit Radius) an dieser Stelle frei?
+function spotIsFree(px, pz, feet) {
+    const cy = feet + currentEyeHeight;
+    _stuckBox.min.set(px - PLAYER_RADIUS, cy - currentEyeHeight * 0.75, pz - PLAYER_RADIUS);
+    _stuckBox.max.set(px + PLAYER_RADIUS, cy + currentEyeHeight * 0.25, pz + PLAYER_RADIUS);
+    for (let i = 0; i < colliders.length; i++) {
+        if (_stuckBox.intersectsBox(colliders[i])) return false;
+    }
+    return true;
+}
+
+function unstickFromColliders() {
+    const R = PLAYER_RADIUS, eps = 0.03;
+    const hit = colliderAroundCenter(camera.position.x, camera.position.z, feetY);
+    if (!hit) return; // Normalfall: nichts zu tun
+
+    const px = camera.position.x, pz = camera.position.z;
+    // Kandidaten: raus nach +X/-X/+Z/-Z oder hinauf auf die Oberkante. Nur Ziele nehmen, an denen die ganze Box frei
+    // ist - sonst schiebt man den Spieler nur in den Nachbarblock (dicke Wände bestehen aus vielen aneinanderliegenden Boxen).
+    const candidates = [
+        { cost: Math.abs(hit.max.x + R + eps - px), x: hit.max.x + R + eps, z: pz, f: feetY },
+        { cost: Math.abs(px - (hit.min.x - R - eps)), x: hit.min.x - R - eps, z: pz, f: feetY },
+        { cost: Math.abs(hit.max.z + R + eps - pz), x: px, z: hit.max.z + R + eps, f: feetY },
+        { cost: Math.abs(pz - (hit.min.z - R - eps)), x: px, z: hit.min.z - R - eps, f: feetY }
+    ];
+    if (COLLIDER_TOPS_WALKABLE && hit.max.y < 40) { // die 60 m hohe Außengrenze ist nie ein Ausstieg nach oben
+        candidates.push({ cost: Math.max(0, hit.max.y - feetY) * 0.9, x: px, z: pz, f: hit.max.y, up: true });
+    }
+    candidates.sort((a, b) => a.cost - b.cost);
+    const best = candidates.find(c => spotIsFree(c.x, c.z, c.f));
+
+    if (best) {
+        camera.position.x = best.x;
+        camera.position.z = best.z;
+        feetY = best.f;
+        if (best.up) { velocity.y = 0; canJump = true; }
+        return;
+    }
+
+    // Kein freier Ausgang in direkter Nähe (z.B. eingeschlossen zwischen mehreren Blöcken): sicher zurück zum Spawn
+    const sp = colliders.spawnPoints && colliders.spawnPoints.length
+        ? colliders.spawnPoints[Math.floor(Math.random() * colliders.spawnPoints.length)] : null;
+    if (sp) {
+        camera.position.x = sp.x;
+        camera.position.z = sp.z;
+        feetY = sp.y - currentEyeHeight;
+        velocity.set(0, 0, 0);
+        canJump = true;
+        showNotice('Eingeklemmt – zurückgesetzt');
+    }
+}
+
 function onKeyChange(keyCode, isPressed) {
     switch (keyCode) {
         case 38: case 87: moveForward = isPressed; break;
@@ -1421,7 +1516,10 @@ function animate() {
         // Prüfen, ob neue Position in Wand/Kiste liegt (harte Deckung, blockiert X/Z)
         checkCollisions(oldPosition);
 
+        const prevFeetY = feetY;
         feetY += velocity.y * delta;
+        landOnColliderTops(prevFeetY); // von oben auf Wände/Säulen landen statt hineinzusinken
+        unstickFromColliders();         // Notausstieg, falls man trotzdem in einem Block steckt
 
         // Bodenerkennung: Raycast senkrecht nach unten findet Boden, Treppenstufe oder Plattform.
         // Dadurch kann der Spieler Treppen/Rampen aus map.js hochlaufen, statt bei y=2 hart zu kleben.
