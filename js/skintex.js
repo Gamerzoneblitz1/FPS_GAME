@@ -257,7 +257,306 @@ function magma(colors, rand) {
     return r.d;
 }
 
-const PATTERNS = { carbon, camo, nebula, gold, hyper, circuit, frost, magma };
+// ===== Weitere Muster (für die vielen Skin-Varianten) =====
+const mul = (c, f) => [c[0] * f, c[1] * f, c[2] * f];
+
+// Wabenmuster mit leuchtenden Kanten: Zentren liegen auf zwei versetzten Rastern (= Dreiecksgitter). Pro Pixel werden das
+// nächste und das zweitnächste Zentrum gesucht; ist ihr Abstand fast gleich, liegt man auf einer Zellkante.
+function honeycomb(colors, rand) {
+    const [bg, edge, tint] = colors.map(hex);
+    const W = 32, H = 64, YS = 0.866; // YS staucht y so, dass die Zellen regelmäßige Sechsecke werden
+    const r = new Raster();
+    const cellShade = new Float32Array(64);
+    for (let i = 0; i < 64; i++) cellShade[i] = rand();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        let d1 = 1e9, d2 = 1e9, id = 0;
+        const i0 = Math.round(x / W), j0 = Math.round(y / H);
+        for (let lat = 0; lat < 2; lat++) {
+            const ox = lat ? W / 2 : 0, oy = lat ? H / 2 : 0;
+            const ci0 = lat ? Math.round((x - ox) / W) : i0, cj0 = lat ? Math.round((y - oy) / H) : j0;
+            for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+                const ci = ci0 + di, cj = cj0 + dj;
+                const d = Math.hypot(x - (ci * W + ox), (y - (cj * H + oy)) * YS);
+                if (d < d1) { d2 = d1; d1 = d; id = (((cj % 4) + 4) % 4) * 8 + (((ci % 8) + 8) % 8) + lat * 32; }
+                else if (d < d2) d2 = d;
+            }
+        }
+        const e = d2 - d1;                                           // 0 direkt auf der Kante
+        const base = mix(bg, tint, cellShade[id] * 0.8);
+        let c = mix(base, edge, 1 - smooth(0, 2.6, e));
+        c = mix(c, edge, (1 - smooth(0, 9, e)) * 0.16);              // weicher Schein
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Warnstreifen, abgenutzt
+function hazard(colors, rand) {
+    const a = hex(colors[0]), b = hex(colors[1]);
+    const n = fbm(rand, 6, 3);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const m = (x + y) % 64;
+        let c = m < 32 ? a : b;
+        if (m % 32 < 2.2) c = mul(c, 0.55);                            // dunkle Kante zwischen den Streifen
+        c = mix(c, [0, 0, 0], smooth(0.56, 0.82, n(x / S, y / S)) * 0.55); // Abnutzung
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Tigerstreifen: verzerrte Streifen mit Fell-Körnung
+function tiger(colors, rand) {
+    const [base, stripe, hi] = colors.map(hex);
+    const warp = fbm(rand, 4, 3), fur = makeNoise(rand, 64);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const u = x / S, v = y / S;
+        const s = 0.5 + 0.5 * Math.sin(2 * Math.PI * (u * 6 + (warp(u, v) - 0.5) * 3.2));
+        const mask = smooth(0.52, 0.66, s);
+        let c = mix(base, hi, smooth(0.5, 0.95, fur(u, v)) * 0.35);
+        c = mix(c, stripe, mask);
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Drachenschuppen: überlappende Halbkreise
+function scales(colors) {
+    const [dark, mid, light] = colors.map(hex);
+    const W = 32, RH = 16, R = 18, r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        let best = null;
+        const rj0 = Math.floor(y / RH);
+        for (let rj = rj0 - 1; rj <= rj0 + 2; rj++) {
+            const off = (((rj % 2) + 2) % 2) * (W / 2);
+            const ci = Math.round((x - off) / W);
+            const cx = ci * W + off, cy = rj * RH;
+            const d = Math.hypot(x - cx, y - cy) / R;
+            if (d <= 1 && (best === null || rj > best.rj)) best = { rj, d, dy: (y - cy) / R };
+        }
+        if (!best) { r.set(x, y, dark); continue; }
+        const shine = 1 - best.d;
+        let c = ramp([dark, mid, light], clamp01(shine * 0.9 + (0.35 - best.dy * 0.35)));
+        if (best.d > 0.86) c = mix(c, dark, smooth(0.86, 1, best.d)); // dunkle Kontur
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Plasma: ineinander verwirbelte Farbbänder
+function plasma(colors, rand) {
+    const cs = colors.map(hex);
+    const n1 = fbm(rand, 3, 3), n2 = fbm(rand, 4, 3), n3 = fbm(rand, 3, 4);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const u = x / S, v = y / S;
+        const q = n3(u + 0.55 * (n1(u, v) - 0.5), v + 0.55 * (n2(u, v) - 0.5));
+        const t = 0.5 + 0.5 * Math.sin(2 * Math.PI * (q * 3.2));
+        r.set(x, y, ramp(cs, t));
+    }
+    return r.d;
+}
+
+// Marmor mit Adern
+function marble(colors, rand) {
+    const [base, vein, vein2] = colors.map(hex);
+    const n = fbm(rand, 3, 4), m = fbm(rand, 5, 3);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const u = x / S, v = y / S;
+        const a = Math.abs(Math.sin(Math.PI * (u * 3 + 2.1 * n(u, v))));
+        const b = Math.abs(Math.sin(Math.PI * (v * 4 + 1.6 * m(u, v))));
+        let c = mix(base, vein2, smooth(0.3, 0.9, m(u + 0.3, v)) * 0.35);
+        c = mix(c, vein2, (1 - smooth(0, 0.12, b)) * 0.5);
+        c = mix(c, vein, 1 - smooth(0, 0.14, a));
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Rennsport-Karo mit Glanz und Kratzern
+function checker(colors, rand) {
+    const [a, b, scratch] = colors.map(hex);
+    const grain = makeNoise(rand, 96);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const base = (((x >> 5) + (y >> 5)) & 1) === 0 ? a : b;
+        const gloss = 0.86 + 0.14 * (1 - ((y & 31) / 31));                // Glanzverlauf pro Feld
+        let c = mul(base, gloss);
+        c = mix(c, scratch, smooth(0.74, 0.95, grain(x / S, y / S)) * 0.3); // Abrieb
+        if ((x & 31) === 0 || (y & 31) === 0) c = mul(c, 0.8);
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Höhenlinien wie auf einer Karte
+function topo(colors, rand) {
+    const [bg, line, line2] = colors.map(hex);
+    const n = fbm(rand, 3, 4);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const hgt = n(x / S, y / S) * 14;
+        const idx = Math.floor(hgt), f = hgt - idx, d = Math.min(f, 1 - f);
+        const major = idx % 4 === 0;
+        let c = mix(mul(bg, 0.8), bg, smooth(0.3, 0.7, n(x / S, y / S)));
+        c = mix(c, major ? line2 : line, (1 - smooth(0, major ? 0.1 : 0.06, d)) * (major ? 1 : 0.8));
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Synthwave-Sonnenuntergang mit Scanlines und Neon-Gitter
+function sunset(colors) {
+    const [top, mid, bot] = colors.map(hex);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const t = Math.abs(2 * y / S - 1);                                // symmetrisch -> nahtlos
+        let c = ramp([bot, mid, top], t);
+        const lineBand = (y % 16) < 2 + t * 7;                           // Scanlines werden zum Rand dicker
+        if (lineBand) c = mul(c, 0.35);
+        if (x % 32 < 1.5) c = mix(c, mid, 0.55);                        // senkrechte Neon-Linien
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Farbspritzer
+function splatter(colors, rand) {
+    const [bg, ...inks] = colors.map(hex);
+    const r = new Raster();
+    for (let i = 0; i < S * S; i++) { r.d[i * 4] = bg[0]; r.d[i * 4 + 1] = bg[1]; r.d[i * 4 + 2] = bg[2]; r.d[i * 4 + 3] = 255; }
+    for (let k = 0; k < 30; k++) {
+        const x = rand() * S, y = rand() * S, col = inks[Math.floor(rand() * inks.length)];
+        r.disk(x, y, 5 + rand() * 17, col, 0.95);
+        for (let d = 0; d < 9; d++) {
+            const a = rand() * Math.PI * 2, dist = 14 + rand() * 34;
+            r.disk(x + Math.cos(a) * dist, y + Math.sin(a) * dist, 1 + rand() * 3.6, col, 0.95);
+        }
+    }
+    for (let i = 0; i < 120; i++) r.disk(rand() * S, rand() * S, 0.7 + rand() * 0.8, inks[Math.floor(rand() * inks.length)], 0.9);
+    return r.d;
+}
+
+// Pop-Art-Rasterpunkte
+function halftone(colors, rand) {
+    const [bg, dot, dot2] = colors.map(hex);
+    const n = fbm(rand, 3, 3);
+    const r = new Raster();
+    const CELL = 16;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const ci = Math.floor(x / CELL), cj = Math.floor(y / CELL);
+        const k = n((ci + 0.5) * CELL / S, (cj + 0.5) * CELL / S);
+        const rad = (0.18 + 0.85 * clamp01((k - 0.2) / 0.6)) * CELL * 0.52;
+        const d = Math.hypot(x - (ci * CELL + CELL / 2), y - (cj * CELL + CELL / 2));
+        const col = ((ci + cj) & 1) ? dot : dot2;
+        r.set(x, y, mix(bg, col, 1 - smooth(rad - 0.9, rad + 0.9, d)));
+    }
+    return r.d;
+}
+
+// Blitze auf stürmischem Himmel
+function lightning(colors, rand) {
+    const [bg, glow, core] = colors.map(hex);
+    const n = fbm(rand, 4, 3);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        r.set(x, y, mix(mul(bg, 0.7), mix(bg, glow, 0.4), smooth(0.4, 0.85, n(x / S, y / S))));
+    }
+    const bolt = (x, y, ang, len, w, depth) => {
+        for (let i = 0; i < len; i++) {
+            const nx = x + Math.cos(ang) * 6 + (rand() - 0.5) * 8, ny = y + Math.sin(ang) * 6;
+            r.line(x, y, nx, ny, w + 7, glow, 0.14);
+            r.line(x, y, nx, ny, w + 2.6, glow, 0.55);
+            r.line(x, y, nx, ny, w, core, 1);
+            if (depth < 2 && rand() < 0.1) bolt(nx, ny, ang + (rand() - 0.5) * 1.7, 8 + Math.floor(rand() * 10), w * 0.7, depth + 1);
+            x = nx; y = ny; ang += (rand() - 0.5) * 0.5;
+        }
+    };
+    for (let k = 0; k < 4; k++) bolt(rand() * S, rand() * 20, Math.PI / 2 + (rand() - 0.5) * 0.5, 42, 1.3, 0);
+    return r.d;
+}
+
+// Glitch: verschobene Farbbalken und Scanlines
+function glitch(colors, rand) {
+    const [bg, ...cs] = colors.map(hex);
+    const r = new Raster();
+    for (let i = 0; i < S * S; i++) { r.d[i * 4] = bg[0]; r.d[i * 4 + 1] = bg[1]; r.d[i * 4 + 2] = bg[2]; r.d[i * 4 + 3] = 255; }
+    for (let k = 0; k < 80; k++) {
+        const y0 = Math.floor(rand() * S), h = 2 + Math.floor(rand() * 9), w = 20 + Math.floor(rand() * 110), x0 = Math.floor(rand() * S);
+        const col = cs[Math.floor(rand() * cs.length)], a = 0.5 + rand() * 0.45;
+        for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) r.blend(x0 + xx, y0 + yy, col, a);
+    }
+    for (let y = 0; y < S; y += 4) for (let x = 0; x < S; x++) r.blend(x, y, [0, 0, 0], 0.22);
+    return r.d;
+}
+
+// Tarnmuster mit weichen, organischen Flecken (Wald/Wüste/Schnee)
+function woodland(colors, rand) {
+    const cs = colors.map(hex);
+    const n = fbm(rand, 4, 4), speck = makeNoise(rand, 128);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const t = clamp01((n(x / S, y / S) - 0.22) / 0.56) * cs.length;
+        const idx = Math.min(cs.length - 1, Math.floor(t)), f = t - idx;
+        let c = cs[idx];
+        if (f > 0.9 && idx < cs.length - 1) c = mix(c, cs[idx + 1], (f - 0.9) / 0.1);   // weiche Kante
+        c = mul(c, 0.9 + 0.2 * speck(x / S, y / S));                                     // feine Körnung
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Fade: weich ineinanderlaufende Farbverläufe (CS-Klassiker)
+function fade(colors) {
+    const cs = colors.map(hex);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const t = 0.5 + 0.5 * Math.sin(2 * Math.PI * ((x + y) / S + 0.07 * Math.sin(2 * Math.PI * 3 * y / S)));
+        r.set(x, y, ramp(cs, t));
+    }
+    return r.d;
+}
+
+// Holzmaserung
+function wood(colors, rand) {
+    const [light, dark, ring] = colors.map(hex);
+    const n = fbm(rand, 3, 4);
+    const grain = new Float32Array(S);
+    for (let i = 0; i < S; i++) grain[i] = rand();
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const u = x / S, v = y / S;
+        const g = 0.5 + 0.5 * Math.sin(2 * Math.PI * (v * 9 + 2.4 * (n(u, v) - 0.5)));
+        let c = mix(light, dark, smooth(0.15, 0.95, g) * 0.8);
+        c = mix(c, ring, (1 - smooth(0, 0.07, Math.abs(g - 0.5))) * 0.35);
+        c = mul(c, 0.92 + 0.16 * grain[y]);                                 // feine Maserlinien
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Gebürsteter Stahl mit Kratzern
+function steel(colors, rand) {
+    const [dark, mid, light] = colors.map(hex);
+    const rows = new Float32Array(S);
+    for (let i = 0; i < S; i++) rows[i] = rand();
+    const n = fbm(rand, 2, 3);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const v = 0.45 + (rows[y] - 0.5) * 0.35 + (n(x / S, y / S) - 0.5) * 0.7;
+        r.set(x, y, ramp([dark, mid, light], v));
+    }
+    for (let i = 0; i < 40; i++) {
+        const x = rand() * S, y = rand() * S, a = (rand() - 0.5) * 0.35, l = 20 + rand() * 60;
+        r.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.9, light, 0.28);
+    }
+    return r.d;
+}
+
+const PATTERNS = { carbon, camo, nebula, gold, hyper, circuit, frost, magma,
+    hex: honeycomb, hazard, tiger, scales, plasma, marble, checker, topo, sunset, splatter, halftone, lightning, glitch, woodland, fade, wood, steel };
 
 // Reine Pixel-Erzeugung: gibt S*S*4 RGBA-Bytes zurück
 export function generatePixels(pattern, colors, seed) {
@@ -312,6 +611,7 @@ export const playerSkinMaterial = (skin, shade) => skinMaterial(skin, 'player', 
 
 // Vorschaubild fürs Menü (CSS-URL)
 const previewCache = new Map();
+export const isPreviewCached = (skin) => previewCache.has(skin.id);
 export function getSkinPreview(skin) {
     if (!skin.pattern) return null;
     if (previewCache.has(skin.id)) return previewCache.get(skin.id);
@@ -319,7 +619,7 @@ export function getSkinPreview(skin) {
     cv.width = 120; cv.height = 44;
     const g = cv.getContext('2d');
     const src = getCanvas(skin);
-    for (let x = 0; x < 120; x += 60) g.drawImage(src, 0, 0, 128, 44, x, 0, 60, 44);
+    g.drawImage(src, 0, 0, 240, 88, 0, 0, 120, 44); // unverzerrter Ausschnitt (Seitenverhältnis wie die Vorschau)
     const url = `url(${cv.toDataURL()})`;
     previewCache.set(skin.id, url);
     return url;
