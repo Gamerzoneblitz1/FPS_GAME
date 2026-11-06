@@ -101,6 +101,9 @@ function killPlayer(victimId, killerId, reason = 'hit') {
     victim.health = 100;
     victim.lastAttacker = null;
     victim.lastDamageTime = 0;
+    victim.dead = true;                                   // wartet auf Waffenwahl/Respawn-Bestätigung des Clients
+    clearTimeout(victim.deadTimer);
+    victim.deadTimer = setTimeout(() => endDeadState(victimId), DEAD_TIMEOUT_MS); // Sicherung, falls der Client nie bestätigt
 
     const respawnPos = getRandomSpawnPoint(victimId);
     Object.assign(victim, respawnPos);
@@ -147,6 +150,27 @@ console.log('Spielstand-Speicher:', useUpstash ? 'Upstash Redis (dauerhaft)'
     : `Datei ${DATA_FILE} (auf Render Free NICHT dauerhaft, siehe Kommentar)`);
 
 const nameKey = (name) => String(name || '').trim().toLowerCase().slice(0, 20);
+
+// Kosmetik eines Spielstands prüfen: Charakter-Skin, Skin pro Waffe (6 Waffen), Loadout (2 verschiedene Waffen).
+// Alte Profile ohne wskins/loadout: der eine Skin galt für alles, Loadout = Standard.
+const MAX_SKIN_ID = 63, WEAPON_COUNT = 6;
+const intIn = (v, min, max, fallback) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
+function sanitizeCosmetics(src) {
+    const skin = intIn(src?.skin, 0, MAX_SKIN_ID, 0);
+    const wskins = Array.from({ length: WEAPON_COUNT }, (_, i) =>
+        Array.isArray(src?.wskins) ? intIn(src.wskins[i], 0, MAX_SKIN_ID, 0) : skin);
+    let loadout = [0, 1];
+    if (Array.isArray(src?.loadout) && src.loadout.length === 2) {
+        const a = intIn(src.loadout[0], 0, WEAPON_COUNT - 1, -1), b = intIn(src.loadout[1], 0, WEAPON_COUNT - 1, -1);
+        if (a >= 0 && b >= 0 && a !== b) loadout = [a, b];
+    }
+    return { skin, wskins, loadout };
+}
+
+// Tod/Respawn: Wer stirbt, wählt seine Waffen neu und bestätigt per 'respawnReady'. Bis dahin (max. DEAD_TIMEOUT_MS)
+// ist er nicht treffbar und teilt nicht aus; danach gibt es noch kurzen Spawn-Schutz.
+const DEAD_TIMEOUT_MS = 15000;
+const SPAWN_PROTECTION_MS = 2000;
 
 // Test-Accounts: diese Namen bekommen beim Einloggen immer Maximal-Level (Level 30 = alle Waffen + alle Skins).
 // Standard: "Tester". Ändern/erweitern per Environment-Variable TEST_ACCOUNTS (Namen mit Komma getrennt,
@@ -222,6 +246,15 @@ setInterval(flushSaves, SAVE_INTERVAL_MS);
 // Render beendet den Server bei Deploy/Neustart mit SIGTERM -> vorher noch alles wegschreiben
 process.on('SIGTERM', async () => { await flushSaves(); process.exit(0); });
 
+// Tot -> wieder im Spiel (mit kurzem Spawn-Schutz)
+function endDeadState(id) {
+    const p = players[id];
+    if (!p || !p.dead) return;
+    clearTimeout(p.deadTimer);
+    p.dead = false;
+    p.protectUntil = Date.now() + SPAWN_PROTECTION_MS;
+}
+
 // Leaderboard an alle schicken (nach jeder Änderung von kills/deaths)
 function broadcastLeaderboard() {
     const board = Object.entries(players).map(([id, p]) => ({
@@ -261,7 +294,7 @@ io.on('connection', (socket) => {
         const me = players[socket.id];
         if (!me) return;
         me.level = clampInt(p?.level, 1, 99, 1);
-        me.skin = clampInt(p?.skin, 0, 15, 0);
+        me.skin = clampInt(p?.skin, 0, MAX_SKIN_ID, 0);
         io.emit('playerProfile', { id: socket.id, level: me.level, skin: me.skin });
         broadcastLeaderboard();
     });
@@ -274,31 +307,31 @@ io.on('connection', (socket) => {
         const key = nameKey(me.name);
         if (!key) return;
         const clientXp = clampInt(d?.xp, 0, MAX_XP, 0);
-        const clientSkin = clampInt(d?.skin, 0, 15, 0);
+        const clientCosm = sanitizeCosmetics(d);
 
         const isTest = TEST_ACCOUNTS.has(key);
         const { ok, prof } = await loadProfile(key);
         if (!players[socket.id]) return; // währenddessen getrennt
         if (!ok) { // Speicher down: nichts überschreiben (Test-Accounts bekommen trotzdem Max-Level)
-            socket.emit('progressSynced', { xp: isTest ? Math.max(clientXp, TEST_XP) : clientXp, skin: clientSkin, saved: false, storageWarning: isTest });
+            socket.emit('progressSynced', { xp: isTest ? Math.max(clientXp, TEST_XP) : clientXp, ...clientCosm, saved: false, storageWarning: isTest });
             return;
         }
 
         let chosen;
         if (!prof || clientXp > prof.xp) {
-            chosen = { name: me.name, xp: clientXp, skin: clientSkin, updated: Date.now() };
+            chosen = { name: me.name, xp: clientXp, ...clientCosm, updated: Date.now() };
             queueSave(key, chosen);
         } else {
-            chosen = prof;
+            chosen = { ...prof, ...sanitizeCosmetics(prof) }; // ältere Profile ohne Waffen-Skins/Loadout werden ergänzt
         }
         if (isTest && chosen.xp < TEST_XP) { // Test-Account: immer Maximal-Level
-            chosen = { name: me.name, xp: TEST_XP, skin: chosen.skin, updated: Date.now() };
+            chosen = { name: me.name, xp: TEST_XP, ...sanitizeCosmetics(chosen), updated: Date.now() };
             queueSave(key, chosen);
         }
         me.persistKey = key;
         me.progressXp = chosen.xp;
         // storageWarning: nur Test-Accounts (= du als Entwickler) sehen den Hinweis, normale Spieler nicht
-        socket.emit('progressSynced', { xp: chosen.xp, skin: chosen.skin, saved: true, restored: !!prof && prof.xp >= clientXp, storageWarning: isTest && !storageDurable });
+        socket.emit('progressSynced', { xp: chosen.xp, ...sanitizeCosmetics(chosen), saved: true, restored: !!prof && prof.xp >= clientXp, storageWarning: isTest && !storageDurable });
     });
 
     // Laufende Speicherung (Client sendet gedrosselt alle paar Sekunden + bei Level-Up/Skinwechsel)
@@ -308,9 +341,8 @@ io.on('connection', (socket) => {
         let xp = clampInt(d?.xp, 0, MAX_XP, -1);
         if (xp < 0 || xp < (me.progressXp || 0)) return;                 // XP gehen nie zurück
         xp = Math.min(xp, (me.progressXp || 0) + MAX_XP_PER_SAVE);       // und wachsen nur plausibel
-        const skin = clampInt(d?.skin, 0, 15, 0);
         me.progressXp = xp;
-        queueSave(me.persistKey, { name: me.name, xp, skin, updated: Date.now() });
+        queueSave(me.persistKey, { name: me.name, xp, ...sanitizeCosmetics(d), updated: Date.now() });
     });
 
     socket.on('playerMove', (data) => {
@@ -367,6 +399,9 @@ io.on('connection', (socket) => {
         damage = Math.min(damage, 100);
 
         if (!players[targetId] || targetId === socket.id) return;
+        const shooter = players[socket.id], target = players[targetId];
+        if (target.dead || (target.protectUntil || 0) > Date.now()) return; // wartet auf Respawn / Spawn-Schutz
+        if (shooter && shooter.dead) return;                                  // Tote teilen nicht aus
         players[targetId].health -= damage;
         players[targetId].lastAttacker = socket.id;   // für den Reset-Button
         players[targetId].lastDamageTime = Date.now();
@@ -381,11 +416,14 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Client hat die Waffen gewählt und respawnt jetzt
+    socket.on('respawnReady', () => endDeadState(socket.id));
+
     // Reset-Button: Spieler "stirbt" freiwillig. Kill geht an den letzten Schadensverursacher
     // (innerhalb des Zeitfensters, noch verbunden), sonst an den räumlich nächsten Spieler.
     socket.on('requestReset', () => {
         const me = players[socket.id];
-        if (!me) return;
+        if (!me || me.dead) return;
 
         const now = Date.now();
         const wait = RESET_COOLDOWN_MS - (now - lastResetTime);
@@ -406,6 +444,7 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log('Getrennt:', socket.id);
+        if (players[socket.id]) clearTimeout(players[socket.id].deadTimer);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
         broadcastLeaderboard();
