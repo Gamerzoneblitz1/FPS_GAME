@@ -660,6 +660,7 @@ export class WeaponManager {
     constructor(camera, scene, onAmmoChange = null) {
         this.onAmmoChange = onAmmoChange;
         this.activeIndex = 0;
+        this.loadout = [0, 1]; // Indizes der zwei ausgerüsteten Waffen (Tasten 1 und 2). Änderung nur beim Spawn (siehe setLoadout)
         this._ready = false; // Ammo-Callback darf während des Aufbaus (this.weapons existiert noch nicht) nicht feuern
         this.weapons = WEAPON_CONFIGS.map(
             config => new Weapon(camera, scene, config, (w) => this._handleWeaponAmmoChange(w))
@@ -699,6 +700,31 @@ export class WeaponManager {
     setLevel(level) { this.weapons.forEach(w => { w.unlocked = level >= w.unlockLevel; }); }
     // Skin auf alle Waffen anwenden
     setSkin(skin) { this.weapons.forEach(w => w.setSkin(skin)); }
+    // Eigener Skin pro Waffe: Array mit einem Skin-Objekt pro Waffenindex
+    setSkins(skinList) { this.weapons.forEach((w, i) => w.setSkin(skinList[i] || null)); }
+
+    // ---- Loadout: nur 2 Waffen gleichzeitig ----
+    isEquipped(i) { return this.loadout.includes(i); }
+    get slot() { return Math.max(0, this.loadout.indexOf(this.activeIndex)); }
+
+    // Neue Auswahl übernehmen (der Aufrufer ruft das nur beim Spawn auf). Gibt false zurück, wenn die Auswahl ungültig ist
+    // (gleiche Waffe zweimal, außerhalb des Bereichs oder noch nicht freigeschaltet) - dann bleibt alles wie es war.
+    setLoadout(pair) {
+        if (!Array.isArray(pair) || pair.length !== 2) return false;
+        const [a, b] = pair;
+        const ok = (i) => Number.isInteger(i) && i >= 0 && i < this.weapons.length && this.weapons[i].unlocked;
+        if (a === b || !ok(a) || !ok(b)) return false;
+        this.loadout = [a, b];
+        if (!this.loadout.includes(this.activeIndex)) this.switchTo(a, true); // aktive Waffe nicht mehr ausgerüstet -> Primärwaffe ziehen
+        this._notify();
+        return true;
+    }
+
+    // Taste 1/2: Slot wählen
+    switchToSlot(slot) {
+        const i = this.loadout[slot];
+        if (i !== undefined) this.switchTo(i);
+    }
 
     // Zielen (Rechtsklick): setAiming(true/false). aimAmount = 0..1 (geglättet) für FOV-Zoom im Frame-Loop.
     setAiming(on) { this._aimWanted = !!on; this.current.aiming = this._aimWanted; }
@@ -717,9 +743,10 @@ export class WeaponManager {
     update(delta) { this.current.update(delta); }
     getMuzzleWorldPosition(out) { return this.current.getMuzzleWorldPosition(out); }
 
-    switchTo(index) {
+    switchTo(index, force = false) {
         if (index < 0 || index >= this.weapons.length || index === this.activeIndex) return;
         if (!this.weapons[index].unlocked) return; // noch nicht freigeschaltet
+        if (!force && !this.loadout.includes(index)) return; // nur die 2 ausgerüsteten Waffen
         this.current.cancelReload(); // Wechsel bricht Nachladen ab (kein Nachladen im Hintergrund)
         this.current.resetAnimation();
         this.current.active = false;
@@ -734,11 +761,7 @@ export class WeaponManager {
     }
 
     switchNext() {
-        const n = this.weapons.length;
-        for (let k = 1; k <= n; k++) {
-            const i = (this.activeIndex + k) % n;
-            if (this.weapons[i].unlocked) { this.switchTo(i); return; }
-        }
+        this.switchToSlot((this.slot + 1) % 2); // Touch/Zyklus: wechselt zwischen den beiden ausgerüsteten Waffen
     }
 
     _handleWeaponAmmoChange(weapon) {
