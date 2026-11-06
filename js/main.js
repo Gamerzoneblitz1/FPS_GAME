@@ -4,7 +4,7 @@ import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } from './player.js';
 import { SKINS } from './skins.js';
-import { getSkinPreview } from './skintex.js';
+import { getSkinPreview, isPreviewCached } from './skintex.js';
 import * as prog from './progression.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
@@ -85,6 +85,13 @@ let syringes = 0;      // Anzahl Heilspritzen (Server-Wert)
 let myKills = 0;       // eigene Kills (aus dem Leaderboard) für die Fortschrittsanzeige
 const playerLevels = {};   // id -> Level der anderen Spieler
 let lastSlotKey = '';      // verhindert unnötiges Neuzeichnen der Waffenleiste
+let isDead = false;        // tot: Respawn-Panel offen, Waffenwahl möglich, keine Bewegung/Schüsse
+let respawnTimerId = null;
+let justLoggedIn = false;  // kurz nach dem Login darf die Waffenwahl noch sofort übernommen werden (Spielstart)
+let activeLoTab = 'weapons';
+let skinTarget = 'char';   // Skin-Tab: 'char' = Charakter, 0-5 = Waffe
+let previewRun = 0;
+const RESPAWN_AUTO_SECONDS = 12;
 let progressSaveTimer = null;
 let progressSynced = false; // true, sobald der Server den Spielstand abgeglichen hat
 let levelBannerTimer = null;
@@ -168,6 +175,9 @@ function init() {
         progressSynced = false;
         if (name) socket.emit('syncProgress', prog.getState());
         sendProfile();
+        justLoggedIn = true;                 // Server-Abgleich (Level) kann noch eintreffen -> Auswahl danach erneut übernehmen
+        setTimeout(() => { justLoggedIn = false; }, 10000);
+        applyLoadout();                      // Spielstart: gewählte 2 Waffen
         document.getElementById('own-name-display').textContent = playerName;
         hasEntered = true;
 
@@ -207,6 +217,7 @@ function init() {
         controls.addEventListener('unlock', () => {
             fireHeld = false;
             if (weapon) weapon.setAiming(false);
+            if (isDead) return; // beim Tod zeigt das Respawn-Panel die Waffenwahl
             if (hasEntered) pauseMenu.style.display = 'flex';
             else instructions.style.display = 'flex';
         });
@@ -250,7 +261,9 @@ function init() {
         });
         document.getElementById('pause-reset').addEventListener('click', () => {
             socket.emit('requestReset');
-            controls.lock();
+            pauseMenu.style.display = 'none';
+            // Kein Lock: der Server antwortet mit playerKilled -> Respawn-Panel (hier kann man die Waffen neu wählen).
+            // Bei Reset-Cooldown zeigt 'resetDenied' das Menü wieder.
         });
         document.getElementById('pause-settings').addEventListener('click', () => {
             settingsPanel.style.display = (settingsPanel.style.display === 'block') ? 'none' : 'block';
@@ -289,6 +302,7 @@ function init() {
     weapon.setLevel(prog.getProgress().level); // Waffen nach gespeichertem Level freischalten
     applyOwnSkin();
     updateXpUI();
+    wireLoadoutUi(); // Loadout-Tabs, Respawn-Button, Login-Auswahl
     sfx.initAudio(); // Audio-Kontext startet beim ersten Klick/Tastendruck
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
@@ -330,6 +344,8 @@ function init() {
         progressSynced = !!d.saved;
         refreshProgressUI();
         sendProfile();
+        renderAllPickers();
+        if (justLoggedIn) { applyLoadout(); justLoggedIn = false; } // Spielstart: Level (z.B. Tester) ist jetzt bekannt
         const lvl = prog.getProgress().level;
         if (d.restored && lvl > 1) showNotice(`💾 Spielstand geladen: Level ${lvl}`);
         else if (d.saved === false) showNotice('⚠ Server-Speicher nicht erreichbar – Spielstand nur lokal');
@@ -362,6 +378,7 @@ function init() {
     socket.on('playerMoved', (data) => {
         if (otherPlayers[data.id]) {
             otherPlayers[data.id].position.set(data.position.x, data.position.y, data.position.z);
+            if (!otherPlayers[data.id].visible) setPlayerVisible(otherPlayers[data.id], true); // nach dem Respawn wieder sichtbar
             setPlayerFacing(otherPlayers[data.id], data.position.ry); // Blickrichtung des Skins
         }
     });
@@ -394,10 +411,10 @@ function init() {
             feetY = data.respawnPos.y - currentEyeHeight;
             velocity.set(0, 0, 0);
             canJump = true;
-            if (weapon) { weapon.refillAll(); weapon.setAiming(false); } // nach dem Respawn volle Magazine, nicht mehr gezoomt
-            showDeathOverlay(data.killerName);
+            enterDeadState(data.killerName); // Waffenwahl + Respawn-Button
         } else if (otherPlayers[data.victimId]) {
             otherPlayers[data.victimId].position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
+            setPlayerVisible(otherPlayers[data.victimId], false); // wartet noch auf den Respawn (unsichtbar, nicht treffbar)
         }
     });
 
@@ -425,6 +442,7 @@ function init() {
 
     socket.on('resetDenied', (data) => {
         showNotice(`Reset in ${Math.ceil(data.remainingMs / 1000)}s wieder möglich`);
+        if (!isDead && hasEntered && !controls.isLocked && !touchActive) document.getElementById('pause-menu').style.display = 'flex';
     });
 
     // Nametag-Update wenn ein Spieler seinen Namen ändert
@@ -448,6 +466,7 @@ function init() {
 const _pRight = new THREE.Vector3();
 const _pUp = new THREE.Vector3();
 function handleShooting() {
+    if (isDead) return;
     if (!controls.isLocked && !touchActive) return;
 
     const fired = weapon.shoot();
@@ -829,23 +848,11 @@ function onKeyChange(keyCode, isPressed) {
         case 82: // R
             if (isPressed) weapon.reload();
             break;
-        case 49: // 1
-            if (isPressed) trySwitch(0);
+        case 49: // 1 = Primärwaffe
+            if (isPressed && !isDead) weapon.switchToSlot(0);
             break;
-        case 50: // 2
-            if (isPressed) trySwitch(1);
-            break;
-        case 51: // 3
-            if (isPressed) trySwitch(2);
-            break;
-        case 52: // 4
-            if (isPressed) trySwitch(3);
-            break;
-        case 53: // 5
-            if (isPressed) trySwitch(4);
-            break;
-        case 54: // 6
-            if (isPressed) trySwitch(5);
+        case 50: // 2 = Sekundärwaffe
+            if (isPressed && !isDead) weapon.switchToSlot(1);
             break;
     }
 }
@@ -1023,15 +1030,6 @@ function handleWeaponEvent(type, idx) {
 
 // ================= Level / XP / Skins =================
 
-// Waffe per Zahlentaste: gesperrte Waffen zeigen den nötigen Level
-function trySwitch(i) {
-    if (!weapon.isUnlocked(i)) {
-        const c = WEAPON_CONFIGS[i];
-        showNotice(`🔒 ${c.name} ab Level ${c.unlockLevel}`);
-        return;
-    }
-    weapon.switchTo(i);
-}
 
 // Nach Wechsel des Spielstands (Login, Server-Abgleich): Waffen, Skin und HUD neu setzen
 function refreshProgressUI() {
@@ -1054,8 +1052,8 @@ function flushProgress() {
 }
 
 function applyOwnSkin() {
-    const skin = SKINS[prog.getSkinId()] || SKINS[0];
-    weapon.setSkin(skin); // Muster auf der ganzen Waffe + Akzentfarbe
+    // Jede Waffe trägt ihren eigenen Skin (Muster auf der ganzen Waffe + Akzentfarbe)
+    weapon.setSkins(WEAPON_CONFIGS.map((_, i) => SKINS[prog.getWeaponSkin(i)] || SKINS[0]));
 }
 
 function sendProfile() {
@@ -1113,52 +1111,203 @@ function onLevelUp(from, to) {
     levelBannerTimer = setTimeout(() => banner.classList.remove('show'), 4200);
 }
 
-// Waffenleiste unten: aktive Waffe hervorgehoben, gesperrte mit nötigem Level
+// Waffenleiste unten: die zwei ausgerüsteten Waffen, die aktive hervorgehoben
 function renderWeaponSlots() {
     const el = document.getElementById('weapon-slots');
     if (!el || !weapon) return;
-    const key = weapon.activeIndex + '|' + WEAPON_CONFIGS.map((_, i) => (weapon.isUnlocked(i) ? 1 : 0)).join('');
+    const key = weapon.activeIndex + '|' + weapon.loadout.join(',');
     if (key === lastSlotKey) return;
     lastSlotKey = key;
-    el.innerHTML = WEAPON_CONFIGS.map((c, i) => {
-        const unlocked = weapon.isUnlocked(i);
-        return `<div class="wslot${i === weapon.activeIndex ? ' active' : ''}${unlocked ? '' : ' locked'}"><b>${i + 1}</b>${unlocked ? esc(c.name) : '🔒 Lv ' + c.unlockLevel}</div>`;
-    }).join('');
+    el.innerHTML = weapon.loadout.map((wi, slot) =>
+        `<div class="wslot${wi === weapon.activeIndex ? ' active' : ''}"><b>${slot + 1}</b>${esc(WEAPON_CONFIGS[wi].name)}</div>`).join('');
 }
 
-// Loadout-Panel: Skins wählen, Waffenübersicht
+// ================= Loadout: 2 Waffen wählen + Skins (Tabs) =================
+// Die Waffenwahl gilt nur beim Spawn: am Spielstart und nach dem Tod. Im Menü kann man sie jederzeit vorbereiten.
+
+function applyLoadout() {
+    if (!weapon.setLoadout(prog.getLoadout())) {      // ungültig (z.B. Waffe noch gesperrt) -> sicherer Standard
+        weapon.setLoadout([0, 1]);
+        prog.setLoadout([0, 1]);
+    }
+    lastSlotKey = '';
+    renderWeaponSlots();
+    renderAllPickers();
+}
+
+// Zwei Auswahllisten (Primär/Sekundär). Gesperrte Waffen sind deaktiviert; gleiche Waffe zweimal -> die beiden tauschen.
+function buildLoadoutPicker(container) {
+    if (!container) return;
+    const lo = prog.getLoadout();
+    const level = prog.getProgress().level;
+    container.innerHTML = ['PRIMÄR (1)', 'SEKUNDÄR (2)'].map((label, slot) =>
+        `<label>${label}<select data-slot="${slot}">` + WEAPON_CONFIGS.map((c, i) => {
+            const ok = level >= c.unlockLevel;
+            return `<option value="${i}"${i === lo[slot] ? ' selected' : ''}${ok ? '' : ' disabled'}>${ok ? '' : '🔒 '}${esc(c.name)}${ok ? '' : ' (Lv ' + c.unlockLevel + ')'}</option>`;
+        }).join('') + `</select></label>`).join('');
+    container.querySelectorAll('select').forEach(sel => sel.addEventListener('change', () => {
+        const cur = prog.getLoadout();
+        const slot = parseInt(sel.dataset.slot, 10), val = parseInt(sel.value, 10);
+        const next = cur.slice();
+        next[slot] = val;
+        if (next[0] === next[1]) next[1 - slot] = cur[slot];
+        if (prog.setLoadout(next)) {
+            flushProgress();
+            renderAllPickers();
+            if (document.getElementById('loadout-panel').style.display === 'block') renderLoadout();
+        }
+    }));
+}
+
+function renderAllPickers() {
+    buildLoadoutPicker(document.getElementById('login-picker'));
+    buildLoadoutPicker(document.getElementById('loadout-picker'));
+    buildLoadoutPicker(document.getElementById('respawn-picker'));
+}
+
+// ---- Tod / Respawn ----
+function enterDeadState(killerName) {
+    isDead = true;
+    fireHeld = false;
+    resetHeld = false;
+    weapon.setAiming(false);
+    document.getElementById('respawn-killer').textContent = killerName;
+    ['pause-menu', 'settings-panel', 'loadout-panel'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+    document.getElementById('respawn-panel').style.display = 'flex';
+    renderAllPickers();
+
+    let left = RESPAWN_AUTO_SECONDS;
+    const countEl = document.getElementById('respawn-count');
+    countEl.textContent = left;
+    clearInterval(respawnTimerId);
+    respawnTimerId = setInterval(() => {
+        left--;
+        countEl.textContent = Math.max(0, left);
+        if (left <= 0) doRespawn(); // Sicherung: nach ein paar Sekunden automatisch weiter
+    }, 1000);
+    if (controls.isLocked) controls.unlock(); // Maus frei für die Waffenwahl
+}
+
+function doRespawn() {
+    if (!isDead) return;
+    clearInterval(respawnTimerId);
+    respawnTimerId = null;
+    isDead = false;
+    document.getElementById('respawn-panel').style.display = 'none';
+    applyLoadout();                       // die gewählten 2 Waffen gelten ab jetzt
+    weapon.refillAll();                   // volle Magazine
+    weapon.setAiming(false);
+    socket.emit('respawnReady');          // Server: ab jetzt wieder treffbar (nach kurzem Spawn-Schutz)
+    if (!isTouchDevice) controls.lock();  // Klick auf den Button = Nutzeraktion, Maus wird wieder gefangen
+}
+
+// andere Spieler: unsichtbar + nicht treffbar, solange sie auf den Respawn warten (Layer 1 wird vom Schuss-Raycast ignoriert)
+function setPlayerVisible(mesh, on) {
+    mesh.visible = on;
+    mesh.layers.set(on ? 0 : 1);
+    mesh.traverse((o) => {
+        if (o === mesh) return;
+        if (o.name === 'nametag') setNametagVisible(o, on && showNametags);
+        else o.layers.set(on ? 0 : 1);
+    });
+}
+
+// ---- Loadout-Panel ----
 function renderLoadout() {
     const p = prog.getProgress();
     const lvl = document.getElementById('loadout-level');
     if (lvl) lvl.textContent = `Level ${p.level}` + (p.max ? ' (MAX)' : ` — ${p.xpInLevel} / ${p.need} XP bis Level ${p.level + 1}`) + ` — Kill: +${prog.XP_PER_KILL} XP`;
+    document.querySelectorAll('.lo-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === activeLoTab));
+    document.getElementById('tab-weapons').style.display = activeLoTab === 'weapons' ? 'block' : 'none';
+    document.getElementById('tab-skins').style.display = activeLoTab === 'skins' ? 'block' : 'none';
+    if (activeLoTab === 'weapons') renderWeaponsTab(p); else renderSkinsTab(p);
+}
 
+function renderWeaponsTab(p) {
+    buildLoadoutPicker(document.getElementById('loadout-picker'));
+    const chosen = prog.getLoadout();
+    const note = document.getElementById('loadout-note');
+    if (note) {
+        const differs = hasEntered && weapon && (chosen[0] !== weapon.loadout[0] || chosen[1] !== weapon.loadout[1]);
+        note.textContent = differs ? 'Neue Auswahl gilt ab dem nächsten Respawn (nach dem Tod oder Reset).' : 'Die Auswahl kann nur vor dem Start und nach dem Tod gewechselt werden.';
+    }
+    document.getElementById('weapon-list').innerHTML = WEAPON_CONFIGS.map((c, i) => {
+        const unlocked = p.level >= c.unlockLevel;
+        const dmg = c.pellets ? `${c.damage} x ${c.pellets}` : c.damage;
+        const rpm = Math.round(60 / c.fireCooldown);
+        const tag = chosen.includes(i) ? '✔ ' : '';
+        return `<div class="weapon-row${unlocked ? '' : ' locked'}"><span>${tag}${esc(c.name)}${c.automatic ? ' (Auto)' : ''}</span><span>Schaden ${dmg} · ${rpm}/min · Mag ${c.magSize} · ${unlocked ? 'freigeschaltet' : '🔒 Level ' + c.unlockLevel}</span></div>`;
+    }).join('');
+}
+
+function renderSkinsTab(p) {
+    // Ziel: Charakter oder eine der 6 Waffen
+    const targets = document.getElementById('skin-targets');
+    targets.innerHTML = [['char', 'CHARAKTER · ' + SKINS[prog.getSkinId()].name]]
+        .concat(WEAPON_CONFIGS.map((c, i) => [i, c.name.toUpperCase() + ' · ' + SKINS[prog.getWeaponSkin(i)].name]))
+        .map(([key, label]) => `<button class="skin-target${String(key) === String(skinTarget) ? ' active' : ''}" data-target="${key}">${esc(label)}</button>`).join('');
+    targets.querySelectorAll('.skin-target').forEach(b => b.addEventListener('click', () => {
+        skinTarget = b.dataset.target === 'char' ? 'char' : parseInt(b.dataset.target, 10);
+        renderLoadout();
+    }));
+    document.getElementById('skin-apply-all').style.display = skinTarget === 'char' ? 'none' : 'inline-block';
+
+    const selected = skinTarget === 'char' ? prog.getSkinId() : prog.getWeaponSkin(skinTarget);
     const grid = document.getElementById('skin-grid');
-    const selected = prog.getSkinId();
-    // nach Freischalt-Level sortiert; Vorschau = echtes Muster des Skins
-    grid.innerHTML = [...SKINS].sort((a, b) => a.unlockLevel - b.unlockLevel).map(s => {
+    const pending = [];
+    grid.innerHTML = [...SKINS].sort((a, b) => a.unlockLevel - b.unlockLevel || a.id - b.id).map(s => {
         const unlocked = p.level >= s.unlockLevel;
-        const pv = getSkinPreview(s);
-        const swatch = pv ? `${pv} center / cover` : s.preview;
+        let swatch = s.preview || 'linear-gradient(135deg,#1a1a24,#2a2a38)';
+        if (s.pattern) {
+            if (isPreviewCached(s)) swatch = `${getSkinPreview(s)} center / cover`;
+            else pending.push(s);
+        }
         return `<div class="skin-card${s.id === selected ? ' selected' : ''}${unlocked ? '' : ' locked'}" data-skin="${s.id}">
             <div class="skin-swatch" style="background:${swatch}"></div>${esc(s.name)}
             <small>${unlocked ? (s.id === selected ? 'ausgerüstet' : 'wählen') : '🔒 Level ' + s.unlockLevel}</small></div>`;
     }).join('');
-    grid.querySelectorAll('.skin-card').forEach(card => {
-        card.addEventListener('click', () => {
-            if (prog.setSkinId(parseInt(card.dataset.skin, 10))) {
-                applyOwnSkin();
-                sendProfile();
-                flushProgress(); // Skinwechsel sofort sichern
-                renderLoadout();
-            }
-        });
-    });
+    grid.querySelectorAll('.skin-card').forEach(card => card.addEventListener('click', () => {
+        const id = parseInt(card.dataset.skin, 10);
+        let ok;
+        if (skinTarget === 'char') { ok = prog.setSkinId(id); if (ok) sendProfile(); }
+        else { ok = prog.setWeaponSkin(skinTarget, id); if (ok) applyOwnSkin(); }
+        if (ok) { flushProgress(); renderLoadout(); }
+    }));
 
-    document.getElementById('weapon-list').innerHTML = WEAPON_CONFIGS.map((c, i) => {
-        const unlocked = p.level >= c.unlockLevel;
-        const dmg = c.pellets ? `${c.damage} x ${c.pellets}` : c.damage;
-        return `<div class="weapon-row${unlocked ? '' : ' locked'}"><span>${i + 1} — ${esc(c.name)}${c.automatic ? ' (Auto)' : ''}</span><span>Schaden ${dmg} · ${unlocked ? 'freigeschaltet' : '🔒 Level ' + c.unlockLevel}</span></div>`;
-    }).join('');
+    // Vorschaubilder nacheinander erzeugen (jedes Muster braucht einige ms; so bleibt das Menü flüssig)
+    const run = ++previewRun;
+    (function next() {
+        if (run !== previewRun || !pending.length) return;
+        const s = pending.shift();
+        const sw = grid.querySelector(`.skin-card[data-skin="${s.id}"] .skin-swatch`);
+        if (sw) sw.style.background = `${getSkinPreview(s)} center / cover`;
+        setTimeout(next, 0);
+    })();
+}
+
+function wireLoadoutUi() {
+    const panel = document.getElementById('loadout-panel');
+    document.querySelectorAll('.lo-tab').forEach(t => t.addEventListener('click', () => { activeLoTab = t.dataset.tab; renderLoadout(); }));
+    document.getElementById('skin-apply-all').addEventListener('click', () => {
+        if (typeof skinTarget !== 'number') return;
+        if (prog.setAllWeaponSkins(prog.getWeaponSkin(skinTarget))) { applyOwnSkin(); flushProgress(); renderLoadout(); }
+    });
+    document.getElementById('respawn-btn').addEventListener('click', doRespawn);
+
+    // Startbildschirm: Skins & Waffen schon vor dem Spielstart ansehen/wählen
+    const nameField = document.getElementById('name-input');
+    nameField.addEventListener('input', () => {
+        prog.setActiveName(nameField.value, false); // nur ansehen: Level/Auswahl dieses Namens zeigen, nichts anlegen
+        renderAllPickers();
+        updateXpUI();
+    });
+    document.getElementById('login-loadout-btn').addEventListener('click', () => {
+        prog.setActiveName(nameField.value, false);
+        activeLoTab = 'skins';
+        panel.style.display = 'block';
+        renderLoadout();
+    });
+    renderAllPickers();
 }
 
 // Zielen: FOV gleitend zur Zoomstufe der Waffe, Empfindlichkeit passend zum Zoom (sonst wirkt die
@@ -1202,7 +1351,7 @@ function showNotice(text) {
 function updateResetHold(now) {
     const wrap = document.getElementById('reset-hold');
     const fill = document.getElementById('reset-hold-fill');
-    const active = resetHeld && (controls.isLocked || touchActive);
+    const active = resetHeld && (controls.isLocked || touchActive) && !isDead;
 
     if (!active) {
         resetHoldStart = null;
@@ -1397,7 +1546,7 @@ function animate() {
         portalRings[i].rotation.z += delta * (portalRings[i].userData.spin ?? 0.6);
     }
 
-    if (controls.isLocked || touchActive) {
+    if ((controls.isLocked || touchActive) && !isDead) {
         // canJump ist nur true, während der Spieler tatsächlich auf dem Boden steht (siehe
         // Bodenerkennung weiter unten) -> zuverlässiger "isGrounded"-Wert für die Physik.
         const isGrounded = canJump;
