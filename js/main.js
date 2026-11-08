@@ -335,6 +335,7 @@ function init() {
         progressSynced = false;
         if (prog.isPersistent()) socket.emit('syncProgress', prog.getState());
         sendProfile();
+        if (weapon) socket.emit('setLoadout', weapon.loadout); // neuer Server-Spieler kennt die Ausrüstung noch nicht
     });
 
     // Server hat Spielstand abgeglichen (Maximum aus Server und lokalem Backup) -> übernehmen
@@ -481,7 +482,7 @@ function handleShooting() {
     const spread = weapon.spread * (1 - 0.45 * weapon.aimAmount);   // Zielen verengt die Streuung
     const weaponIndex = weapon.activeIndex;
     const color = weapon.color;                                      // Skin-Farbe
-    const damageByTarget = {};                                       // Schrot: Schaden aller Kugeln pro Ziel summieren
+    const hitsByTarget = {};                                         // Schrot: Anzahl getroffener Kugeln pro Ziel (den Schaden berechnet der Server)
 
     for (let p = 0; p < pellets; p++) {
         const dir = baseDir.clone();
@@ -513,7 +514,7 @@ function handleShooting() {
             let hitGroup = nearestPlayerHit.object;
             while (hitGroup.parent && !hitGroup.userData.id) hitGroup = hitGroup.parent;
             if (hitGroup.userData.id) {
-                damageByTarget[hitGroup.userData.id] = (damageByTarget[hitGroup.userData.id] || 0) + weapon.damage;
+                hitsByTarget[hitGroup.userData.id] = (hitsByTarget[hitGroup.userData.id] || 0) + 1;
             }
         } else if (nearestWallHit) {
             endPos = nearestWallHit.point;
@@ -532,8 +533,8 @@ function handleShooting() {
         });
     }
 
-    for (const [targetId, dmg] of Object.entries(damageByTarget)) {
-        socket.emit('hitPlayer', { targetId, damage: Math.min(dmg, 100) });
+    for (const [targetId, n] of Object.entries(hitsByTarget)) {
+        socket.emit('hitPlayer', { targetId, w: weaponIndex, n }); // nur WEN und wie viele Kugeln - kein Schaden
     }
 }
 
@@ -1021,7 +1022,7 @@ function handleWeaponEvent(type, idx) {
     switch (type) {
         case 'shoot': sfx.playShot(idx); break;
         case 'dry': sfx.playDry(); break;
-        case 'reloadStart': sfx.playReload('out', idx); break;
+        case 'reloadStart': sfx.playReload('out', idx); socket.emit('reloadStarted', { w: idx }); break; // Server führt das Magazin mit
         case 'reloadMid': sfx.playReload('in', idx); break;
         case 'reloadEnd': sfx.playReload('bolt', idx); break;
         case 'draw': sfx.playDraw(idx); break;
@@ -1133,6 +1134,7 @@ function applyLoadout() {
     lastSlotKey = '';
     renderWeaponSlots();
     renderAllPickers();
+    socket.emit('setLoadout', weapon.loadout); // Server erlaubt nur Schüsse mit diesen zwei Waffen
 }
 
 // Zwei Auswahllisten (Primär/Sekundär). Gesperrte Waffen sind deaktiviert; gleiche Waffe zweimal -> die beiden tauschen.
