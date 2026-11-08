@@ -52,6 +52,91 @@ function loadSpawnPointsFromMap() {
 }
 
 const SPAWN_POINTS = loadSpawnPointsFromMap();
+
+// ---------- Waffen-Werte (Anti-Cheat) ----------
+// Der Server rechnet Schaden, Feuerrate und Magazin SELBST aus diesen Werten - der Client darf nur melden "ich habe
+// Waffe X abgefeuert / getroffen". Die Werte werden direkt aus js/weapon.js gelesen (eine Quelle der Wahrheit, wie bei
+// der Map); schlägt das fehl, gilt die Rückfall-Tabelle (muss dann mit weapon.js übereinstimmen).
+const FALLBACK_WEAPONS = [
+    { name: 'Rifle',    damage: 20, pellets: 1, fireCooldown: 0.1,   magSize: 30, reloadDuration: 1700 },
+    { name: 'Pistol',   damage: 15, pellets: 1, fireCooldown: 0.18,  magSize: 12, reloadDuration: 1100 },
+    { name: 'Sniper',   damage: 75, pellets: 1, fireCooldown: 1.2,   magSize: 5,  reloadDuration: 2400 },
+    { name: 'SMG',      damage: 11, pellets: 1, fireCooldown: 0.055, magSize: 40, reloadDuration: 1600 },
+    { name: 'Shotgun',  damage: 12, pellets: 8, fireCooldown: 0.85,  magSize: 6,  reloadDuration: 2300 },
+    { name: 'Revolver', damage: 55, pellets: 1, fireCooldown: 0.5,   magSize: 6,  reloadDuration: 2100 }
+];
+function loadWeaponTable() {
+    try {
+        const src = fs.readFileSync(path.join(__dirname, 'js', 'weapon.js'), 'utf8');
+        const start = src.indexOf('export const WEAPON_CONFIGS = [');
+        const end = src.indexOf('\n];', start);
+        if (start === -1 || end === -1) throw new Error('WEAPON_CONFIGS nicht gefunden');
+        const text = src.slice(src.indexOf('[', start), end + 3).replace(/buildModel:\s*\w+/g, 'buildModel: null');
+        const table = new Function('return ' + text)().map(c => ({
+            name: String(c.name), damage: Number(c.damage), pellets: Number(c.pellets || 1),
+            fireCooldown: Number(c.fireCooldown), magSize: Number(c.magSize), reloadDuration: Number(c.reloadDuration)
+        }));
+        if (!table.length || !table.every(w => [w.damage, w.pellets, w.fireCooldown, w.magSize, w.reloadDuration].every(v => Number.isFinite(v) && v > 0))) {
+            throw new Error('ungültige Werte in WEAPON_CONFIGS');
+        }
+        console.log('Waffen-Werte aus js/weapon.js:', table.map(w => `${w.name} ${w.damage}${w.pellets > 1 ? 'x' + w.pellets : ''}`).join(', '));
+        return table;
+    } catch (err) {
+        console.warn('Rückfall-Waffentabelle:', err.message);
+        return FALLBACK_WEAPONS;
+    }
+}
+const WEAPONS = loadWeaponTable();
+const HIT_WINDOW_MS = 1500;     // ein Treffer muss zu einem Schuss der letzten 1.5 s gehören
+const HIT_RADIUS = 3.5;         // Meter: so weit darf der Einschlagspunkt von der (zeitversetzt gemeldeten) Zielposition entfernt sein
+const SHOT_ORIGIN_MAX = 8;      // Meter: Mündung darf nicht weit vom gemeldeten Spieler entfernt sein
+const SHOT_RANGE_MAX = 500;     // Meter: längster erlaubter Schuss (Map ist ca. 363 m lang)
+
+// Kampf-Zustand eines Spielers (bei Beitritt und bei jedem Respawn zurückgesetzt, wie die vollen Magazine im Client)
+function resetCombatState(p) {
+    p.mags = WEAPONS.map(w => ({ ammo: w.magSize, reloadUntil: 0 }));
+    p.tokens = WEAPONS.map(() => 2);          // Feuerrate: Token-Eimer, max. 2 (kleine Toleranz für Netzwerk-Schwankungen)
+    p.tokenAt = WEAPONS.map(() => Date.now());
+    p.shot = null;                             // letzter akzeptierter Schuss (Grundlage für Treffer)
+}
+
+// Einfache Nachrichten-Begrenzung (pro Spieler und Nachrichtenart), schützt vor Flut-Angriffen
+function rateOk(p, key, perSecond) {
+    const now = Date.now();
+    p.rl = p.rl || {};
+    const r = p.rl[key] || (p.rl[key] = { t0: now, n: 0 });
+    if (now - r.t0 >= 1000) { r.t0 = now; r.n = 0; }
+    return ++r.n <= perSecond;
+}
+
+// Darf dieser Schuss fallen? Prüft Waffe, Ausrüstung, Magazin, Nachladen, Feuerrate, Position und Reichweite.
+function acceptShot(me, w, start, end, now) {
+    const cfg = WEAPONS[w];
+    if (!cfg || !me.loadout.includes(w)) return false;            // nur die 2 ausgerüsteten Waffen
+    const mag = me.mags[w];
+    if (mag.reloadUntil) {
+        if (now < mag.reloadUntil) return false;                   // lädt noch nach
+        mag.ammo = cfg.magSize; mag.reloadUntil = 0;
+    }
+    if (mag.ammo <= 0) return false;                               // Magazin leer (Client muss erst 'reloadStarted' melden)
+    // Feuerrate: Token-Eimer füllt sich mit 1 Schuss pro Cooldown
+    me.tokens[w] = Math.min(2, me.tokens[w] + (now - me.tokenAt[w]) / (cfg.fireCooldown * 1000));
+    me.tokenAt[w] = now;
+    if (me.tokens[w] < 1) return false;
+    // Mündung muss in der Nähe des Spielers sein, Schuss nicht absurd lang
+    if (Math.hypot(start.x - me.x, start.y - (me.y + 1.5), start.z - me.z) > SHOT_ORIGIN_MAX) return false;
+    if (Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z) > SHOT_RANGE_MAX) return false;
+
+    me.tokens[w] -= 1;
+    mag.ammo -= 1;
+    me.shot = { t: now, w, ends: [end], credits: cfg.pellets, tracers: cfg.pellets - 1 };
+    return true;
+}
+
+// Liegt der Einschlagspunkt in der Nähe des Ziels? (Zielposition: x/z Mitte, y = Augenhöhe - 1.5; Körper ca. y-0.5 .. y+1.75)
+function hitPlausible(end, target) {
+    return Math.hypot(end.x - target.x, end.z - target.z) <= HIT_RADIUS && end.y >= target.y - 1.5 && end.y <= target.y + 3.0;
+}
 const MIN_SAFE_SPAWN_DISTANCE = 40;
 
 // --- Reset-Button-Regeln ---
@@ -161,8 +246,9 @@ function sanitizeCosmetics(src) {
         Array.isArray(src?.wskins) ? intIn(src.wskins[i], 0, MAX_SKIN_ID, 0) : skin);
     let loadout = [0, 1];
     if (Array.isArray(src?.loadout) && src.loadout.length === 2) {
-        const a = intIn(src.loadout[0], 0, WEAPON_COUNT - 1, -1), b = intIn(src.loadout[1], 0, WEAPON_COUNT - 1, -1);
-        if (a >= 0 && b >= 0 && a !== b) loadout = [a, b];
+        const [a, b] = src.loadout;
+        const valid = (v) => Number.isInteger(v) && v >= 0 && v < WEAPON_COUNT;
+        if (valid(a) && valid(b) && a !== b) loadout = [a, b];
     }
     return { skin, wskins, loadout };
 }
@@ -253,6 +339,7 @@ function endDeadState(id) {
     clearTimeout(p.deadTimer);
     p.dead = false;
     p.protectUntil = Date.now() + SPAWN_PROTECTION_MS;
+    resetCombatState(p); // volle Magazine (der Client füllt beim Respawn ebenfalls auf)
 }
 
 // Leaderboard an alle schicken (nach jeder Änderung von kills/deaths)
@@ -269,7 +356,8 @@ io.on('connection', (socket) => {
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
     const spawn = getRandomSpawnPoint(socket.id);
-    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0 };
+    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [0, 1] };
+    resetCombatState(players[socket.id]);
 
     socket.emit('currentPlayers', players);
     socket.broadcast.emit('newPlayer', { id: socket.id, position: players[socket.id], name: players[socket.id].name });
@@ -347,7 +435,7 @@ io.on('connection', (socket) => {
 
     socket.on('playerMove', (data) => {
         const p = players[socket.id];
-        if (!p) return;
+        if (!p || !rateOk(p, 'move', 200)) return;
         const x = Number(data?.x), y = Number(data?.y), z = Number(data?.z);
         if (![x, y, z].every(Number.isFinite)) return;
         const ry = Number.isFinite(Number(data.ry)) ? Number(data.ry) : 0; // Blickrichtung (Yaw) für den Spieler-Skin
@@ -380,10 +468,43 @@ io.on('connection', (socket) => {
         const x = Number(v.x), y = Number(v.y), z = Number(v.z);
         return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
     };
+    // Ausrüstung (2 Waffen) melden: wird beim Spielstart und bei jedem Respawn gesendet
+    socket.on('setLoadout', (pair) => {
+        const me = players[socket.id];
+        if (!me || !Array.isArray(pair) || pair.length !== 2) return;
+        const [a, b] = pair;
+        const valid = (v) => Number.isInteger(v) && v >= 0 && v < WEAPONS.length; // strikt: ungültige Werte werden abgelehnt, nicht gekürzt
+        if (valid(a) && valid(b) && a !== b) me.loadout = [a, b];
+    });
+
+    // Nachladen gemeldet: erst nach Ablauf der Nachladezeit (minus kleiner Toleranz) darf wieder geschossen werden
+    socket.on('reloadStarted', (d) => {
+        const me = players[socket.id];
+        const w = Number.isInteger(d?.w) ? d.w : -1;
+        if (!me || me.dead || !WEAPONS[w] || !me.loadout.includes(w)) return;
+        const mag = me.mags[w];
+        if (mag.reloadUntil || mag.ammo >= WEAPONS[w].magSize) return;   // lädt schon / Magazin voll
+        mag.reloadUntil = Date.now() + WEAPONS[w].reloadDuration * 0.85;
+    });
+
+    // Schuss: wird nur weitergegeben (Tracer/Sound bei den anderen), wenn der Server ihn für möglich hält
     socket.on('shoot', (shotData) => {
+        const me = players[socket.id];
+        if (!me || me.dead || !rateOk(me, 'shoot', 60)) return;
         const start = toVec(shotData?.start), end = toVec(shotData?.end);
         if (!start || !end) return;
-        const w = Number.isInteger(shotData.w) && shotData.w >= 0 && shotData.w <= 5 ? shotData.w : 0;
+        const w = Number.isInteger(shotData.w) && WEAPONS[shotData.w] ? shotData.w : -1;
+        if (w < 0) return;
+        const now = Date.now();
+        if (!shotData.silent) {
+            if (!acceptShot(me, w, start, end, now)) return;
+        } else {
+            // weitere Schrotkugeln desselben Schusses: nur so viele, wie die Waffe Kugeln hat
+            const s = me.shot;
+            if (!s || s.w !== w || now - s.t > 400 || s.tracers <= 0) return;
+            s.tracers--;
+            s.ends.push(end);
+        }
         const c = Number.isInteger(shotData.c) && shotData.c >= 0 && shotData.c <= 0xffffff ? shotData.c : null;
         socket.broadcast.emit('playerShot', {
             id: socket.id, start, end, w, c,
@@ -392,27 +513,35 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Treffer: der Client meldet nur WEN (und wie viele Kugeln). Schaden berechnet der Server aus der Waffe des
+    // zuletzt akzeptierten Schusses; ohne passenden, frischen Schuss in Zielnähe passiert nichts.
     socket.on('hitPlayer', (data) => {
-        const targetId = typeof data === 'string' ? data : data?.targetId;
-        let damage = typeof data === 'object' && data !== null ? Number(data.damage) : 20;
-        if (!Number.isFinite(damage) || damage <= 0) damage = 20;
-        damage = Math.min(damage, 100);
-
-        if (!players[targetId] || targetId === socket.id) return;
-        const shooter = players[socket.id], target = players[targetId];
+        const shooter = players[socket.id];
+        if (!shooter || shooter.dead || !rateOk(shooter, 'hit', 60)) return;
+        const targetId = data && typeof data === 'object' ? data.targetId : null;
+        const target = players[targetId];
+        if (!target || targetId === socket.id) return;
         if (target.dead || (target.protectUntil || 0) > Date.now()) return; // wartet auf Respawn / Spawn-Schutz
-        if (shooter && shooter.dead) return;                                  // Tote teilen nicht aus
-        players[targetId].health -= damage;
-        players[targetId].lastAttacker = socket.id;   // für den Reset-Button
-        players[targetId].lastDamageTime = Date.now();
+
+        const now = Date.now();
+        const shot = shooter.shot;
+        if (!shot || shot.credits <= 0 || now - shot.t > HIT_WINDOW_MS) return;          // kein passender Schuss
+        if (!shot.ends.some(e => hitPlausible(e, target))) return;                        // Einschlag nicht beim Ziel
+        const n = Math.min(Math.max(1, Math.floor(Number(data.n)) || 1), shot.credits);  // höchstens so viele Kugeln wie übrig
+        shot.credits -= n;
+        const damage = WEAPONS[shot.w].damage * n;                                         // Schaden kommt vom Server, nie vom Client
+
+        target.health -= damage;
+        target.lastAttacker = socket.id;   // für den Reset-Button
+        target.lastDamageTime = now;
 
         // Schaden-Feedback an den Schützen (Treffermeldung im Client)
-        socket.emit('hitConfirm', { targetId, damage, remaining: Math.max(0, players[targetId].health) });
+        socket.emit('hitConfirm', { targetId, damage, remaining: Math.max(0, target.health) });
 
-        if (players[targetId].health <= 0) {
+        if (target.health <= 0) {
             killPlayer(targetId, socket.id, 'hit');
         } else {
-            io.emit('playerHealthUpdate', { id: targetId, health: players[targetId].health });
+            io.emit('playerHealthUpdate', { id: targetId, health: target.health });
         }
     });
 
