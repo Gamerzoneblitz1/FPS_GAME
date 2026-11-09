@@ -6,6 +6,7 @@ import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } 
 import { SKINS } from './skins.js';
 import { getSkinPreview, isPreviewCached } from './skintex.js';
 import * as prog from './progression.js';
+import { DEFAULTS as CONTROL_DEFAULTS, sanitizeControls, renderCrosshairSVG, wrapAngle, CROSSHAIR_STYLES, CROSSHAIR_COLORS } from './settings.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
 let playerName = ''; // wird beim ersten Spielstart abgefragt
@@ -22,10 +23,12 @@ const savedSettings = (() => {
 let userPixelRatioPercent = savedSettings.pixelRatio ?? 90; // 90% Standard, im Menü 50-100% einstellbar
 let showNametags = savedSettings.showNametags ?? false; // Namensschilder über Spielern: Standard AUS (unsichtbar), im Menü einschaltbar
 let bloomEnabled = savedSettings.bloomEnabled ?? false; // Standard jetzt AUS (war zu hell) - im Menü weiter an-/abschaltbar
+// Maus, Sichtfeld, Fadenkreuz (geprüft + mit Standardwerten ergänzt, siehe settings.js)
+let userControls = sanitizeControls(savedSettings);
 
 function saveSettings() {
     try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ pixelRatio: userPixelRatioPercent, bloomEnabled, showNametags }));
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ pixelRatio: userPixelRatioPercent, bloomEnabled, showNametags, ...userControls }));
     } catch (e) { /* localStorage evtl. nicht verfügbar (z.B. privates Fenster) - dann halt nicht speichern */ }
 }
 let weapon;
@@ -100,8 +103,9 @@ let wasSlidingSfx = false;
 let healHeld = false;  // verhindert Dauer-Auslösen durch Tastenwiederholung
 const SYRINGE_KILL_INTERVAL = 5;
 const _faceDir = new THREE.Vector3();
-const BASE_FOV = 75;
+const DESIGN_FOV = 75; // Sichtfeld, für das die Zoomwerte der Waffen (aimFov) entworfen wurden
 let lookScale = 1; // Maus-/Touch-Empfindlichkeit relativ zum Zoom (beim Zielen langsamer)
+let aimBlend = 0;  // 0 = Hüfte, 1 = voll gezoomt (für die Zielen-Empfindlichkeit)
 let fireHeld = false; // Feuertaste gehalten (Maus links / Touch-Fire) -> Dauerfeuer bei automatischen Waffen
 let hasEntered = false; // true, sobald man das Login einmal bestätigt hat -> danach zeigt ESC das Pause-Menü statt des Logins
 // Reset-Button (K halten): verhindert versehentliches Auslösen
@@ -139,7 +143,7 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xb0e0e6); // wird von setupMap() überschrieben (Neon-Hintergrund)
 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000); // far erhöht für den Sternenhimmel/Planet-Backdrop
+    camera = new THREE.PerspectiveCamera(userControls.fov, window.innerWidth / window.innerHeight, 0.1, 6000); // far erhöht für den Sternenhimmel/Planet-Backdrop
     camera.position.set(-177, 2, 0); // Sicherer Startwert (C-Zone), wird gleich durch einen zufälligen Map-Spawn / den Server-Spawn ersetzt
     scene.add(camera);
     initEffects(scene); // Tracer-/Bullet-Hole-/Funken-Pools
@@ -935,8 +939,8 @@ function setupTouchControls() {
             lookLastY = t.clientY;
 
             lookEuler.setFromQuaternion(camera.quaternion);
-            lookEuler.y -= dx * TOUCH_LOOK_SENSITIVITY * lookScale;
-            lookEuler.x -= dy * TOUCH_LOOK_SENSITIVITY * lookScale;
+            lookEuler.y -= dx * TOUCH_LOOK_SENSITIVITY * lookScale * userControls.sens * (1 + (userControls.adsSens - 1) * aimBlend);
+            lookEuler.x -= dy * TOUCH_LOOK_SENSITIVITY * lookScale * userControls.sens * (1 + (userControls.adsSens - 1) * aimBlend) * (userControls.invertY ? -1 : 1);
             lookEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, lookEuler.x));
             camera.quaternion.setFromEuler(lookEuler);
         }
@@ -1318,14 +1322,19 @@ const _scopeEl = () => document.getElementById('scope-overlay');
 let _scopeShown = false;
 function updateAimView() {
     const e = Number.isFinite(weapon.aimAmount) ? weapon.aimAmount : 0;
-    const zoomFov = Number.isFinite(weapon.aimFov) ? weapon.aimFov : BASE_FOV;
-    const fov = BASE_FOV + (zoomFov - BASE_FOV) * e;
+    const base = userControls.fov;
+    // Zoom bleibt bei jedem eingestellten Sichtfeld gleich stark (Vergrößerungsfaktor aus dem Entwurfs-FOV, auf das eigene FOV übertragen)
+    const designZoom = Number.isFinite(weapon.aimFov) ? weapon.aimFov : DESIGN_FOV;
+    const ratio = Math.tan(designZoom * Math.PI / 360) / Math.tan(DESIGN_FOV * Math.PI / 360);
+    const zoomFov = 2 * Math.atan(ratio * Math.tan(base * Math.PI / 360)) * 180 / Math.PI;
+    const fov = base + (zoomFov - base) * e;
     if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
         camera.updateProjectionMatrix();
     }
-    lookScale = Math.tan(fov * Math.PI / 360) / Math.tan(BASE_FOV * Math.PI / 360);
-    controls.pointerSpeed = lookScale; // wirkt bei PointerLockControls (Maus)
+    // Empfindlichkeit passend zum Zoom (sonst wirkt die Maus im Zielfernrohr viel zu schnell); wird in applyMouseSensitivity() benutzt
+    lookScale = Math.tan(fov * Math.PI / 360) / Math.tan(base * Math.PI / 360);
+    aimBlend = e;
 
     const scoped = weapon.scopeVisible;
     if (scoped !== _scopeShown) {
@@ -1402,6 +1411,14 @@ function showDeathOverlay(killerName) {
 }
 
 // --- Crosshair-Flash (Treffer-Confirm) ---
+// Fadenkreuz aus den Einstellungen neu zeichnen (SVG in #crosshair; die Vorschau im Menü benutzt dieselbe Funktion)
+function applyCrosshair() {
+    const ch = document.getElementById('crosshair');
+    if (ch) ch.innerHTML = renderCrosshairSVG(userControls.crosshair);
+    const pv = document.getElementById('ch-preview-center');
+    if (pv) pv.innerHTML = renderCrosshairSVG(userControls.crosshair);
+}
+
 function flashCrosshair() {
     const ch = document.getElementById('crosshair');
     if (!ch) return;
@@ -1439,6 +1456,73 @@ function initComposer() {
 }
 
 // Einstellungsmenü (Zahnrad-Button oben rechts): Render-Auflösung + Bloom an/aus, live anwendbar
+// Maus-, Sicht- und Fadenkreuz-Einstellungen im Menü: Regler -> userControls -> speichern. Alles wirkt sofort.
+function setupControlSettings() {
+    const $ = (id) => document.getElementById(id);
+    const c = () => userControls.crosshair;
+    const bind = (sliderId, valId, read, write, fmt) => {
+        const sl = $(sliderId), val = $(valId);
+        if (!sl) return () => {};
+        const show = () => { sl.value = read(); if (val) val.textContent = fmt(read()); };
+        sl.addEventListener('input', () => { write(parseFloat(sl.value)); if (val) val.textContent = fmt(read()); saveSettings(); });
+        return show;
+    };
+    const redraw = () => { applyCrosshair(); saveSettings(); };
+
+    const refreshers = [
+        bind('sens-slider', 'sens-val', () => userControls.sens, v => { userControls.sens = v; }, v => v.toFixed(2) + 'x'),
+        bind('ads-slider', 'ads-val', () => userControls.adsSens, v => { userControls.adsSens = v; }, v => v.toFixed(2) + 'x'),
+        bind('fov-slider', 'fov-val', () => userControls.fov, v => { userControls.fov = Math.round(v); }, v => v + '°'),
+        bind('ch-size', 'ch-size-val', () => c().size, v => { c().size = Math.round(v); applyCrosshair(); }, v => v),
+        bind('ch-thick', 'ch-thick-val', () => c().thickness, v => { c().thickness = Math.round(v); applyCrosshair(); }, v => v),
+        bind('ch-gap', 'ch-gap-val', () => c().gap, v => { c().gap = Math.round(v); applyCrosshair(); }, v => v),
+        bind('ch-opacity', 'ch-opacity-val', () => c().opacity, v => { c().opacity = Math.round(v); applyCrosshair(); }, v => v + '%')
+    ];
+
+    const invert = $('invert-toggle');
+    if (invert) invert.addEventListener('change', () => { userControls.invertY = invert.checked; saveSettings(); });
+    const outline = $('ch-outline');
+    if (outline) outline.addEventListener('change', () => { c().outline = outline.checked; redraw(); });
+
+    const style = $('ch-style');
+    if (style) {
+        style.innerHTML = CROSSHAIR_STYLES.map(([k, name]) => `<option value="${k}">${name}</option>`).join('');
+        style.addEventListener('change', () => { c().style = style.value; redraw(); });
+    }
+
+    // Farbe: Schnellwahl-Punkte + freie Farbe
+    const sw = $('ch-swatches');
+    const syncSwatches = () => {
+        if (!sw) return;
+        sw.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.color === c().color));
+        const picker = sw.querySelector('input[type="color"]');
+        if (picker) picker.value = c().color;
+    };
+    if (sw) {
+        sw.innerHTML = CROSSHAIR_COLORS.map(col => `<button type="button" data-color="${col}" style="background:${col}" title="${col}"></button>`).join('') +
+            `<input type="color" value="${c().color}" title="eigene Farbe">`;
+        sw.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { c().color = b.dataset.color; syncSwatches(); redraw(); }));
+        sw.querySelector('input[type="color"]').addEventListener('input', (e) => { c().color = e.target.value.toLowerCase(); syncSwatches(); redraw(); });
+    }
+
+    // Alles aus userControls in die Bedienelemente schreiben (beim Start und nach "Zurücksetzen")
+    const refreshAll = () => {
+        refreshers.forEach(f => f());
+        if (invert) invert.checked = userControls.invertY;
+        if (outline) outline.checked = c().outline;
+        if (style) style.value = c().style;
+        syncSwatches();
+        applyCrosshair();
+    };
+    const reset = $('settings-reset');
+    if (reset) reset.addEventListener('click', () => {
+        userControls = sanitizeControls(CONTROL_DEFAULTS);
+        refreshAll();
+        saveSettings();
+    });
+    refreshAll();
+}
+
 function setupSettingsPanel() {
     const btn = document.getElementById('settings-btn');
     const panel = document.getElementById('settings-panel');
@@ -1492,6 +1576,8 @@ function setupSettingsPanel() {
         });
     }
 
+    setupControlSettings(); // Maus, Sichtfeld, Fadenkreuz
+
     // Sound: Lautstärke + Stumm (speichert audio.js selbst)
     const volSlider = document.getElementById('vol-slider');
     const volVal = document.getElementById('vol-val');
@@ -1516,12 +1602,36 @@ function onWindowResize() {
     if (composer) composer.setSize(window.innerWidth, window.innerHeight);
 }
 
+// Mausempfindlichkeit + Y-Invertierung. PointerLockControls dreht die Kamera mit fester Empfindlichkeit; wir vergleichen pro Frame
+// die Blickrichtung mit der vom letzten Frame (nach unserer eigenen Korrektur) und skalieren genau diese Drehung nach.
+// Das ist unabhängig von der three.js-Version (kein pointerSpeed nötig) und für Maus-Bewegungen über mehrere Events pro Frame exakt.
+const _lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+let _lookPrev = null;
+function applyMouseSensitivity() {
+    _lookEuler.setFromQuaternion(camera.quaternion);
+    if (_lookPrev && controls.isLocked) {
+        const dy = wrapAngle(_lookEuler.y - _lookPrev.y);
+        const dx = _lookEuler.x - _lookPrev.x;
+        // Gesamtfaktor = eigene Empfindlichkeit x Zoom-Anpassung x (beim Zielen) Zielen-Faktor
+        const mult = userControls.sens * lookScale * (1 + (userControls.adsSens - 1) * aimBlend);
+        const multX = userControls.invertY ? -mult : mult;
+        if (mult !== 1 || userControls.invertY) {
+            const HALF_PI = Math.PI / 2 - 0.0001;
+            _lookEuler.y = _lookPrev.y + dy * mult;
+            _lookEuler.x = Math.max(-HALF_PI, Math.min(HALF_PI, _lookPrev.x + dx * multX));
+            camera.quaternion.setFromEuler(_lookEuler);
+        }
+    }
+    _lookPrev = { y: _lookEuler.y, x: _lookEuler.x };
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
 
+    applyMouseSensitivity(); // vor der Bewegung, damit die Laufrichtung zur korrigierten Blickrichtung passt
     updatePlayerAnimations(playerMeshesList, delta);
     updateResetHold(time);
     // In try/catch: ein Fehler in Waffen-/Effekt-Code darf nie dazu führen, dass der Frame nicht mehr
