@@ -10,13 +10,11 @@
         canvas { display: block; }
 
         /* --- Crosshair --- */
-        #crosshair {
-            position: absolute; top: 50%; left: 50%;
-            width: 8px; height: 8px; background: white; border-radius: 50%;
-            transform: translate(-50%, -50%); pointer-events: none; border: 2px solid black;
-            transition: background 0.05s;
-        }
-        #crosshair.hit { background: #ff3355; border-color: #ff3355; transform: translate(-50%, -50%) scale(1.8); }
+        /* Das Fadenkreuz ist ein 0x0-Element exakt in der Bildmitte; das <svg> darin (aus den Einstellungen erzeugt) zentriert sich selbst */
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 0; height: 0; pointer-events: none; transition: transform 0.05s; }
+        #crosshair.hit { transform: scale(1.6); }
+        #crosshair.hit .ch-stroke { stroke: #ff3355 !important; }
+        #crosshair.hit .ch-fill { fill: #ff3355 !important; }
 
         /* --- HUD unten links --- */
         #hud-bl {
@@ -106,12 +104,24 @@
             color: #00f0ff; font-size: 20px; cursor: pointer; z-index: 50;
         }
         #settings-panel {
-            display: none; position: absolute; top: 64px; right: 20px; width: 260px;
-            background: rgba(5,5,15,0.92); border: 2px solid rgba(0,240,255,0.35);
+            display: none; position: absolute; top: 64px; right: 20px; width: 330px; max-height: calc(100vh - 84px); overflow-y: auto;
+            background: rgba(5,5,15,0.94); border: 2px solid rgba(0,240,255,0.35);
             border-radius: 10px; padding: 16px; font-family: monospace; color: white; z-index: 50;
         }
+        #settings-panel .set-sec { color: #9d00ff; font-size: 11px; letter-spacing: 2px; margin: 16px 0 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(157,0,255,0.35); }
+        #settings-panel .set-sec:first-of-type { margin-top: 0; }
+        #settings-panel label { display: block; font-size: 13px; margin-bottom: 12px; }
+        #settings-panel label > span.val { float: right; color: #00f0ff; }
+        #settings-panel select { width: 100%; margin-top: 5px; background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.45); color: #00f0ff; font-family: monospace; font-size: 13px; padding: 6px; border-radius: 6px; }
+        #ch-preview { position: relative; height: 90px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; overflow: hidden;
+            background: linear-gradient(135deg, #12162a 0%, #1d2540 55%, #0b0e1c 100%); }
+        #ch-preview .ch-center { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+        #ch-swatches { display: flex; gap: 6px; align-items: center; margin: 6px 0 12px; }
+        #ch-swatches button { width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0; }
+        #ch-swatches button.active { border-color: #00ff99; box-shadow: 0 0 6px #00ff99; }
+        #ch-swatches input[type="color"] { width: 30px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
+        #settings-reset { width: 100%; padding: 7px; margin: 4px 0 8px; background: rgba(255,225,77,0.08); border: 1px solid rgba(255,225,77,0.5); color: #ffe14d; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 12px; }
         #settings-panel h3 { margin: 0 0 14px 0; color: #00f0ff; text-shadow: 0 0 8px #00f0ff; font-size: 15px; letter-spacing: 1px; }
-        #settings-panel label { display: block; font-size: 13px; margin-bottom: 14px; }
         #settings-panel input[type="range"] { width: 100%; margin-top: 6px; }
         #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
         #settings-close { width: 100%; padding: 8px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; }
@@ -330,11 +340,33 @@
     <button id="settings-btn" title="Einstellungen">⚙</button>
     <div id="settings-panel">
         <h3>EINSTELLUNGEN</h3>
-        <label>Render-Auflösung: <span id="res-val">90%</span><input type="range" id="res-slider" min="50" max="100" step="5" value="90"></label>
+
+        <div class="set-sec">MAUS &amp; SICHT</div>
+        <label>Empfindlichkeit <span class="val" id="sens-val">1.00x</span><input type="range" id="sens-slider" min="0.1" max="4" step="0.05" value="1"></label>
+        <label>Empfindlichkeit beim Zielen <span class="val" id="ads-val">1.00x</span><input type="range" id="ads-slider" min="0.3" max="1.5" step="0.05" value="1"></label>
+        <label>Sichtfeld (FOV) <span class="val" id="fov-val">75°</span><input type="range" id="fov-slider" min="60" max="110" step="1" value="75"></label>
+        <label class="checkbox-row"><input type="checkbox" id="invert-toggle"> Y-Achse invertieren</label>
+
+        <div class="set-sec">FADENKREUZ</div>
+        <div id="ch-preview"><div class="ch-center" id="ch-preview-center"></div></div>
+        <label>Stil<select id="ch-style"></select></label>
+        <div id="ch-swatches"></div>
+        <label>Größe <span class="val" id="ch-size-val">10</span><input type="range" id="ch-size" min="2" max="30" step="1" value="10"></label>
+        <label>Dicke <span class="val" id="ch-thick-val">2</span><input type="range" id="ch-thick" min="1" max="6" step="1" value="2"></label>
+        <label>Abstand zur Mitte <span class="val" id="ch-gap-val">4</span><input type="range" id="ch-gap" min="0" max="14" step="1" value="4"></label>
+        <label>Deckkraft <span class="val" id="ch-opacity-val">100%</span><input type="range" id="ch-opacity" min="30" max="100" step="5" value="100"></label>
+        <label class="checkbox-row"><input type="checkbox" id="ch-outline"> Dunkle Umrandung</label>
+        <button id="settings-reset">MAUS, SICHT &amp; FADENKREUZ ZURÜCKSETZEN</button>
+
+        <div class="set-sec">GRAFIK</div>
+        <label>Render-Auflösung <span class="val" id="res-val">90%</span><input type="range" id="res-slider" min="50" max="100" step="5" value="90"></label>
         <label class="checkbox-row"><input type="checkbox" id="bloom-toggle"> Bloom / Glow-Effekt</label>
         <label class="checkbox-row"><input type="checkbox" id="nametag-toggle"> Namensschilder anzeigen</label>
-        <label>Lautstärke: <span id="vol-val">70%</span><input type="range" id="vol-slider" min="0" max="100" step="5" value="70"></label>
+
+        <div class="set-sec">SOUND</div>
+        <label>Lautstärke <span class="val" id="vol-val">70%</span><input type="range" id="vol-slider" min="0" max="100" step="5" value="70"></label>
         <label class="checkbox-row"><input type="checkbox" id="mute-toggle"> Stumm</label>
+
         <button id="settings-close">Schließen</button>
     </div>
 
