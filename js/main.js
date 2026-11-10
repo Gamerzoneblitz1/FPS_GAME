@@ -97,6 +97,7 @@ let invSkin = null;        // Skin, der gerade in der 3D-Vorschau angesehen wird
 let invRarity = 'all';     // Seltenheits-Filter
 let previewRun = 0;
 let invPreview = null;
+let menuPreview = null, mmView = 'char';   // Hauptmenü-Schaufenster (muss vor init() deklariert sein)
 const RESPAWN_AUTO_SECONDS = 12;
 let progressSaveTimer = null;
 let progressSynced = false; // true, sobald der Server den Spielstand abgeglichen hat
@@ -208,7 +209,7 @@ function init() {
     if (nameInput) nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') enterGame(); });
 
     if (isTouchDevice) {
-        const hint = instructions.querySelector('p');
+        const hint = document.getElementById('controls-hint');
         if (hint) hint.innerText = 'Linker Stick = Bewegen | Rechte Bildschirmhälfte ziehen = Umsehen | 🔫 = Schießen | 1/2/3 = Waffe wechseln | Tippen zum Starten';
         document.getElementById('touch-controls').style.display = 'block';
         setupTouchControls();
@@ -442,7 +443,10 @@ function init() {
     socket.on('leaderboard', (board) => {
         const me = board.find(e => e.id === socket.id);
         if (me) { myKills = me.kills || 0; updateSyringeUI(); }
+        setMenuStatus('ok', '● ONLINE · ' + board.length + ' SPIELER');
     });
+    socket.on('connect_error', () => setMenuStatus('bad', '✖ SERVER NICHT ERREICHBAR – NEUER VERSUCH …'));
+    socket.on('disconnect', () => setMenuStatus('bad', '✖ VERBINDUNG VERLOREN'));
 
     socket.on('resetDenied', (data) => {
         showNotice(`Reset in ${Math.ceil(data.remainingMs / 1000)}s wieder möglich`);
@@ -1072,6 +1076,30 @@ function updateXpUI() {
     if (lv) lv.textContent = 'LV ' + p.level;
     if (tx) tx.textContent = p.max ? 'MAX' : `${p.xpInLevel} / ${p.need} XP`;
     if (fill) fill.style.width = (p.max ? 100 : (p.xpInLevel / p.need) * 100) + '%';
+    // Hauptmenü: gleiche Anzeige
+    const mlv = document.getElementById('mm-level'), mtx = document.getElementById('mm-xptext'), mf = document.getElementById('mm-xpfill');
+    if (mlv) mlv.textContent = 'LV ' + p.level;
+    if (mtx) mtx.textContent = p.max ? 'MAX' : `${p.xpInLevel} / ${p.need} XP`;
+    if (mf) mf.style.width = (p.max ? 100 : (p.xpInLevel / p.need) * 100) + '%';
+}
+
+// ---- Hauptmenü: 3D-Schaufenster (Soldat / Primär- / Sekundärwaffe mit dem gewählten Skin) ----
+function refreshMenu() {
+    const wrap = document.getElementById('mm-views');
+    if (!wrap || hasEntered) return;
+    const lo = prog.getLoadout();
+    const views = [['char', 'SOLDAT'], ['w0', WEAPON_CONFIGS[lo[0]].name.toUpperCase() + ' (1)'], ['w1', WEAPON_CONFIGS[lo[1]].name.toUpperCase() + ' (2)']];
+    wrap.innerHTML = views.map(([k, t]) => `<button class="mm-view${k === mmView ? ' active' : ''}" data-v="${k}">${esc(t)}</button>`).join('');
+    wrap.querySelectorAll('.mm-view').forEach(b => b.addEventListener('click', () => { mmView = b.dataset.v; refreshMenu(); }));
+
+    const target = mmView === 'char' ? 'char' : lo[mmView === 'w0' ? 0 : 1];
+    const skinId = target === 'char' ? prog.getSkinId() : prog.getWeaponSkin(target);
+    const sk = SKINS[skinId], r = rarityOf(sk);
+    document.getElementById('mm-stage-info').innerHTML =
+        `<div class="i-weapon">${target === 'char' ? 'NEON-SOLDAT' : esc(WEAPON_CONFIGS[target].name.toUpperCase())}</div>` +
+        `<div class="i-skin" style="color:${r.color}">${esc(sk.name)}</div><div class="i-rarity" style="color:${r.color}">${r.name.toUpperCase()}</div>`;
+    if (!menuPreview) { menuPreview = createPreview(document.getElementById('mm-canvas')); menuPreview.start(); }
+    menuPreview.show(target, skinId);
 }
 
 function popXp(text) {
@@ -1171,6 +1199,7 @@ function setLoadoutSlot(slot, val) {
 function renderAllPickers() {
     buildLoadoutPicker(document.getElementById('login-picker'));
     buildLoadoutPicker(document.getElementById('respawn-picker'));
+    refreshMenu();
 }
 
 // ---- Tod / Respawn ----
@@ -1239,6 +1268,7 @@ function openInventory(fromLogin = false) {
 function closeInventory() {
     document.getElementById('loadout-panel').style.display = 'none';
     if (invPreview) invPreview.stop();
+    refreshMenu();
 }
 
 const equippedSkinFor = (t) => t === 'char' ? prog.getSkinId() : prog.getWeaponSkin(t);
@@ -1470,6 +1500,13 @@ function updateResetHold(now) {
         resetHoldStart = null;
         if (wrap) wrap.style.display = 'none';
     }
+}
+
+function setMenuStatus(kind, text) {
+    const el = document.getElementById('mm-status');
+    if (!el) return;
+    el.className = kind;
+    el.textContent = text;
 }
 
 function esc(str) {
