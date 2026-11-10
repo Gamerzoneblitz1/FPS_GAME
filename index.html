@@ -148,39 +148,87 @@
         #levelup-banner .lu-unlocks { margin-top: 10px; font-size: 15px; color: #fff; line-height: 1.7; text-shadow: 0 0 8px #000; }
         @keyframes lu-in { from { opacity: 0; transform: translateX(-50%) scale(0.7); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
 
-        /* --- Loadout (Skins + Waffen) --- */
+
+        /* --- Inventar / Loadout (CS2-Stil) --- */
         #loadout-panel {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: min(720px, 94vw); max-height: 88vh; overflow: auto; z-index: 45; display: none;
-            background: rgba(5,5,18,0.97); border: 2px solid rgba(0,240,255,0.45); border-radius: 12px; padding: 18px 22px; color: #fff;
+            width: min(1180px, 97vw); height: min(740px, 95vh); z-index: 45; display: none; overflow: hidden;
+            background: linear-gradient(180deg, #0c0f1a 0%, #070912 100%); border: 2px solid rgba(0,240,255,0.45); border-radius: 12px; color: #fff;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
         }
-        #loadout-panel h2 { color: #00f0ff; text-shadow: 0 0 10px #00f0ff; letter-spacing: 3px; font-size: 18px; margin-bottom: 4px; }
-        #loadout-panel h3 { color: #9d00ff; letter-spacing: 2px; font-size: 13px; margin: 16px 0 8px; }
-        #loadout-level { font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 6px; }
-        .skin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-        .skin-card { border: 2px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px; cursor: pointer; text-align: center; background: rgba(255,255,255,0.04); font-size: 13px; }
-        .skin-card:hover:not(.locked) { border-color: rgba(0,240,255,0.7); }
-        .skin-card.selected { border-color: #00ff99; box-shadow: 0 0 10px rgba(0,255,153,0.5); }
-        .skin-card.locked { opacity: 0.4; cursor: not-allowed; }
-        .skin-card small { display: block; color: rgba(255,255,255,0.55); margin-top: 3px; }
-        .skin-swatch { height: 44px; background-size: cover; border-radius: 5px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.3); }
-        .weapon-row { display: flex; justify-content: space-between; padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 13px; }
-        .weapon-row.locked { opacity: 0.45; }
-        #loadout-close { margin-top: 16px; width: 100%; padding: 9px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 14px; }
+        .inv { display: grid; grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 100%; }
+        .inv-side { min-height: 0; }
+        .inv-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(0,240,255,0.04); }
+        .inv-head h2 { color: #00f0ff; text-shadow: 0 0 10px #00f0ff; letter-spacing: 4px; font-size: 18px; }
+        #loadout-level { flex: 1; font-size: 12px; color: rgba(255,255,255,0.6); }
+        #loadout-close { width: 34px; height: 34px; font-size: 16px; cursor: pointer; color: #00f0ff; background: rgba(0,240,255,0.12); border: 1px solid rgba(0,240,255,0.4); border-radius: 6px; font-family: monospace; }
+        #loadout-close:hover { background: rgba(0,240,255,0.28); }
+
+        .inv-side { overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25); padding: 8px 0 12px; }
+        .inv-cat { font-size: 11px; letter-spacing: 2px; color: #9d00ff; padding: 12px 14px 5px; }
+        .inv-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin: 0 8px 3px; cursor: pointer; border: 1px solid transparent; border-left: 3px solid var(--rc, #555); border-radius: 5px; background: rgba(255,255,255,0.04); }
+        .inv-row:hover { background: rgba(255,255,255,0.09); }
+        .inv-row.active { border-color: #00ff99; border-left-color: var(--rc, #00ff99); background: rgba(0,255,153,0.09); box-shadow: 0 0 8px rgba(0,255,153,0.25); }
+        .inv-row.locked { opacity: 0.5; }
+        .inv-row .r-name { flex: 1; font-size: 13px; line-height: 1.25; }
+        .inv-row .r-name small { display: block; font-size: 11px; color: var(--rc, #aaa); }
+        .inv-slot { font-size: 11px; font-weight: bold; color: #00f0ff; border: 1px solid rgba(0,240,255,0.6); border-radius: 4px; padding: 0 5px; }
+
+        .inv-main { display: grid; grid-template-rows: minmax(190px, 1fr) auto minmax(190px, 1fr); min-height: 0; }
+        .inv-stage { position: relative; min-height: 0; background: radial-gradient(ellipse at 50% 55%, rgba(0,240,255,0.12) 0%, rgba(0,0,0,0) 65%), linear-gradient(180deg, #10152a 0%, #090b16 100%); border-bottom: 1px solid rgba(255,255,255,0.1); }
+        #inv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+        #inv-canvas:active { cursor: grabbing; }
+        .inv-info { position: absolute; left: 16px; top: 12px; pointer-events: none; text-shadow: 0 0 8px #000; }
+        .inv-info .i-weapon { font-size: 12px; letter-spacing: 3px; color: rgba(255,255,255,0.65); }
+        .inv-info .i-skin { font-size: 24px; font-weight: bold; margin-top: 2px; }
+        .inv-info .i-rarity { font-size: 12px; letter-spacing: 2px; margin-top: 2px; }
+        .inv-stats { position: absolute; right: 16px; top: 12px; width: 200px; font-size: 11px; pointer-events: none; }
+        .inv-stat { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; color: rgba(255,255,255,0.7); }
+        .inv-stat span { width: 70px; }
+        .inv-stat i { flex: 1; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; }
+        .inv-stat i b { display: block; height: 100%; background: linear-gradient(90deg, #9d00ff, #00f0ff); }
+        .inv-stat em { width: 44px; text-align: right; font-style: normal; color: #00f0ff; }
+        .inv-hint { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); font-size: 10px; letter-spacing: 2px; color: rgba(255,255,255,0.3); pointer-events: none; }
+        #inv-fail { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: rgba(255,255,255,0.5); font-size: 13px; }
+
+        .inv-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); }
+        .inv-btn { padding: 8px 14px; font-family: monospace; font-size: 12px; letter-spacing: 1px; cursor: pointer; color: #00f0ff; background: rgba(0,240,255,0.1); border: 1px solid rgba(0,240,255,0.5); border-radius: 6px; }
+        .inv-btn:hover:not(:disabled) { background: rgba(0,240,255,0.25); }
+        .inv-btn.primary { color: #00ff99; background: rgba(0,255,153,0.12); border-color: rgba(0,255,153,0.7); font-size: 13px; }
+        .inv-btn.primary:hover:not(:disabled) { background: rgba(0,255,153,0.28); }
+        .inv-btn.warn { color: #ffe14d; background: rgba(255,225,77,0.08); border-color: rgba(255,225,77,0.5); }
+        .inv-btn.on { color: #fff; border-color: #00f0ff; background: rgba(0,240,255,0.3); }
+        .inv-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .inv-sep { flex: 1; }
+        #loadout-note { width: 100%; font-size: 11px; color: #ffe14d; min-height: 13px; }
+
+        .inv-skins { display: flex; flex-direction: column; min-height: 0; }
+        .inv-filter { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 14px 4px; }
+        .inv-chip { padding: 3px 9px; font-family: monospace; font-size: 11px; cursor: pointer; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.05); border: 1px solid var(--rc, rgba(255,255,255,0.25)); border-radius: 12px; }
+        .inv-chip.active { background: var(--rc, rgba(255,255,255,0.25)); color: #000; font-weight: bold; }
+        .skin-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 8px; padding: 6px 14px 14px; align-content: start; }
+        .skin-card { position: relative; border: 2px solid rgba(255,255,255,0.12); border-bottom: 4px solid var(--rc, #555); border-radius: 7px; padding: 6px; cursor: pointer; text-align: center; background: rgba(255,255,255,0.04); font-size: 12px; }
+        .skin-card:hover { border-color: rgba(255,255,255,0.45); border-bottom-color: var(--rc, #555); }
+        .skin-card.viewing { border-color: #00f0ff; border-bottom-color: var(--rc, #555); box-shadow: 0 0 10px rgba(0,240,255,0.45); }
+        .skin-card.equipped::after { content: '✔'; position: absolute; top: 3px; right: 6px; color: #00ff99; font-size: 14px; text-shadow: 0 0 6px #00ff99; }
+        .skin-card.locked { opacity: 0.45; }
+        .skin-card small { display: block; color: rgba(255,255,255,0.55); margin-top: 2px; font-size: 10px; }
+        .skin-swatch { height: 52px; background-size: cover; background-position: center; border-radius: 4px; margin-bottom: 5px; border: 1px solid rgba(255,255,255,0.25); }
+
+        @media (max-width: 760px) {
+            .inv { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+            .inv-side { display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); padding: 6px; }
+            .inv-cat { display: none; }
+            .inv-row { flex-shrink: 0; margin: 0 4px 0 0; }
+            .inv-stats { display: none; }
+            .inv-main { grid-template-rows: 170px auto 1fr; }
+        }
 
         /* --- Loadout-Tabs, Auswahl, Respawn --- */
-        .lo-tabs { display: flex; gap: 8px; margin: 8px 0 4px; }
-        .lo-tab { flex: 1; padding: 8px; font-family: monospace; font-size: 14px; letter-spacing: 2px; cursor: pointer; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; }
-        .lo-tab.active { color: #00f0ff; border-color: #00f0ff; background: rgba(0,240,255,0.12); box-shadow: 0 0 8px rgba(0,240,255,0.35); }
         .lo-picker { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: flex-end; }
         .lo-picker label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; letter-spacing: 2px; color: #9d00ff; }
         .lo-picker select { min-width: 170px; background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.5); color: #00f0ff; font-family: monospace; font-size: 15px; padding: 7px; border-radius: 6px; }
         .lo-picker select option:disabled { color: #666; }
-        .lo-note { font-size: 12px; color: #ffe14d; margin: 8px 0 0; text-align: center; min-height: 14px; }
-        #skin-targets { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
-        .skin-target { padding: 6px 10px; font-family: monospace; font-size: 12px; letter-spacing: 1px; cursor: pointer; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; }
-        .skin-target.active { color: #00ff99; border-color: #00ff99; background: rgba(0,255,153,0.1); }
-        #skin-apply-all { margin-bottom: 10px; padding: 6px 12px; font-family: monospace; font-size: 12px; letter-spacing: 1px; cursor: pointer; color: #ffe14d; background: rgba(255,225,77,0.08); border: 1px solid rgba(255,225,77,0.5); border-radius: 5px; }
         #login-loadout-btn { padding: 8px 22px; font-family: monospace; font-size: 14px; letter-spacing: 2px; cursor: pointer; color: #9d00ff; background: rgba(157,0,255,0.1); border: 1px solid rgba(157,0,255,0.6); border-radius: 8px; }
         #respawn-panel {
             position: absolute; inset: 0; z-index: 36; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
@@ -394,28 +442,30 @@
         <p>Reset: Kill geht an den letzten Angreifer, sonst an den nächsten Spieler</p>
     </div>
 
-    <!-- Loadout: Waffenwahl (2 Waffen) + Skin-Tab -->
+    <!-- Inventar: Waffen + Skins im CS2-Stil (3D-Vorschau, Kategorien, Seltenheit) -->
     <div id="loadout-panel">
-        <h2>LOADOUT</h2>
-        <div id="loadout-level"></div>
-        <div class="lo-tabs">
-            <button class="lo-tab active" data-tab="weapons">WAFFEN</button>
-            <button class="lo-tab" data-tab="skins">SKINS</button>
+        <div class="inv">
+            <div class="inv-head">
+                <h2>INVENTAR</h2>
+                <div id="loadout-level"></div>
+                <button id="loadout-close" title="Schließen">✕</button>
+            </div>
+            <div class="inv-side" id="inv-side"></div>
+            <div class="inv-main">
+                <div class="inv-stage">
+                    <canvas id="inv-canvas"></canvas>
+                    <div id="inv-fail">3D-Vorschau nicht verfügbar</div>
+                    <div class="inv-info" id="inv-info"></div>
+                    <div class="inv-stats" id="inv-stats"></div>
+                    <div class="inv-hint">ZIEHEN = DREHEN</div>
+                </div>
+                <div class="inv-actions" id="inv-actions"></div>
+                <div class="inv-skins">
+                    <div class="inv-filter" id="inv-filter"></div>
+                    <div class="skin-grid" id="skin-grid"></div>
+                </div>
+            </div>
         </div>
-        <div id="tab-weapons">
-            <h3>AUSRÜSTUNG – 2 WAFFEN</h3>
-            <div class="lo-picker" id="loadout-picker"></div>
-            <div class="lo-note" id="loadout-note"></div>
-            <h3>ALLE WAFFEN</h3>
-            <div id="weapon-list"></div>
-        </div>
-        <div id="tab-skins" style="display:none;">
-            <h3>SKIN WÄHLEN FÜR</h3>
-            <div id="skin-targets"></div>
-            <button id="skin-apply-all">AUF ALLE WAFFEN ANWENDEN</button>
-            <div class="skin-grid" id="skin-grid"></div>
-        </div>
-        <button id="loadout-close">SCHLIESSEN</button>
     </div>
 
     <!-- Tod: Waffen neu wählen, dann respawnen -->
