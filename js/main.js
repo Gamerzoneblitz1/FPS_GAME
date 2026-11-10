@@ -140,7 +140,9 @@ const TOUCH_LOOK_SENSITIVITY = 0.0035;
 const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 init();
-animate();
+// Nicht direkt animate() aufrufen: animate() nutzt Konstanten (z.B. _lookEuler), die weiter unten im Modul stehen und beim
+// Aufruf an dieser Stelle noch nicht initialisiert wären (ReferenceError, Modul bricht ab). Der Frame-Callback läuft erst danach.
+requestAnimationFrame(animate);
 
 function init() {
     scene = new THREE.Scene();
