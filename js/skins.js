@@ -89,3 +89,18 @@ export const SKINS = DEFS.map(([name, unlockLevel, pattern, colors, accent, extr
 }));
 
 export const MAX_SKINS = 64;
+
+// ---------- Seltenheit (CS2-Stil) ----------
+// Wird aus dem Freischalt-Level abgeleitet: je höher das Level, desto seltener der Skin. Ändert keine IDs.
+export const RARITIES = [
+    { key: 'consumer',   name: 'Consumer',   color: '#b0c3d9', maxLevel: 3 },
+    { key: 'industrial', name: 'Industrial', color: '#5e98d9', maxLevel: 6 },
+    { key: 'milspec',    name: 'Mil-Spec',   color: '#4b69ff', maxLevel: 10 },
+    { key: 'restricted', name: 'Restricted', color: '#8847ff', maxLevel: 14 },
+    { key: 'classified', name: 'Classified', color: '#d32ce6', maxLevel: 19 },
+    { key: 'covert',     name: 'Covert',     color: '#eb4b4b', maxLevel: 24 },
+    { key: 'contraband', name: 'Contraband', color: '#e4ae39', maxLevel: 99 }
+];
+export function rarityOf(skin) {
+    return RARITIES.find(r => (skin ? skin.unlockLevel : 1) <= r.maxLevel) || RARITIES[RARITIES.length - 1];
+}
