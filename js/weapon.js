@@ -775,3 +775,32 @@ export class WeaponManager {
         }
     }
 }
+
+// ---------- Vorschau-Modell fürs Inventar ----------
+// Baut ein eigenständiges Waffenmodell (ohne Kamera/Munition) und kann einen Skin darauf anwenden - genau wie Weapon.setSkin.
+export function buildPreviewWeapon(index) {
+    const cfg = WEAPON_CONFIGS[index];
+    const group = new THREE.Group();
+    cfg.buildModel(group);
+    const accentMeshes = [], bodyMeshes = [];
+    group.traverse((o) => { if (o.userData && o.userData.accent !== undefined) accentMeshes.push(o); });
+    group.traverse((o) => {
+        if (o.isMesh && o.userData && o.userData.body) {
+            o.userData.baseMat = o.material;
+            projectSkinUVs(o);
+            bodyMeshes.push(o);
+        }
+    });
+    const recolor = (hexOrNull) => { for (const m of accentMeshes) m.material.color.setHex(hexOrNull ?? m.userData.accent); };
+    return {
+        group,
+        rainbow: false,
+        setSkin(skin) {
+            this.rainbow = !!(skin && skin.rainbow);
+            recolor(skin ? (skin.accent ?? null) : null);
+            const patterned = !!(skin && skin.pattern);
+            for (const m of bodyMeshes) m.material = patterned ? weaponSkinMaterial(skin, shadeForColor(m.userData.baseColor)) : m.userData.baseMat;
+        },
+        setAccent: recolor
+    };
+}
