@@ -301,27 +301,102 @@
         #pause-menu button.danger:hover { background: rgba(255,51,85,0.3); }
         #pause-menu p { color: rgba(255,255,255,0.4); font-size: 11px; }
 
-        /* --- Instructions / Login --- */
+        /* --- Hauptmenü (Login) --- */
         #instructions {
-            position: absolute; inset: 0;
-            background: rgba(0,0,0,0.82);
-            color: white; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; gap: 18px; cursor: default; z-index: 30;
+            position: absolute; inset: 0; z-index: 30; color: #fff; overflow-y: auto; overflow-x: hidden;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: default;
+            background: radial-gradient(ellipse at 50% 0%, #1a1040 0%, #080a18 55%, #03040a 100%);
         }
-        #instructions h1 { color: #00f0ff; text-shadow: 0 0 16px #00f0ff; font-size: 32px; letter-spacing: 4px; }
-        #instructions p { color: rgba(255,255,255,0.55); font-size: 13px; }
+        .mm-bg { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+        .mm-grid { position: absolute; left: -50%; right: -50%; bottom: 0; height: 60%;
+            background-image: linear-gradient(rgba(0,240,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,240,255,0.5) 1px, transparent 1px);
+            background-size: 64px 64px; transform: perspective(380px) rotateX(62deg); transform-origin: 50% 100%;
+            animation: mm-scroll 2.4s linear infinite;
+            -webkit-mask-image: linear-gradient(to top, #000 10%, transparent 85%); mask-image: linear-gradient(to top, #000 10%, transparent 85%); }
+        @keyframes mm-scroll { from { background-position: 0 0; } to { background-position: 0 64px; } }
+        .mm-glow { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(90px); opacity: 0.35; }
+        .mm-glow.g1 { left: -20vmax; top: -25vmax; background: #ff2bd6; animation: mm-drift 14s ease-in-out infinite alternate; }
+        .mm-glow.g2 { right: -22vmax; bottom: -30vmax; background: #00f0ff; animation: mm-drift 18s ease-in-out infinite alternate-reverse; }
+        @keyframes mm-drift { from { transform: translate(0,0); } to { transform: translate(6vmax, 4vmax); } }
+        .mm-scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px); opacity: 0.5; }
+        .mm-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%); }
+
+        .mm-wrap { position: relative; z-index: 1; width: min(1180px, 96vw); display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 34px; align-items: center; padding: 24px 0; }
+        .mm-left { display: flex; flex-direction: column; gap: 14px; animation: mm-in 0.6s ease both; }
+        .mm-right { display: flex; flex-direction: column; gap: 14px; animation: mm-in 0.6s 0.12s ease both; }
+        @keyframes mm-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+        .mm-logo { line-height: 0.92; user-select: none; }
+        .mm-logo span { display: block; font-weight: 900; letter-spacing: 10px; }
+        .mm-logo .t { font-size: 24px; color: #ff2bd6; text-shadow: 0 0 14px #ff2bd6; letter-spacing: 14px; }
+        .mm-logo .b { font-size: 68px; background: linear-gradient(180deg, #ffffff 0%, #00f0ff 55%, #3d7bff 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+            filter: drop-shadow(0 0 18px rgba(0,240,255,0.65)); animation: mm-flicker 6s infinite; }
+        @keyframes mm-flicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: 0.55; } 94% { opacity: 1; } 96% { opacity: 0.7; } 97% { opacity: 1; } }
+        .mm-tag { font-size: 11px; letter-spacing: 4px; color: rgba(255,255,255,0.5); margin-top: -4px; }
+        #mm-status { font-size: 11px; letter-spacing: 2px; color: #ffe14d; }
+        #mm-status.ok { color: #00ff99; } #mm-status.bad { color: #ff3355; }
+
+        .mm-card { background: rgba(8,10,26,0.72); border: 1px solid rgba(0,240,255,0.3); border-radius: 12px; padding: 16px; backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,240,255,0.08); }
+        .mm-label { display: block; font-size: 10px; letter-spacing: 3px; color: #9d00ff; margin: 0 0 6px; }
+        .mm-card .mm-label:not(:first-child) { margin-top: 14px; }
         #name-input {
-            background: rgba(0,240,255,0.08); border: 2px solid rgba(0,240,255,0.5);
-            color: #00f0ff; font-family: monospace; font-size: 20px; padding: 10px 18px;
-            border-radius: 8px; text-align: center; outline: none; width: 280px; letter-spacing: 1px;
+            width: 100%; background: rgba(0,240,255,0.07); border: 2px solid rgba(0,240,255,0.45); color: #00f0ff; font-family: monospace;
+            font-size: 20px; padding: 10px 14px; border-radius: 8px; text-align: left; outline: none; letter-spacing: 1px; transition: box-shadow .15s, border-color .15s;
         }
+        #name-input:focus { border-color: #00f0ff; box-shadow: 0 0 14px rgba(0,240,255,0.5); }
         #name-input::placeholder { color: rgba(0,240,255,0.3); }
+        .mm-lv { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; color: #00f0ff; }
+        .mm-xpbar { flex: 1; height: 8px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; overflow: hidden; }
+        #mm-xpfill { height: 100%; width: 0; background: linear-gradient(90deg, #9d00ff, #00f0ff); box-shadow: 0 0 8px #00f0ff; transition: width .3s; }
+        #mm-xptext { color: rgba(255,255,255,0.55); min-width: 92px; text-align: right; }
+        .mm-card .lo-picker { justify-content: stretch; gap: 10px; }
+        .mm-card .lo-picker label { flex: 1; min-width: 130px; }
+        .mm-card .lo-picker select { min-width: 0; width: 100%; font-size: 14px; }
+
         #enter-btn {
-            background: rgba(0,240,255,0.15); border: 2px solid rgba(0,240,255,0.6);
-            color: #00f0ff; font-family: monospace; font-size: 16px; padding: 10px 32px;
-            border-radius: 8px; cursor: pointer; letter-spacing: 2px;
+            position: relative; overflow: hidden; padding: 16px; font-family: monospace; font-size: 22px; font-weight: bold; letter-spacing: 6px; cursor: pointer; color: #021a10;
+            background: linear-gradient(180deg, #4dffb4, #00e68a); border: 0; border-radius: 10px; box-shadow: 0 0 22px rgba(0,255,153,0.5); animation: mm-pulse 2.4s ease-in-out infinite;
         }
-        #enter-btn:hover { background: rgba(0,240,255,0.28); }
+        #enter-btn::after { content: ''; position: absolute; top: 0; bottom: 0; width: 60px; left: -80px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent); transform: skewX(-20deg); animation: mm-shine 3.2s infinite; }
+        #enter-btn:hover { filter: brightness(1.12); transform: translateY(-1px); }
+        @keyframes mm-pulse { 0%, 100% { box-shadow: 0 0 18px rgba(0,255,153,0.4); } 50% { box-shadow: 0 0 34px rgba(0,255,153,0.75); } }
+        @keyframes mm-shine { 0% { left: -80px; } 40%, 100% { left: 120%; } }
+        #login-loadout-btn {
+            padding: 12px; font-family: monospace; font-size: 14px; letter-spacing: 3px; cursor: pointer; color: #d9a8ff; background: rgba(157,0,255,0.12);
+            border: 1px solid rgba(157,0,255,0.65); border-radius: 10px; transition: background .15s;
+        }
+        #login-loadout-btn:hover { background: rgba(157,0,255,0.3); }
+        .mm-save { font-size: 11px; line-height: 1.5; color: #ffe14d; opacity: 0.85; }
+
+        .mm-stage { position: relative; height: min(46vh, 400px); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; overflow: hidden;
+            background: radial-gradient(ellipse at 50% 60%, rgba(0,240,255,0.14), rgba(0,0,0,0) 65%), rgba(6,8,20,0.55); }
+        #mm-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+        #mm-stage-info { position: absolute; left: 16px; top: 12px; pointer-events: none; text-shadow: 0 0 8px #000; }
+        #mm-stage-info .i-weapon { font-size: 12px; letter-spacing: 3px; color: rgba(255,255,255,0.65); }
+        #mm-stage-info .i-skin { font-size: 22px; font-weight: bold; margin-top: 2px; }
+        #mm-stage-info .i-rarity { font-size: 11px; letter-spacing: 2px; }
+        .mm-views { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 6px; }
+        .mm-view { padding: 6px 12px; font-family: monospace; font-size: 11px; letter-spacing: 2px; cursor: pointer; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; }
+        .mm-view.active { color: #00f0ff; border-color: #00f0ff; background: rgba(0,240,255,0.15); }
+        .mm-keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+        .kc { display: flex; align-items: center; gap: 8px; font-size: 11px; color: rgba(255,255,255,0.65); background: rgba(8,10,26,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 6px 8px; }
+        .kc kbd { font-family: monospace; font-size: 11px; font-weight: bold; color: #00f0ff; background: rgba(0,240,255,0.1); border: 1px solid rgba(0,240,255,0.5); border-bottom-width: 3px; border-radius: 5px; padding: 2px 6px; white-space: nowrap; }
+        #controls-hint { position: relative; z-index: 1; font-size: 11px; color: rgba(255,255,255,0.35); text-align: center; padding: 0 12px 14px; max-width: 900px; }
+        @media (pointer: coarse) { .mm-keys { display: none; } }
+        @media (max-width: 860px) {
+            .mm-wrap { grid-template-columns: 1fr; gap: 16px; }
+            .mm-logo .b { font-size: 48px; }
+            .mm-stage { height: 260px; }
+            #instructions { justify-content: flex-start; }
+        }
+        @media (max-height: 640px) and (min-width: 861px) { .mm-logo .b { font-size: 50px; } .mm-keys { display: none; } .mm-stage { height: 52vh; } }
+
+        /* --- Pause-Menü (Stil passend zum Hauptmenü) --- */
+        #pause-menu { background: radial-gradient(ellipse at center, rgba(10,12,32,0.86), rgba(0,0,0,0.92)); backdrop-filter: blur(4px); }
+        #pause-menu h1 { font-size: 34px; letter-spacing: 10px; background: linear-gradient(180deg, #fff, #00f0ff); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 12px rgba(0,240,255,0.7)); }
+        #pause-menu button { width: 300px; padding: 13px; border-radius: 10px; transition: transform .12s, background .12s; }
+        #pause-menu button:hover { transform: translateX(4px); }
+        #pause-resume { color: #021a10 !important; background: linear-gradient(180deg, #4dffb4, #00e68a) !important; border-color: #00ff99 !important; font-weight: bold; box-shadow: 0 0 16px rgba(0,255,153,0.4); }
     </style>
 </head>
 <body>
@@ -477,15 +552,37 @@
         <button id="respawn-btn">RESPAWN (<span id="respawn-count">12</span>)</button>
     </div>
 
-    <!-- Einloggen / Instructions -->
+    <!-- Hauptmenü / Login -->
     <div id="instructions">
-        <h1>NEON VAULT</h1>
-        <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
-        <div class="lo-picker" id="login-picker"></div>
-        <button id="login-loadout-btn">SKINS &amp; WAFFEN</button>
-        <button id="enter-btn">SPIELEN</button>
-        <p style="color:#ffe14d;">💾 Level, XP und Skin werden unter deinem Namen gespeichert (ohne Namen = Gast, nichts wird gespeichert).</p>
-        <p>WASD = Bewegen | Shift = Sprinten | C/Strg = Sliden | Leertaste = Springen | 1/2 = deine zwei Waffen (Auswahl nur vor dem Start und nach dem Tod) | Tab = Leaderboard | Rechtsklick = Zielen | H = Heilspritze | ESC = Pause/Reset/Einstellungen</p>
+        <div class="mm-bg"><div class="mm-glow g1"></div><div class="mm-glow g2"></div><div class="mm-grid"></div><div class="mm-scan"></div><div class="mm-vignette"></div></div>
+        <div class="mm-wrap">
+            <section class="mm-left">
+                <div>
+                    <div class="mm-logo"><span class="t">NEON</span><span class="b">VAULT</span></div>
+                    <div class="mm-tag">MEGAPLEX · OPEN SNIPER ARENA</div>
+                </div>
+                <div id="mm-status">VERBINDE MIT SERVER …</div>
+                <div class="mm-card">
+                    <label class="mm-label" for="name-input">SPIELERNAME</label>
+                    <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
+                    <div class="mm-lv"><span id="mm-level">LV 1</span><div class="mm-xpbar"><div id="mm-xpfill"></div></div><span id="mm-xptext">0 / 200 XP</span></div>
+                    <label class="mm-label">AUSRÜSTUNG · 2 WAFFEN</label>
+                    <div class="lo-picker" id="login-picker"></div>
+                </div>
+                <button id="enter-btn">▶ SPIELEN</button>
+                <button id="login-loadout-btn">⚙ INVENTAR · SKINS &amp; WAFFEN</button>
+                <p class="mm-save">💾 Level, XP und Skins werden unter deinem Namen gespeichert (ohne Namen = Gast, nichts wird gespeichert).</p>
+            </section>
+            <section class="mm-right">
+                <div class="mm-stage">
+                    <canvas id="mm-canvas"></canvas>
+                    <div id="mm-stage-info"></div>
+                    <div class="mm-views" id="mm-views"></div>
+                </div>
+                <div class="mm-keys"><div class="kc"><kbd>W A S D</kbd><span>Bewegen</span></div><div class="kc"><kbd>SHIFT</kbd><span>Sprinten</span></div><div class="kc"><kbd>C / STRG</kbd><span>Sliden</span></div><div class="kc"><kbd>SPACE</kbd><span>Springen</span></div><div class="kc"><kbd>1 / 2</kbd><span>Waffe wechseln</span></div><div class="kc"><kbd>RECHTSKLICK</kbd><span>Zielen</span></div><div class="kc"><kbd>R</kbd><span>Nachladen</span></div><div class="kc"><kbd>H</kbd><span>Heilspritze</span></div><div class="kc"><kbd>TAB</kbd><span>Leaderboard</span></div><div class="kc"><kbd>ESC</kbd><span>Pause · Reset · Optionen</span></div></div>
+            </section>
+        </div>
+        <p id="controls-hint">Waffenwahl nur vor dem Start und nach dem Tod möglich.</p>
     </div>
 
     <div id="error-box"></div>
