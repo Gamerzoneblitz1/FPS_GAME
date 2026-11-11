@@ -39,7 +39,7 @@ export function createPreview(canvas) {
         if (!renderer) return;
         const w = canvas.clientWidth, h = canvas.clientHeight;
         if (!w || !h) return;
-        const pr = Math.min(window.devicePixelRatio || 1, 2);
+        const pr = Math.min(window.devicePixelRatio || 1, 1.5);
         if (canvas.width !== Math.round(w * pr) || canvas.height !== Math.round(h * pr)) {
             renderer.setPixelRatio(pr);
             renderer.setSize(w, h, false);
