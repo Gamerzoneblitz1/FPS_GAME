@@ -98,6 +98,7 @@ let invRarity = 'all';     // Seltenheits-Filter
 let previewRun = 0;
 let invPreview = null;
 let menuPreview = null, mmView = 'char';   // Hauptmenü-Schaufenster (muss vor init() deklariert sein)
+let renderBlocked = false;                 // true, solange eine Vollbild-Oberfläche (Menü/Einstellungen/Inventar) das Spiel verdeckt -> Szene wird nicht gerendert
 const RESPAWN_AUTO_SECONDS = 12;
 let progressSaveTimer = null;
 let progressSynced = false; // true, sobald der Server den Spielstand abgeglichen hat
@@ -307,6 +308,7 @@ function init() {
     applyOwnSkin();
     updateXpUI();
     wireLoadoutUi(); // Loadout-Tabs, Respawn-Button, Login-Auswahl
+    setupRenderGate(); // Menüs verdecken das Spiel komplett -> Szene und unsichtbare 3D-Vorschauen anhalten (spart viel FPS)
     sfx.initAudio(); // Audio-Kontext startet beim ersten Klick/Tastendruck
 
     document.addEventListener('keydown', (e) => onKeyChange(e.keyCode, true));
@@ -1502,6 +1504,25 @@ function updateResetHold(now) {
     }
 }
 
+// ---- Performance: hinter Vollbild-Menüs nichts rendern ----
+// Menü, Pause, Einstellungen und Inventar sind (fast) undurchsichtig. Die 3D-Szene (inkl. Bloom) dahinter weiter zu zeichnen kostet
+// nur FPS beim Bedienen der Menüs. Das letzte Bild bleibt stehen, die Spiellogik läuft weiter. Die Vorschau-Canvas laufen nur,
+// solange sie wirklich sichtbar sind.
+function setupRenderGate() {
+    const ids = ['instructions', 'pause-menu', 'settings-panel', 'loadout-panel'];
+    const els = ids.map(id => document.getElementById(id)).filter(Boolean);
+    const shown = (id) => { const e = document.getElementById(id); return !!e && getComputedStyle(e).display !== 'none'; };
+    const recompute = () => {
+        renderBlocked = els.some(e => getComputedStyle(e).display !== 'none');
+        const ins = shown('instructions'), inv = shown('loadout-panel'), set = shown('settings-panel');
+        if (menuPreview) { if (ins && !inv && !set) menuPreview.start(); else menuPreview.stop(); }
+        if (invPreview) { if (inv && !set) invPreview.start(); else invPreview.stop(); }
+    };
+    const obs = new MutationObserver(recompute);
+    els.forEach(e => obs.observe(e, { attributes: true, attributeFilter: ['style'] }));
+    recompute();
+}
+
 function setMenuStatus(kind, text) {
     const el = document.getElementById('mm-status');
     if (!el) return;
@@ -1665,6 +1686,22 @@ function setupSettingsPanel() {
         panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
     });
     if (closeBtn) closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
+    // ESC schließt die Einstellungsseite (die Maus ist hier ohnehin frei, ESC kommt als normales Tastenereignis an)
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Escape' && panel.style.display === 'block') { panel.style.display = 'none'; e.preventDefault(); }
+    });
+    // Tabs
+    const tabs = panel.querySelectorAll('.st-tab'), panes = panel.querySelectorAll('.st-pane');
+    let lastTab = 'mouse';
+    try { lastTab = localStorage.getItem('nv_settings_tab') || 'mouse'; } catch (e) { /* ignorieren */ }
+    const showTab = (name) => {
+        if (![...panes].some(p => p.dataset.pane === name)) name = 'mouse';
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.pane === name));
+        panes.forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+        try { localStorage.setItem('nv_settings_tab', name); } catch (e) { /* ignorieren */ }
+    };
+    tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.pane)));
+    showTab(lastTab);
 
     resSlider.addEventListener('input', () => {
         userPixelRatioPercent = parseInt(resSlider.value, 10);
@@ -1952,6 +1989,7 @@ function animate() {
     updateNearestEnemyUI();
 
     prevTime = time;
+    if (renderBlocked) return; // Vollbild-Menü offen: nichts zu sehen, nicht rendern
     if (composer) {
         composer.render();
     } else {
