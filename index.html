@@ -96,7 +96,7 @@
         #death-overlay h2 { color: #ff3355; font-size: 48px; text-shadow: 0 0 30px #ff3355; letter-spacing: 4px; }
         #death-overlay p { color: rgba(255,255,255,0.7); margin-top: 10px; font-size: 16px; }
 
-        /* --- Settings Button + Panel --- */
+        /* --- Einstellungen: ganze Seite mit Tabs --- */
         #settings-btn {
             position: absolute; top: 16px; right: 20px;
             width: 40px; height: 40px; border-radius: 8px;
@@ -104,27 +104,52 @@
             color: #00f0ff; font-size: 20px; cursor: pointer; z-index: 50;
         }
         #settings-panel {
-            display: none; position: absolute; top: 64px; right: 20px; width: 330px; max-height: calc(100vh - 84px); overflow-y: auto;
-            background: rgba(5,5,15,0.94); border: 2px solid rgba(0,240,255,0.35);
-            border-radius: 10px; padding: 16px; font-family: monospace; color: white; z-index: 50;
+            display: none; position: absolute; inset: 0; z-index: 60; overflow: hidden; font-family: monospace; color: #fff;
+            background: radial-gradient(ellipse at 50% 0%, #161040 0%, #080a18 55%, #03040a 100%);
+            animation: st-in 0.18s ease-out;
         }
-        #settings-panel .set-sec { color: #9d00ff; font-size: 11px; letter-spacing: 2px; margin: 16px 0 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(157,0,255,0.35); }
-        #settings-panel .set-sec:first-of-type { margin-top: 0; }
-        #settings-panel label { display: block; font-size: 13px; margin-bottom: 12px; }
-        #settings-panel label > span.val { float: right; color: #00f0ff; }
-        #settings-panel select { width: 100%; margin-top: 5px; background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.45); color: #00f0ff; font-family: monospace; font-size: 13px; padding: 6px; border-radius: 6px; }
-        #ch-preview { position: relative; height: 90px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; overflow: hidden;
+        @keyframes st-in { from { opacity: 0; } to { opacity: 1; } }
+        .st-wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; width: min(1100px, 100%); height: 100%; margin: 0 auto; }
+        .st-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .st-head h3 { font-size: 22px; letter-spacing: 8px; color: #00f0ff; text-shadow: 0 0 12px rgba(0,240,255,0.7); }
+        #settings-close { padding: 10px 18px; background: rgba(0,240,255,0.12); border: 1px solid rgba(0,240,255,0.5); color: #00f0ff; border-radius: 8px; cursor: pointer; font-family: monospace; letter-spacing: 2px; font-size: 13px; }
+        #settings-close:hover { background: rgba(0,240,255,0.28); }
+        .st-tabs { display: flex; flex-direction: column; gap: 6px; padding: 18px 14px; border-right: 1px solid rgba(255,255,255,0.1); }
+        .st-tab { text-align: left; padding: 14px 16px; font-family: monospace; font-size: 14px; letter-spacing: 3px; cursor: pointer; color: rgba(255,255,255,0.6); background: transparent; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 6px; }
+        .st-tab:hover { background: rgba(255,255,255,0.06); color: #fff; }
+        .st-tab.active { color: #00f0ff; background: rgba(0,240,255,0.1); border-color: rgba(0,240,255,0.3); border-left-color: #00f0ff; }
+        .st-body { overflow-y: auto; padding: 22px 30px; }
+        .st-pane { display: none; max-width: 720px; }
+        .st-pane.active { display: block; animation: st-in 0.18s ease-out; }
+        .st-pane h4 { font-size: 12px; letter-spacing: 4px; color: #9d00ff; margin: 0 0 14px; padding-bottom: 6px; border-bottom: 1px solid rgba(157,0,255,0.35); }
+        .st-row { display: grid; grid-template-columns: 230px minmax(0, 1fr) 64px; align-items: center; gap: 16px; padding: 13px 4px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; cursor: default; }
+        .st-row .val { color: #00f0ff; text-align: right; font-weight: bold; }
+        .st-row input[type="range"] { width: 100%; accent-color: #00f0ff; height: 22px; }
+        .st-row.st-check, .st-row.st-select { grid-template-columns: 230px minmax(0, 1fr); }
+        .st-row select { width: 100%; max-width: 280px; background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.45); color: #00f0ff; font-family: monospace; font-size: 14px; padding: 8px; border-radius: 6px; }
+        .st-switch { appearance: none; -webkit-appearance: none; width: 46px; height: 24px; border-radius: 12px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); position: relative; cursor: pointer; transition: background .15s; }
+        .st-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
+        .st-switch:checked { background: rgba(0,240,255,0.55); border-color: #00f0ff; }
+        .st-switch:checked::after { transform: translateX(22px); }
+        #ch-preview { position: relative; height: 170px; margin-bottom: 18px; border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; overflow: hidden;
             background: linear-gradient(135deg, #12162a 0%, #1d2540 55%, #0b0e1c 100%); }
         #ch-preview .ch-center { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
-        #ch-swatches { display: flex; gap: 6px; align-items: center; margin: 6px 0 12px; }
-        #ch-swatches button { width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0; }
+        #ch-swatches { display: flex; gap: 8px; align-items: center; }
+        #ch-swatches button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0; }
         #ch-swatches button.active { border-color: #00ff99; box-shadow: 0 0 6px #00ff99; }
-        #ch-swatches input[type="color"] { width: 30px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
-        #settings-reset { width: 100%; padding: 7px; margin: 4px 0 8px; background: rgba(255,225,77,0.08); border: 1px solid rgba(255,225,77,0.5); color: #ffe14d; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 12px; }
-        #settings-panel h3 { margin: 0 0 14px 0; color: #00f0ff; text-shadow: 0 0 8px #00f0ff; font-size: 15px; letter-spacing: 1px; }
-        #settings-panel input[type="range"] { width: 100%; margin-top: 6px; }
-        #settings-panel .checkbox-row { display: flex; align-items: center; gap: 8px; }
-        #settings-close { width: 100%; padding: 8px; background: rgba(0,240,255,0.15); border: 1px solid rgba(0,240,255,0.4); color: #00f0ff; border-radius: 6px; cursor: pointer; font-family: monospace; }
+        #ch-swatches input[type="color"] { width: 34px; height: 30px; border: none; background: none; padding: 0; cursor: pointer; }
+        .st-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; padding: 14px 24px; border-top: 1px solid rgba(255,255,255,0.1); }
+        #settings-reset { padding: 10px 18px; background: rgba(255,225,77,0.08); border: 1px solid rgba(255,225,77,0.5); color: #ffe14d; border-radius: 8px; cursor: pointer; font-family: monospace; font-size: 12px; letter-spacing: 1px; }
+        #settings-reset:hover { background: rgba(255,225,77,0.2); }
+        @media (max-width: 760px) {
+            .st-wrap { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+            .st-tabs { flex-direction: row; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+            .st-tab { padding: 10px 12px; letter-spacing: 1px; white-space: nowrap; border-left-width: 1px; }
+            .st-body { padding: 14px; }
+            .st-row, .st-row.st-check, .st-row.st-select { grid-template-columns: 1fr 64px; }
+            .st-row .st-name { grid-column: 1 / -1; }
+            .st-row.st-check, .st-row.st-select { grid-template-columns: 1fr auto; }
+        }
 
         /* --- Level / XP / Waffenleiste --- */
         #xp-wrap { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); width: 260px; z-index: 2; pointer-events: none; }
@@ -154,7 +179,7 @@
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: min(1180px, 97vw); height: min(740px, 95vh); z-index: 45; display: none; overflow: hidden;
             background: linear-gradient(180deg, #0c0f1a 0%, #070912 100%); border: 2px solid rgba(0,240,255,0.45); border-radius: 12px; color: #fff;
-            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+            animation: st-in 0.18s ease-out;
         }
         .inv { display: grid; grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 100%; }
         .inv-side { min-height: 0; }
@@ -308,16 +333,15 @@
             background: radial-gradient(ellipse at 50% 0%, #1a1040 0%, #080a18 55%, #03040a 100%);
         }
         .mm-bg { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-        .mm-grid { position: absolute; left: -50%; right: -50%; bottom: 0; height: 60%;
-            background-image: linear-gradient(rgba(0,240,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,240,255,0.5) 1px, transparent 1px);
-            background-size: 64px 64px; transform: perspective(380px) rotateX(62deg); transform-origin: 50% 100%;
-            animation: mm-scroll 2.4s linear infinite;
+        .mm-gridwrap { position: absolute; left: -50%; right: -50%; bottom: 0; height: 60%; overflow: hidden; transform: perspective(380px) rotateX(62deg); transform-origin: 50% 100%;
             -webkit-mask-image: linear-gradient(to top, #000 10%, transparent 85%); mask-image: linear-gradient(to top, #000 10%, transparent 85%); }
-        @keyframes mm-scroll { from { background-position: 0 0; } to { background-position: 0 64px; } }
-        .mm-glow { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(90px); opacity: 0.35; }
-        .mm-glow.g1 { left: -20vmax; top: -25vmax; background: #ff2bd6; animation: mm-drift 14s ease-in-out infinite alternate; }
-        .mm-glow.g2 { right: -22vmax; bottom: -30vmax; background: #00f0ff; animation: mm-drift 18s ease-in-out infinite alternate-reverse; }
-        @keyframes mm-drift { from { transform: translate(0,0); } to { transform: translate(6vmax, 4vmax); } }
+        .mm-grid { position: absolute; left: 0; right: 0; top: -64px; bottom: 0; will-change: transform;
+            background-image: linear-gradient(rgba(0,240,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,240,255,0.5) 1px, transparent 1px);
+            background-size: 64px 64px; animation: mm-scroll 2.4s linear infinite; }
+        @keyframes mm-scroll { from { transform: translateY(0); } to { transform: translateY(64px); } }
+        .mm-glow { position: absolute; width: 90vmax; height: 90vmax; border-radius: 50%; }
+        .mm-glow.g1 { left: -35vmax; top: -45vmax; background: radial-gradient(circle, rgba(255,43,214,0.30) 0%, rgba(255,43,214,0) 62%); }
+        .mm-glow.g2 { right: -40vmax; bottom: -50vmax; background: radial-gradient(circle, rgba(0,240,255,0.28) 0%, rgba(0,240,255,0) 62%); }
         .mm-scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px); opacity: 0.5; }
         .mm-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.75) 100%); }
 
@@ -330,13 +354,13 @@
         .mm-logo span { display: block; font-weight: 900; letter-spacing: 10px; }
         .mm-logo .t { font-size: 24px; color: #ff2bd6; text-shadow: 0 0 14px #ff2bd6; letter-spacing: 14px; }
         .mm-logo .b { font-size: 68px; background: linear-gradient(180deg, #ffffff 0%, #00f0ff 55%, #3d7bff 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
-            filter: drop-shadow(0 0 18px rgba(0,240,255,0.65)); animation: mm-flicker 6s infinite; }
+            animation: mm-flicker 6s infinite; will-change: opacity; }
         @keyframes mm-flicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: 0.55; } 94% { opacity: 1; } 96% { opacity: 0.7; } 97% { opacity: 1; } }
         .mm-tag { font-size: 11px; letter-spacing: 4px; color: rgba(255,255,255,0.5); margin-top: -4px; }
         #mm-status { font-size: 11px; letter-spacing: 2px; color: #ffe14d; }
         #mm-status.ok { color: #00ff99; } #mm-status.bad { color: #ff3355; }
 
-        .mm-card { background: rgba(8,10,26,0.72); border: 1px solid rgba(0,240,255,0.3); border-radius: 12px; padding: 16px; backdrop-filter: blur(6px); box-shadow: 0 0 24px rgba(0,240,255,0.08); }
+        .mm-card { background: rgba(8,10,26,0.82); border: 1px solid rgba(0,240,255,0.3); border-radius: 12px; padding: 16px; }
         .mm-label { display: block; font-size: 10px; letter-spacing: 3px; color: #9d00ff; margin: 0 0 6px; }
         .mm-card .mm-label:not(:first-child) { margin-top: 14px; }
         #name-input {
@@ -355,12 +379,11 @@
 
         #enter-btn {
             position: relative; overflow: hidden; padding: 16px; font-family: monospace; font-size: 22px; font-weight: bold; letter-spacing: 6px; cursor: pointer; color: #021a10;
-            background: linear-gradient(180deg, #4dffb4, #00e68a); border: 0; border-radius: 10px; box-shadow: 0 0 22px rgba(0,255,153,0.5); animation: mm-pulse 2.4s ease-in-out infinite;
+            background: linear-gradient(180deg, #4dffb4, #00e68a); border: 0; border-radius: 10px; box-shadow: 0 0 22px rgba(0,255,153,0.5);
         }
-        #enter-btn::after { content: ''; position: absolute; top: 0; bottom: 0; width: 60px; left: -80px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent); transform: skewX(-20deg); animation: mm-shine 3.2s infinite; }
+        #enter-btn::after { content: ''; position: absolute; top: 0; bottom: 0; width: 60px; left: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent); transform: translateX(-120px) skewX(-20deg); animation: mm-shine 3.2s infinite; will-change: transform; }
         #enter-btn:hover { filter: brightness(1.12); transform: translateY(-1px); }
-        @keyframes mm-pulse { 0%, 100% { box-shadow: 0 0 18px rgba(0,255,153,0.4); } 50% { box-shadow: 0 0 34px rgba(0,255,153,0.75); } }
-        @keyframes mm-shine { 0% { left: -80px; } 40%, 100% { left: 120%; } }
+        @keyframes mm-shine { 0% { transform: translateX(-120px) skewX(-20deg); } 40%, 100% { transform: translateX(480px) skewX(-20deg); } }
         #login-loadout-btn {
             padding: 12px; font-family: monospace; font-size: 14px; letter-spacing: 3px; cursor: pointer; color: #d9a8ff; background: rgba(157,0,255,0.12);
             border: 1px solid rgba(157,0,255,0.65); border-radius: 10px; transition: background .15s;
@@ -392,7 +415,7 @@
         @media (max-height: 640px) and (min-width: 861px) { .mm-logo .b { font-size: 50px; } .mm-keys { display: none; } .mm-stage { height: 52vh; } }
 
         /* --- Pause-Menü (Stil passend zum Hauptmenü) --- */
-        #pause-menu { background: radial-gradient(ellipse at center, rgba(10,12,32,0.86), rgba(0,0,0,0.92)); backdrop-filter: blur(4px); }
+        #pause-menu { background: radial-gradient(ellipse at center, rgba(10,12,32,0.92), rgba(0,0,0,0.96)); }
         #pause-menu h1 { font-size: 34px; letter-spacing: 10px; background: linear-gradient(180deg, #fff, #00f0ff); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 12px rgba(0,240,255,0.7)); }
         #pause-menu button { width: 300px; padding: 13px; border-radius: 10px; transition: transform .12s, background .12s; }
         #pause-menu button:hover { transform: translateX(4px); }
@@ -459,38 +482,50 @@
         <p>getötet von <span id="death-killer"></span></p>
     </div>
 
-    <!-- Settings -->
+    <!-- Einstellungen (ganze Seite) -->
     <button id="settings-btn" title="Einstellungen">⚙</button>
     <div id="settings-panel">
-        <h3>EINSTELLUNGEN</h3>
-
-        <div class="set-sec">MAUS &amp; SICHT</div>
-        <label>Empfindlichkeit <span class="val" id="sens-val">1.00x</span><input type="range" id="sens-slider" min="0.1" max="4" step="0.05" value="1"></label>
-        <label>Empfindlichkeit beim Zielen <span class="val" id="ads-val">1.00x</span><input type="range" id="ads-slider" min="0.3" max="1.5" step="0.05" value="1"></label>
-        <label>Sichtfeld (FOV) <span class="val" id="fov-val">75°</span><input type="range" id="fov-slider" min="60" max="110" step="1" value="75"></label>
-        <label class="checkbox-row"><input type="checkbox" id="invert-toggle"> Y-Achse invertieren</label>
-
-        <div class="set-sec">FADENKREUZ</div>
-        <div id="ch-preview"><div class="ch-center" id="ch-preview-center"></div></div>
-        <label>Stil<select id="ch-style"></select></label>
-        <div id="ch-swatches"></div>
-        <label>Größe <span class="val" id="ch-size-val">10</span><input type="range" id="ch-size" min="2" max="30" step="1" value="10"></label>
-        <label>Dicke <span class="val" id="ch-thick-val">2</span><input type="range" id="ch-thick" min="1" max="6" step="1" value="2"></label>
-        <label>Abstand zur Mitte <span class="val" id="ch-gap-val">4</span><input type="range" id="ch-gap" min="0" max="14" step="1" value="4"></label>
-        <label>Deckkraft <span class="val" id="ch-opacity-val">100%</span><input type="range" id="ch-opacity" min="30" max="100" step="5" value="100"></label>
-        <label class="checkbox-row"><input type="checkbox" id="ch-outline"> Dunkle Umrandung</label>
-        <button id="settings-reset">MAUS, SICHT &amp; FADENKREUZ ZURÜCKSETZEN</button>
-
-        <div class="set-sec">GRAFIK</div>
-        <label>Render-Auflösung <span class="val" id="res-val">90%</span><input type="range" id="res-slider" min="50" max="100" step="5" value="90"></label>
-        <label class="checkbox-row"><input type="checkbox" id="bloom-toggle"> Bloom / Glow-Effekt</label>
-        <label class="checkbox-row"><input type="checkbox" id="nametag-toggle"> Namensschilder anzeigen</label>
-
-        <div class="set-sec">SOUND</div>
-        <label>Lautstärke <span class="val" id="vol-val">70%</span><input type="range" id="vol-slider" min="0" max="100" step="5" value="70"></label>
-        <label class="checkbox-row"><input type="checkbox" id="mute-toggle"> Stumm</label>
-
-        <button id="settings-close">Schließen</button>
+        <div class="st-wrap">
+            <div class="st-head"><h3>EINSTELLUNGEN</h3><button id="settings-close">✕ ZURÜCK (ESC)</button></div>
+            <nav class="st-tabs" id="st-tabs">
+                <button class="st-tab active" data-pane="mouse">MAUS &amp; SICHT</button>
+                <button class="st-tab" data-pane="crosshair">FADENKREUZ</button>
+                <button class="st-tab" data-pane="graphics">GRAFIK</button>
+                <button class="st-tab" data-pane="sound">SOUND</button>
+            </nav>
+            <div class="st-body">
+                <section class="st-pane active" data-pane="mouse">
+                    <h4>MAUS &amp; SICHT</h4>
+                    <label class="st-row"><span class="st-name">Empfindlichkeit</span><input type="range" id="sens-slider" min="0.1" max="4" step="0.05" value="1"><span class="val" id="sens-val">1.00x</span></label>
+                    <label class="st-row"><span class="st-name">Empfindlichkeit beim Zielen</span><input type="range" id="ads-slider" min="0.3" max="1.5" step="0.05" value="1"><span class="val" id="ads-val">1.00x</span></label>
+                    <label class="st-row"><span class="st-name">Sichtfeld (FOV)</span><input type="range" id="fov-slider" min="60" max="110" step="1" value="75"><span class="val" id="fov-val">75°</span></label>
+                    <label class="st-row st-check"><span class="st-name">Y-Achse invertieren</span><input type="checkbox" class="st-switch" id="invert-toggle"></label>
+                </section>
+                <section class="st-pane" data-pane="crosshair">
+                    <h4>FADENKREUZ</h4>
+                    <div id="ch-preview"><div class="ch-center" id="ch-preview-center"></div></div>
+                    <label class="st-row st-select"><span class="st-name">Stil</span><select id="ch-style"></select></label>
+                    <div class="st-row st-check"><span class="st-name">Farbe</span><div id="ch-swatches"></div></div>
+                    <label class="st-row"><span class="st-name">Größe</span><input type="range" id="ch-size" min="2" max="30" step="1" value="10"><span class="val" id="ch-size-val">10</span></label>
+                    <label class="st-row"><span class="st-name">Dicke</span><input type="range" id="ch-thick" min="1" max="6" step="1" value="2"><span class="val" id="ch-thick-val">2</span></label>
+                    <label class="st-row"><span class="st-name">Abstand zur Mitte</span><input type="range" id="ch-gap" min="0" max="14" step="1" value="4"><span class="val" id="ch-gap-val">4</span></label>
+                    <label class="st-row"><span class="st-name">Deckkraft</span><input type="range" id="ch-opacity" min="30" max="100" step="5" value="100"><span class="val" id="ch-opacity-val">100%</span></label>
+                    <label class="st-row st-check"><span class="st-name">Dunkle Umrandung</span><input type="checkbox" class="st-switch" id="ch-outline"></label>
+                </section>
+                <section class="st-pane" data-pane="graphics">
+                    <h4>GRAFIK</h4>
+                    <label class="st-row"><span class="st-name">Render-Auflösung</span><input type="range" id="res-slider" min="50" max="100" step="5" value="90"><span class="val" id="res-val">90%</span></label>
+                    <label class="st-row st-check"><span class="st-name">Bloom / Glow-Effekt</span><input type="checkbox" class="st-switch" id="bloom-toggle"></label>
+                    <label class="st-row st-check"><span class="st-name">Namensschilder anzeigen</span><input type="checkbox" class="st-switch" id="nametag-toggle"></label>
+                </section>
+                <section class="st-pane" data-pane="sound">
+                    <h4>SOUND</h4>
+                    <label class="st-row"><span class="st-name">Lautstärke</span><input type="range" id="vol-slider" min="0" max="100" step="5" value="70"><span class="val" id="vol-val">70%</span></label>
+                    <label class="st-row st-check"><span class="st-name">Stumm</span><input type="checkbox" class="st-switch" id="mute-toggle"></label>
+                </section>
+            </div>
+            <div class="st-foot"><button id="settings-reset">MAUS, SICHT &amp; FADENKREUZ ZURÜCKSETZEN</button></div>
+        </div>
     </div>
 
     <!-- Touch Controls -->
@@ -554,7 +589,7 @@
 
     <!-- Hauptmenü / Login -->
     <div id="instructions">
-        <div class="mm-bg"><div class="mm-glow g1"></div><div class="mm-glow g2"></div><div class="mm-grid"></div><div class="mm-scan"></div><div class="mm-vignette"></div></div>
+        <div class="mm-bg"><div class="mm-glow g1"></div><div class="mm-glow g2"></div><div class="mm-gridwrap"><div class="mm-grid"></div></div><div class="mm-scan"></div><div class="mm-vignette"></div></div>
         <div class="mm-wrap">
             <section class="mm-left">
                 <div>
