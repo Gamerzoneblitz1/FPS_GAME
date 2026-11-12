@@ -1,12 +1,16 @@
 // map.js — "Neon Vault Italy" (Nachbau von CS2 Italy im Neon-Look)
 // Portrait-Karte: T-Spawn oben, CT-Spawn unten. Zonen: T Stairs, Long, Mid, Cellars, Left/Right Street,
 // Below Stairs, Roof/Bedroom, House, Tunnel, Market, CT Left / CT Right.
+// Hoehen: Podeste (P), Daecher/Emporen (R) und Rampen (< > ^ v) – siehe Legende.
 
 const TILE_SIZE = 3.0;
-const WALL_HEIGHT = 5.0;
+const WALL_HEIGHT = 6.0;   // hoeher als Daecher + Sprunghoehe, damit man nicht ueber Waende huepfen kann
+const PLAT_H = 1.4;        // Podest (per Sprung erreichbar: Mid Boost, Green Boxes ...)
+const ROOF_H = 2.8;        // Dach/Empore (Zugang ueber Rampen)
 
 // Grid-Legende (70 x 96 Tiles = 210m x 288m, jede Zeile exakt 70 Zeichen — server.js liest die 'C' als Spawns):
 // # = Wand | . = Boden | B = Kiste (Deckung) | L = Pinker Pfeiler | E = Gruener Pfeiler | C = Spawn
+// P = Podest 1.4 m | R = Dach/Empore 2.8 m | < > ^ v = Rampe, steigt in Pfeilrichtung (muss an P/R enden)
 const NEON_VAULT_GRID = [
     "######################################################################",
     "################################.......##########..........###########",
@@ -16,44 +20,44 @@ const NEON_VAULT_GRID = [
     "################################...........................###########",
     "################################........C.......C..........###########",
     "################################...........................###########",
-    "################################....C.......C...........B...##########",
-    "################################..................B.........##########",
-    "################################............................##########",
-    "####################........................................##########",
-    "####################...L..B.........C...C.....B.C...........##########",
-    "####################........................................##########",
+    "################################....C.......C....PPPPPPPPP..##########",
+    "################################...............>>PPPPPPPPP..##########",
+    "################################...............>>PPPPPPPPP..##########",
+    "####################.............................PPPPPPPPP..##########",
+    "####################...L..B.........C...C.....B.CPPPPPPPPP..##########",
+    "####################.............................PPPPPPPPP..##########",
     "####################........................C.............B.##########",
-    "####################.....##########....##########.........############",
-    "####################..............#....###########.......#############",
-    "####################..............#....###########.......#############",
-    "####################..............#....###########.......#############",
-    "####################..............#....###########.......#############",
-    "####################.....B.............###########.......#############",
+    "####################....###########....##########.........############",
+    "####################....#.........#....###########.......#############",
+    "####################....#.........#....###########.......#############",
+    "####################....#.........#....###########.......#############",
+    "####################....#.........#....###########.......#############",
+    "####################....#B.............###########.......#############",
+    "####################....#..............###########.......#############",
     "####################...................###########.......#############",
-    "####################...................###########.......#############",
     "####################..............#....###########.......#############",
     "####################..............#....###########.......#############",
-    "####################..............#....###########.......#############",
-    "#######...........................#....###########.......#############",
-    "#######...........................#....###########.......#############",
-    "#######...........................#....###########.......#############",
-    "#######...........................#....###########.......#############",
-    "#######................E.##########....###########.......#############",
+    "####################....#.........#....###########.......#############",
+    "#######RRRRRRRRRRRRR....#.........#....###########.......#############",
+    "#######RRRRRRRRRRRRR....#.........#....###########.......#############",
+    "#######RRRRRRRRRRRRR....#.........#....###########.......#############",
+    "#######RRRRRRRRRRRRR....#.........#....###########.......#############",
+    "#######RRRRRRRRRRRRR...E###########....###########.......#############",
+    "#######.^^^............................###########.......#############",
+    "#######.^^^............................###########.......#############",
+    "#######.^^^............................###########.......#############",
+    "#######.^^^............................###########.......#############",
     "#######................................###########.......#############",
-    "#######................................###########.......#############",
-    "#######................................###########.......#############",
-    "#######................................###########.......#############",
-    "#######................................###########.......#############",
-    "#######......###.................................#.......#############",
-    "#######......###.................................#.......#############",
-    "#######......###.................................#.......#############",
-    "#######......###.................................#.......#############",
-    "#######..B...##########.....###########B.........#.......#############",
-    "#######......##########.....###########..........#.......#############",
+    "#######......###RRRRR<<<<........................#.......#############",
+    "#######......###RRRRR<<<<........................#.......#############",
+    "#######......###RRRRR<<<<........................#.......#############",
+    "#######......###RRRRR<<<<........................#.......#############",
+    "#######..B...##########.....###########B.PPPPP...#.......#############",
+    "#######......##########.....###########..PPPPP...#.......#############",
     "#######......##########.....###########..........#.......#############",
     "#######......##########........########..........#.......#############",
-    "#######......##########........##########...................##########",
-    "#######......##########........##########...................##########",
+    "#######......##########........##########........PPPP.......##########",
+    "#######......##########........##########........PPPP.......##########",
     "#######......##########........##########......B............##########",
     "#######......##########........############......#####################",
     "#######......##########........############......#####################",
@@ -65,10 +69,10 @@ const NEON_VAULT_GRID = [
     "##################..........#############.......................######",
     "##################..........#############.......................######",
     "##################..........####...######.......................######",
-    "##################..........####...######.......................######",
-    "##################..........####...######.......................######",
-    "##################..........####...######.......................######",
-    "##################.....#########....................L...........######",
+    "##################..........####...######................PPPP...######",
+    "##################..........####...######..............>>PPPP...######",
+    "##################..........####...######..............>>PPPP...######",
+    "##################.....#########....................L....PPPP...######",
     "##################.....#########................................######",
     "##################.....########...........................BB....######",
     "##################.....#######.....######.............BB..BB....######",
@@ -105,6 +109,8 @@ const NEON_VAULT_GRID = [
     "######################################################################",
     "######################################################################"
 ];
+
+const RAMP_DIRS = { '<': { dx: -1, dz: 0 }, '>': { dx: 1, dz: 0 }, '^': { dx: 0, dz: -1 }, 'v': { dx: 0, dz: 1 } };
 
 export function setupMap(scene) {
     const colliders = [];
@@ -201,8 +207,9 @@ export function setupMap(scene) {
     const beamPink = new THREE.MeshBasicMaterial({ color: 0xff0055 });
     const beamGreen = new THREE.MeshBasicMaterial({ color: 0x00ff66 });
     const beamPurple = new THREE.MeshBasicMaterial({ color: 0x9d00ff });
+    const beamOrange = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
-    const wallPos = [], pinkPos = [], greenPos = [], cratePos = [];
+    const wallPos = [], pinkPos = [], greenPos = [], cratePos = [], platPos = [], roofPos = [], rampTiles = [];
     const CRATE = TILE_SIZE * 0.6, CRATE_H = 1.5;
 
     for (let r = 0; r < rows; r++) {
@@ -229,6 +236,13 @@ export function setupMap(scene) {
                 addBox3Collider(x, CRATE_H / 2, z, CRATE, CRATE_H, CRATE);
             } else if (char === 'C') {
                 spawnPoints.push({ x, y: 2, z });
+            } else if (char === 'P' || char === 'R') {
+                const h = char === 'P' ? PLAT_H : ROOF_H;
+                (char === 'P' ? platPos : roofPos).push({ x, z });
+                // Collider endet 0.4 unter der Oberkante (wie bei den alten Tuermen): Rampenende und Landung ruckeln nicht
+                addBox3Collider(x, (h - 0.4) / 2, z, TILE_SIZE, h - 0.4, TILE_SIZE);
+            } else if (RAMP_DIRS[char]) {
+                rampTiles.push({ r, c, x, z, ch: char });
             }
         }
     }
@@ -289,6 +303,96 @@ export function setupMap(scene) {
     addEdgeBeams(greenPos, pillarSize, WALL_HEIGHT / 2, beamGreen, 0.07);
     addEdgeBeams(cratePos, crateSize, CRATE_H / 2, beamPurple, 0.06);
 
+    // --- Podeste & Daecher ---
+    const platMat = new THREE.MeshStandardMaterial({ color: 0x10101c, roughness: 0.9 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x140c18, roughness: 0.9 });
+    const platSize = { x: TILE_SIZE, y: PLAT_H, z: TILE_SIZE };
+    const roofSize = { x: TILE_SIZE, y: ROOF_H, z: TILE_SIZE };
+    const platMesh = createInstancedMesh(boxGeo, platMat, platPos, platSize, PLAT_H / 2);
+    const roofMesh = createInstancedMesh(boxGeo, roofMat, roofPos, roofSize, ROOF_H / 2);
+    [platMesh, roofMesh].forEach(m => { if (m) { groundMeshes.push(m); shootBlockers.push(m); } });
+    addEdgeBeams(platPos, platSize, PLAT_H / 2, beamOrange, 0.07);
+    addEdgeBeams(roofPos, roofSize, ROOF_H / 2, beamPink, 0.08);
+
+    // --- Rampen ---
+    // Eine Kette gleicher Pfeile in einer Reihe bildet EINE gleichmaessige Schraege vom Boden (Fuss) bis zur
+    // Hoehe des Podests/Dachs, an dem sie endet. Kein Collider auf der Schraege: der Bodenraycast in main.js
+    // laesst den Spieler hochlaufen. Seitlich zu offenem Boden gibt es Gelaender (Collider), sonst koennte man
+    // von der Seite in die Schraege laufen und wuerde nach oben gesnappt.
+    const rampPos = [];
+    const railList = [];
+    const rampIndex = {};
+    rampTiles.forEach(t => { rampIndex[t.r + ',' + t.c] = t; });
+    const cellCh = (r, c) => { const row = NEON_VAULT_GRID[r]; return row ? row[c] : undefined; };
+    const rampTris = [];
+    const quad = (a, b, c, d) => { rampTris.push(a, b, c, a, c, d); };
+
+    rampTiles.forEach(t => {
+        const d = RAMP_DIRS[t.ch];
+        // Kette entgegen der Richtung bis zum Fuss, dann nach vorn bis zum Ziel zaehlen
+        let k = 0, rr = t.r, cc = t.c;
+        while (cellCh(rr - d.dz, cc - d.dx) === t.ch) { rr -= d.dz; cc -= d.dx; k++; }
+        let n = k + 1; rr = t.r; cc = t.c;
+        while (cellCh(rr + d.dz, cc + d.dx) === t.ch) { rr += d.dz; cc += d.dx; n++; }
+        const dest = cellCh(rr + d.dz, cc + d.dx);
+        const H = dest === 'R' ? ROOF_H : dest === 'P' ? PLAT_H : 0;
+        if (H === 0) { console.warn('Rampe ohne Ziel bei', t.r, t.c); return; }
+        const a = (k / n) * H, b = ((k + 1) / n) * H;
+        t.b = b;
+
+        const hs = TILE_SIZE / 2, px = -d.dz, pz = d.dx; // px/pz = seitliche Richtung
+        const P = (along, side, y) => ({ x: t.x + d.dx * along + px * side, y, z: t.z + d.dz * along + pz * side });
+        const L1 = P(-hs, -hs, a), L2 = P(-hs, hs, a), H1 = P(hs, -hs, b), H2 = P(hs, hs, b);
+        const L1g = { ...L1, y: 0 }, L2g = { ...L2, y: 0 }, H1g = { ...H1, y: 0 }, H2g = { ...H2, y: 0 };
+        quad(L1, L2, H2, H1);       // Schraege
+        quad(L1, H1, H1g, L1g);     // Seiten
+        quad(L2, H2, H2g, L2g);
+        quad(L1, L2, L2g, L1g);     // Stirnseiten
+        quad(H1, H2, H2g, H1g);
+
+        // Gelaender an offenen Seiten
+        [-1, 1].forEach(sd => {
+            const nr = t.r + pz * sd, nc = t.c + px * sd;
+            const nch = cellCh(nr, nc);
+            if (nch === undefined || nch === '#' || nch === 'P' || nch === 'R' || RAMP_DIRS[nch]) return;
+            const RAIL_T = 0.15, RAIL_TOP = 1.2;
+            const cx = t.x + px * sd * (hs - RAIL_T / 2), cz = t.z + pz * sd * (hs - RAIL_T / 2);
+            const alongX = d.dx !== 0;
+            railList.push({ x: cx, z: cz, sx: alongX ? TILE_SIZE : RAIL_T, sz: alongX ? RAIL_T : TILE_SIZE, top: b + RAIL_TOP });
+        });
+    });
+
+    if (rampTris.length > 0) {
+        const arr = new Float32Array(rampTris.length * 3);
+        rampTris.forEach((v, i) => { arr[i * 3] = v.x; arr[i * 3 + 1] = v.y; arr[i * 3 + 2] = v.z; });
+        const rampGeo = new THREE.BufferGeometry();
+        rampGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+        rampGeo.computeVertexNormals();
+        const rampMat = new THREE.MeshStandardMaterial({
+            color: 0x1b1b28, roughness: 1.0, metalness: 0.0, emissive: 0x06202c, emissiveIntensity: 1.0, side: THREE.DoubleSide
+        });
+        const rampMesh = new THREE.Mesh(rampGeo, rampMat);
+        scene.add(rampMesh);
+        groundMeshes.push(rampMesh);
+        shootBlockers.push(rampMesh);
+    }
+
+    if (railList.length > 0) {
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x1b1b28, roughness: 1.0 });
+        const railMesh = new THREE.InstancedMesh(boxGeo, railMat, railList.length);
+        railList.forEach((rl, i) => {
+            dummy.position.set(rl.x, rl.top / 2, rl.z);
+            dummy.scale.set(rl.sx, rl.top, rl.sz);
+            dummy.updateMatrix();
+            railMesh.setMatrixAt(i, dummy.matrix);
+            addBox3Collider(rl.x, rl.top / 2, rl.z, rl.sx, rl.top, rl.sz);
+        });
+        railMesh.instanceMatrix.needsUpdate = true;
+        railMesh.frustumCulled = false;
+        scene.add(railMesh);
+        shootBlockers.push(railMesh);
+    }
+
     // --- Zonen-Beleuchtung (Position in Grid-Koordinaten: col,row) ---
     const zones = [
         [44, 8, 0x00ff66],   // T Spawn
@@ -316,7 +420,7 @@ export function setupMap(scene) {
     colliders.skyboxGroup = skyboxGroup;
     colliders.portalRings = [];
     colliders.shootBlockers = shootBlockers;
-    colliders.rampStats = { placed: 0, total: 0 };
+    colliders.rampStats = { placed: rampTiles.length, total: rampTiles.length };
     colliders.towers = [];
     colliders.ramps = [];
     return colliders;
