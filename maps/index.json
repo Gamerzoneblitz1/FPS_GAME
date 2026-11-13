@@ -6,7 +6,7 @@
       "name": "CS Italy",
       "type": "glb",
       "file": "maps/italy.glb",
-      "scale": 1.2,
+      "scale": 1,
       "background": "#9fc9ff",
       "fogDensity": 0.004
     }
