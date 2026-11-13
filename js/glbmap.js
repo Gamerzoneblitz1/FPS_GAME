@@ -272,6 +272,14 @@ export async function loadGlbMap(target, entry, adapter, onProgress = () => {}) 
         if (!o.isMesh) return;
         const ms = Array.isArray(o.material) ? o.material : [o.material];
         if (entry.doubleSide !== false) ms.forEach(m => { m.side = THREE.DoubleSide; });
+        // Helligkeit: Der Renderer gibt linear aus (kein sRGB), die glTF-Texturen werden aber als sRGB gelesen -> alles wirkt zu dunkel.
+        // Lösung: Texturen unverändert (linear) durchreichen = so hell wie im Original. Zusätzlich "brightness" pro Karte (Standard 1).
+        ms.forEach(m => {
+            if (!m) return;
+            if (entry.srgbFix !== false) for (const k in m) { const t = m[k]; if (t && t.isTexture && t.encoding !== THREE.LinearEncoding) { t.encoding = THREE.LinearEncoding; t.needsUpdate = true; } }
+            if (m.color && entry.brightness && entry.brightness !== 1) m.color.multiplyScalar(entry.brightness);
+            m.needsUpdate = true;
+        });
     });
 
     // Große Meshes in Kacheln teilen
