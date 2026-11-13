@@ -416,13 +416,13 @@ function init() {
             health = 100;
             updateHealthUI();
             currentEyeHeight = EYE_HEIGHT_STAND;
-            if (data.respawnPos) {
+            if (data.respawnPos && !(mapHandle && mapHandle.entry.type === 'glb')) {
                 camera.position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
                 feetY = data.respawnPos.y - currentEyeHeight;
                 velocity.set(0, 0, 0);
                 canJump = true;
             } else {
-                teleportToRandomSpawn(); // Server kennt für diese Karte noch keine Spawns
+                teleportToRandomSpawn(); // .glb-Karten: Spawns kennt der Client (passt zur eingestellten Skalierung)
             }
             enterDeadState(data.killerName); // Waffenwahl + Respawn-Button
         } else if (otherPlayers[data.victimId]) {
