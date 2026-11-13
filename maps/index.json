@@ -1,0 +1,11 @@
+{
+  "default": "neon-vault",
+  "maps": [
+    {
+      "id": "neon-vault",
+      "name": "Neon Vault Megaplex",
+      "type": "grid",
+      "file": "maps/neon-vault.js"
+    }
+  ]
+}
