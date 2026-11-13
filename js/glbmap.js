@@ -9,8 +9,25 @@
 
 const EYE = 2.0; // Augenhöhe im Spiel (Spawn-Höhe = Boden + EYE)
 
-function loadGltf(url, onProgress) {
-    if (typeof THREE.GLTFLoader !== 'function') throw new Error('GLTFLoader.js ist nicht geladen (Script-Tag in index.html prüfen)');
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = src; el.onload = resolve; el.onerror = () => reject(new Error('Script nicht ladbar: ' + src));
+        document.head.appendChild(el);
+    });
+}
+
+async function loadGltf(url, onProgress) {
+    // Falls index.html den Loader nicht einbindet, hier nachladen (gleiche Version wie three.js r128)
+    if (typeof THREE.GLTFLoader !== 'function') {
+        const bases = ['https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/', 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/'];
+        let lastErr;
+        for (const b of bases) {
+            try { await loadScript(b + 'GLTFLoader.js'); if (typeof THREE.GLTFLoader === 'function') { try { await loadScript(b + 'DRACOLoader.js'); } catch (e) { /* optional */ } break; } }
+            catch (e) { lastErr = e; }
+        }
+        if (typeof THREE.GLTFLoader !== 'function') throw new Error('GLTFLoader konnte nicht geladen werden' + (lastErr ? ' (' + lastErr.message + ')' : ''));
+    }
     const loader = new THREE.GLTFLoader();
     if (typeof THREE.DRACOLoader === 'function') {
         const d = new THREE.DRACOLoader();
