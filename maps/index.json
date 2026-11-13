@@ -1,11 +1,14 @@
 {
-  "default": "neon-vault",
+  "default": "italy",
   "maps": [
     {
-      "id": "neon-vault",
-      "name": "Neon Vault Megaplex",
-      "type": "grid",
-      "file": "maps/neon-vault.js"
+      "id": "italy",
+      "name": "CS Italy",
+      "type": "glb",
+      "file": "maps/italy.glb",
+      "scale": 1.2,
+      "background": "#9fc9ff",
+      "fogDensity": 0.004
     }
   ]
 }
