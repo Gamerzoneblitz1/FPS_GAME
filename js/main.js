@@ -1,4 +1,4 @@
-import { setupMap } from './map.js';
+import { fetchManifest, loadMap } from './maps.js';
 import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
 import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
@@ -98,6 +98,8 @@ let invRarity = 'all';     // Seltenheits-Filter
 let previewRun = 0;
 let invPreview = null;
 let menuPreview = null, mmView = 'char';   // Hauptmenü-Schaufenster (muss vor init() deklariert sein)
+let mapManifest = null, mapHandle = null, currentMapId = null, serverMapId = null, mapLoading = false, pendingMapId = null; // Karten (Ordner maps/)
+let colliderGrid = new Map();              // räumlicher Index der Kollisionsboxen (Zellen à 8 m) -> Kollisionsprüfung bleibt auch bei Karten mit vielen Boxen schnell
 let renderBlocked = false;                 // true, solange eine Vollbild-Oberfläche (Menü/Einstellungen/Inventar) das Spiel verdeckt -> Szene wird nicht gerendert
 const RESPAWN_AUTO_SECONDS = 12;
 let progressSaveTimer = null;
@@ -142,6 +144,7 @@ const TOUCH_LOOK_SENSITIVITY = 0.0035;
 const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 init();
+initMaps();
 // Nicht direkt animate() aufrufen: animate() nutzt Konstanten (z.B. _lookEuler), die weiter unten im Modul stehen und beim
 // Aufruf an dieser Stelle noch nicht initialisiert wären (ReferenceError, Modul bricht ab). Der Frame-Callback läuft erst danach.
 requestAnimationFrame(animate);
@@ -176,6 +179,7 @@ function init() {
     let showLockProblem = () => {}; // wird weiter unten (Desktop-Zweig) gesetzt
     // Name abfragen bevor man das Spiel betritt
     function enterGame() {
+        if (mapLoading) return; // Karte lädt noch
         const input = document.getElementById('name-input');
         const name = input ? input.value.trim().slice(0, 20) : '';
         playerName = name || 'Player' + Math.floor(Math.random() * 1000);
@@ -275,26 +279,7 @@ function init() {
         });
     }
 
-    // Map laden & Kollisions-/Boden-Objekte speichern. Abgesichert: falls setupMap() aus
-    // irgendeinem Grund crasht, läuft das Spiel mit leerer Map weiter statt komplett
-    // einzufrieren (init() bricht sonst ab und animate() wird nie aufgerufen).
-    try {
-        colliders = setupMap(scene);
-    } catch (err) {
-        console.error('Fehler beim Aufbau der Map (setupMap) — Spiel läuft mit leerer Map weiter:', err);
-        colliders = [];
-    }
-    groundMeshes = colliders.groundMeshes || [];
-
-    // Zufälliger Start-Spawn direkt aus den C-Feldern der Map (Fallback, falls der Server noch nicht geantwortet hat)
-    if (colliders.spawnPoints && colliders.spawnPoints.length > 0) {
-        const sp = colliders.spawnPoints[Math.floor(Math.random() * colliders.spawnPoints.length)];
-        camera.position.set(sp.x, sp.y, sp.z);
-        feetY = sp.y - currentEyeHeight;
-    }
-    skyboxGroup = colliders.skyboxGroup || null;
-    portalRings = colliders.portalRings || [];
-    shootBlockers = colliders.shootBlockers || [];
+    // Die Karte wird nach dem Start asynchron aus dem Ordner maps/ geladen (siehe initMaps() unten).
     weapon = new WeaponManager(camera, scene, updateAmmoUI);
     weapon.onEvent = handleWeaponEvent;
     // Zuletzt benutzten Namen vorbelegen und dessen lokalen Spielstand laden (Level/Skin sofort sichtbar)
@@ -342,6 +327,23 @@ function init() {
         if (prog.isPersistent()) socket.emit('syncProgress', prog.getState());
         sendProfile();
         if (weapon) socket.emit('setLoadout', weapon.loadout); // neuer Server-Spieler kennt die Ausrüstung noch nicht
+    });
+
+    // Karte: der Server bestimmt die aktive Karte (alle Spieler spielen dieselbe)
+    socket.on('mapInfo', (d) => {
+        if (!d || typeof d.id !== 'string') return;
+        serverMapId = d.id;
+        if (!mapManifest) return;                                   // initMaps() nimmt serverMapId später
+        if (!mapHandle || mapHandle.entry.id !== d.id) switchMap(d.id); else reportMapSpawns();
+    });
+    socket.on('mapChanged', (d) => {
+        if (!d || typeof d.id !== 'string') return;
+        serverMapId = d.id;
+        switchMap(d.id);
+    });
+    socket.on('mapDenied', () => {
+        showNotice('Kartenwechsel nur möglich, wenn du allein auf dem Server bist');
+        syncMapSelect();
     });
 
     // Server hat Spielstand abgeglichen (Maximum aus Server und lokalem Backup) -> übernehmen
@@ -414,13 +416,17 @@ function init() {
             health = 100;
             updateHealthUI();
             currentEyeHeight = EYE_HEIGHT_STAND;
-            camera.position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
-            feetY = data.respawnPos.y - currentEyeHeight;
-            velocity.set(0, 0, 0);
-            canJump = true;
+            if (data.respawnPos) {
+                camera.position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
+                feetY = data.respawnPos.y - currentEyeHeight;
+                velocity.set(0, 0, 0);
+                canJump = true;
+            } else {
+                teleportToRandomSpawn(); // Server kennt für diese Karte noch keine Spawns
+            }
             enterDeadState(data.killerName); // Waffenwahl + Respawn-Button
         } else if (otherPlayers[data.victimId]) {
-            otherPlayers[data.victimId].position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
+            if (data.respawnPos) otherPlayers[data.victimId].position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
             setPlayerVisible(otherPlayers[data.victimId], false); // wartet noch auf den Respawn (unsichtbar, nicht treffbar)
         }
     });
@@ -708,8 +714,9 @@ function isColliding() {
     playerBox.min.set(camera.position.x - PLAYER_RADIUS, camera.position.y - below, camera.position.z - PLAYER_RADIUS);
     playerBox.max.set(camera.position.x + PLAYER_RADIUS, camera.position.y + above, camera.position.z + PLAYER_RADIUS);
 
-    for (let i = 0; i < colliders.length; i++) {
-        if (playerBox.intersectsBox(colliders[i])) return true;
+    const near = collidersNear(camera.position.x, camera.position.z);
+    for (let i = 0; i < near.length; i++) {
+        if (playerBox.intersectsBox(near[i])) return true;
     }
     return false;
 }
@@ -749,8 +756,9 @@ function landOnColliderTops(prevFeetY) {
     if (!COLLIDER_TOPS_WALKABLE || velocity.y > 0 || colliders.length === 0) return;
     const px = camera.position.x, pz = camera.position.z;
     let top = -Infinity;
-    for (let i = 0; i < colliders.length; i++) {
-        const c = colliders[i];
+    const near = collidersNear(px, pz);
+    for (let i = 0; i < near.length; i++) {
+        const c = near[i];
         // nicht unter den Füßen (Spielerradius berücksichtigt)
         if (c.max.x <= px - PLAYER_RADIUS || c.min.x >= px + PLAYER_RADIUS || c.max.z <= pz - PLAYER_RADIUS || c.min.z >= pz + PLAYER_RADIUS) continue;
         if (c.max.y <= prevFeetY + 0.05 && c.max.y > feetY && c.max.y > top) top = c.max.y;
@@ -770,8 +778,9 @@ function landOnColliderTops(prevFeetY) {
 function colliderAroundCenter(px, pz, feet) {
     const lowY = feet + currentEyeHeight * 0.25;   // Unterkante der Kollisionsbox
     const highY = feet + currentEyeHeight * 1.25;  // Oberkante
-    for (let i = 0; i < colliders.length; i++) {
-        const c = colliders[i];
+    const near = collidersNear(px, pz);
+    for (let i = 0; i < near.length; i++) {
+        const c = near[i];
         if (px > c.min.x && px < c.max.x && pz > c.min.z && pz < c.max.z && lowY < c.max.y && highY > c.min.y) return c;
     }
     return null;
@@ -782,8 +791,9 @@ function spotIsFree(px, pz, feet) {
     const cy = feet + currentEyeHeight;
     _stuckBox.min.set(px - PLAYER_RADIUS, cy - currentEyeHeight * 0.75, pz - PLAYER_RADIUS);
     _stuckBox.max.set(px + PLAYER_RADIUS, cy + currentEyeHeight * 0.25, pz + PLAYER_RADIUS);
-    for (let i = 0; i < colliders.length; i++) {
-        if (_stuckBox.intersectsBox(colliders[i])) return false;
+    const near = collidersNear(px, pz);
+    for (let i = 0; i < near.length; i++) {
+        if (_stuckBox.intersectsBox(near[i])) return false;
     }
     return true;
 }
@@ -1504,6 +1514,125 @@ function updateResetHold(now) {
     }
 }
 
+// ================= Karten (Ordner maps/) =================
+const _noColliders = [];
+const CGRID = 8;
+const cellKey = (ix, iz) => (ix + 4096) * 8192 + (iz + 4096);
+function buildColliderGrid() {
+    colliderGrid = new Map();
+    for (const c of colliders) {
+        const x0 = Math.floor((c.min.x - 1) / CGRID), x1 = Math.floor((c.max.x + 1) / CGRID);
+        const z0 = Math.floor((c.min.z - 1) / CGRID), z1 = Math.floor((c.max.z + 1) / CGRID);
+        for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) {
+            const k = cellKey(ix, iz);
+            let l = colliderGrid.get(k);
+            if (!l) { l = []; colliderGrid.set(k, l); }
+            l.push(c);
+        }
+    }
+}
+// Alle Boxen, die einen Spieler an dieser Stelle berühren können (Spielerradius < 1 m, siehe buildColliderGrid)
+function collidersNear(x, z) {
+    return colliderGrid.get(cellKey(Math.floor(x / CGRID), Math.floor(z / CGRID))) || _noColliders;
+}
+
+function teleportToRandomSpawn() {
+    const sp = colliders.spawnPoints;
+    if (!sp || !sp.length) return false;
+    const p = sp[Math.floor(Math.random() * sp.length)];
+    camera.position.set(p.x, p.y, p.z);
+    feetY = p.y - currentEyeHeight;
+    velocity.set(0, 0, 0);
+    canJump = true;
+    return true;
+}
+
+function setMapStatus(text) {
+    const el = document.getElementById('mm-map-status');
+    if (el) el.textContent = text || '';
+}
+function setPlayEnabled(on) {
+    const b = document.getElementById('enter-btn');
+    if (!b) return;
+    b.disabled = !on;
+    b.textContent = on ? '▶ SPIELEN' : 'KARTE LÄDT …';
+}
+function syncMapSelect() {
+    const sel = document.getElementById('map-select');
+    if (sel && currentMapId) sel.value = currentMapId;
+}
+function reportMapSpawns() {
+    // .glb-Karten ohne feste Spawns: dem Server die automatisch gefundenen Spawnpunkte mitteilen (für Respawns)
+    if (!mapHandle || !socket.connected) return;
+    const e = mapHandle.entry;
+    if (e.type === 'glb' && !Array.isArray(e.spawns)) socket.emit('mapSpawns', { id: e.id, spawns: (colliders.spawnPoints || []).slice(0, 32) });
+}
+
+async function initMaps() {
+    mapManifest = await fetchManifest();
+    const sel = document.getElementById('map-select');
+    if (sel) {
+        sel.innerHTML = mapManifest.maps.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+        sel.addEventListener('change', () => {
+            // Mit Server: er entscheidet (nur allein möglich) und meldet 'mapChanged'/'mapDenied'. Ohne Server: lokal wechseln.
+            if (socket.connected) socket.emit('selectMap', sel.value); else switchMap(sel.value);
+        });
+    }
+    let id = serverMapId;
+    if (!id) { try { id = localStorage.getItem('nv_map'); } catch (e) { /* ignorieren */ } }
+    if (!mapManifest.maps.some(e => e.id === id)) id = mapManifest.default;
+    await switchMap(id);
+}
+
+async function switchMap(id) {
+    if (!mapManifest) { serverMapId = id; return; }
+    if (mapLoading) { pendingMapId = id; return; }
+    const entry = mapManifest.maps.find(e => e.id === id) || mapManifest.maps[0];
+    if (mapHandle && currentMapId === entry.id) { syncMapSelect(); return; }
+
+    mapLoading = true;
+    setPlayEnabled(false);
+    setMapStatus(`Lade ${entry.name} …`);
+    // alte Karte entfernen (Speicher freigeben); bis die neue steht, gibt es keine Kollision
+    if (mapHandle) { mapHandle.dispose(); mapHandle = null; }
+    colliders = []; groundMeshes = []; shootBlockers = []; skyboxGroup = null; portalRings = [];
+    buildColliderGrid();
+
+    let handle = null;
+    try {
+        handle = await loadMap(scene, entry, (p) => setMapStatus(`Lade ${entry.name} … ${Math.round(p * 100)}%`));
+    } catch (err) {
+        console.error('Karte konnte nicht geladen werden:', entry.id, err);
+        showNotice('Karte „' + entry.name + '“ konnte nicht geladen werden: ' + (err && err.message ? err.message : err));
+        const fallback = mapManifest.maps.find(e => e.type === 'grid' && e.id !== entry.id);
+        if (fallback) { try { handle = await loadMap(scene, fallback); } catch (e2) { console.error(e2); } }
+    }
+    if (handle) {
+        mapHandle = handle;
+        currentMapId = handle.entry.id;
+        colliders = handle.colliders;
+        groundMeshes = colliders.groundMeshes || [];
+        shootBlockers = colliders.shootBlockers || [];
+        skyboxGroup = colliders.skyboxGroup || null;
+        portalRings = colliders.portalRings || [];
+        buildColliderGrid();
+        try { localStorage.setItem('nv_map', currentMapId); } catch (e) { /* ignorieren */ }
+        teleportToRandomSpawn();
+        const title = document.getElementById('map-title');
+        if (title) title.textContent = handle.entry.name.toUpperCase();
+        if (colliders.info) {
+            const i = colliders.info;
+            setMapStatus(`${i.size.map(v => Math.round(v)).join(' × ')} m · ${i.colliders} Kollisionsboxen · Skalierung ${i.scale} · Spawns: ${i.spawns} (${i.spawnSource})`);
+        } else setMapStatus('');
+        reportMapSpawns();
+    }
+    syncMapSelect();
+    mapLoading = false;
+    setPlayEnabled(true);
+    if (pendingMapId && pendingMapId !== currentMapId) { const n = pendingMapId; pendingMapId = null; switchMap(n); }
+    pendingMapId = null;
+}
+
 // ---- Performance: hinter Vollbild-Menüs nichts rendern ----
 // Menü, Pause, Einstellungen und Inventar sind (fast) undurchsichtig. Die 3D-Szene (inkl. Bloom) dahinter weiter zu zeichnen kostet
 // nur FPS beim Bedienen der Menüs. Das letzte Bild bleibt stehen, die Spiellogik läuft weiter. Die Vorschau-Canvas laufen nur,
@@ -1947,8 +2076,10 @@ function animate() {
 
         // Bodenerkennung: Raycast senkrecht nach unten findet Boden, Treppenstufe oder Plattform.
         // Dadurch kann der Spieler Treppen/Rampen aus map.js hochlaufen, statt bei y=2 hart zu kleben.
+        // Startpunkt: knapp über den Füßen (bei .glb-Karten 0.6 m, sonst würde man in Gebäuden auf das Dach "hochgezogen"),
+        // bei schnellem Fall von der Höhe des Vorframes aus, damit man nicht durch den Boden fällt.
         groundRaycaster.set(
-            new THREE.Vector3(camera.position.x, feetY + 5, camera.position.z),
+            new THREE.Vector3(camera.position.x, Math.max(prevFeetY, feetY) + (colliders.groundStepUp ?? 5), camera.position.z),
             new THREE.Vector3(0, -1, 0)
         );
         const groundHits = groundMeshes.length ? groundRaycaster.intersectObjects(groundMeshes, false) : [];
@@ -1964,6 +2095,7 @@ function animate() {
         // Kamera-Höhe = Fuß-Position + aktuelle Augenhöhe -> Ducken/Sliden wirkt sich SOFORT aus,
         // unabhängig davon ob man gerade am Boden steht oder in der Luft ist.
         camera.position.y = feetY + currentEyeHeight;
+        if (colliders.killY !== undefined && feetY < colliders.killY) { teleportToRandomSpawn(); showNotice('Aus der Karte gefallen – zurückgesetzt'); }
 
         // --- Sounds: Schritte (zeitgesteuert, schneller beim Sprinten, leise beim Ducken) und Rutschen ---
         const hSpeed = Math.hypot(velocity.x, velocity.z);
