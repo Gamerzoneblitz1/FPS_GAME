@@ -596,6 +596,53 @@
         #loadout-panel.dragging-w .slot-drop, #loadout-panel.dragging-s .slot-drop, #loadout-panel.dragging-s .inv-row { border-color: #7a8494; }
         .slot-drop.drop-ok, .inv-row.drop-ok { background: rgba(92,179,56,0.22) !important; border-color: #6cc644 !important; }
         .inv-stage.drop-ok { outline: 2px dashed #6cc644; outline-offset: -6px; background-color: rgba(92,179,56,0.10); }
+
+        /* ---- Skins pro Waffe, Kaufmenü (B), Kisten ---- */
+        .wslot.empty { opacity: .45; } .wslot.buyhint { border-color: #ffd666; color: #ffd666; } .wslot.buyhint b { color: #ffd666; }
+        .mm-hint { margin-top: 12px; font-size: 12px; line-height: 1.5; color: var(--cs-dim); }
+        .mm-hint b, .mm-hint kbd { color: #fff; }
+        .mm-hint kbd { padding: 1px 6px; background: var(--cs-panel2); border: 1px solid var(--cs-line); border-radius: 2px; }
+        #btn-buy { right: 244px; bottom: 214px; width: 52px; height: 52px; font-size: 20px; }
+        .inv-thumb { flex: none; width: 74px; height: 46px; background: center / contain no-repeat; }
+        .inv-row { width: 210px !important; }
+        .skin-img { height: 96px; background: center / contain no-repeat; margin-bottom: 4px; }
+        .skin-card .sc-name { font-size: 12px; font-weight: 600; line-height: 1.25; min-height: 30px; display: flex; align-items: center; justify-content: center; }
+        .skin-empty { grid-column: 1 / -1; padding: 40px 10px; text-align: center; color: var(--cs-dim); font-size: 14px; }
+        .inv-row.drop-bad, .inv-stage.drop-bad { outline: 2px dashed #e05555; outline-offset: -4px; }
+        #buy-menu { display: none; position: absolute; inset: 0; z-index: 35; align-items: center; justify-content: center; background: rgba(6,8,11,0.55); font-family: var(--cs-font); color: #fff; }
+        .buy-box { width: min(980px, 96vw); background: rgba(14,16,20,0.96); border: 1px solid var(--cs-line); padding: 14px 18px 12px; }
+        .buy-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .buy-title { font-size: 20px; font-weight: 800; letter-spacing: 4px; }
+        .buy-sub { font-size: 12px; color: var(--cs-dim); margin-top: 3px; }
+        #buy-close { background: transparent; border: 1px solid var(--cs-line); color: var(--cs-dim); padding: 6px 10px; cursor: pointer; border-radius: 2px; }
+        .buy-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .buy-card { position: relative; padding: 10px 12px 10px; cursor: pointer; background: var(--cs-panel); border: 1px solid var(--cs-line); border-bottom: 4px solid var(--rc, #555); }
+        .buy-card:hover { background: var(--cs-panel2); border-color: #5a6270; border-bottom-color: var(--rc, #555); }
+        .buy-card.picked { outline: 2px solid #6cc644; background: rgba(92,179,56,0.14); }
+        .buy-key { position: absolute; left: 8px; top: 6px; font-weight: 800; font-size: 16px; color: #fff; opacity: .8; }
+        .buy-img { height: 76px; background: center / contain no-repeat; margin: 2px 0 6px; }
+        .buy-name { font-weight: 700; font-size: 15px; letter-spacing: 1px; }
+        .buy-card small { display: block; color: var(--rc, #aaa); font-size: 11px; }
+        .buy-stat { margin-top: 4px; font-size: 11px; color: var(--cs-dim); }
+        .buy-tag { position: absolute; right: 8px; top: 8px; font-size: 10px; letter-spacing: 2px; font-weight: 800; color: #6cc644; }
+        .buy-foot { margin-top: 10px; font-size: 11px; color: var(--cs-dim); text-align: center; }
+        @media (max-width: 700px) { .buy-list { grid-template-columns: repeat(2, 1fr); } }
+        #crate-overlay { display: none; position: absolute; inset: 0; z-index: 70; align-items: center; justify-content: center; background: rgba(4,5,8,0.88); font-family: var(--cs-font); color: #fff; }
+        .cr-box { width: min(1000px, 96vw); background: var(--cs-panel); border: 1px solid var(--cs-line); padding: 16px 18px; }
+        .cr-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+        .cr-head h3 { letter-spacing: 5px; font-size: 18px; font-weight: 800; }
+        .cr-count { color: #ffd666; font-weight: 700; }
+        .cr-window { position: relative; height: 112px; overflow: hidden; background: #0d0f13; border: 1px solid var(--cs-line); }
+        .cr-strip { position: absolute; left: 0; top: 0; height: 100%; display: flex; will-change: transform; }
+        .cr-item { flex: none; width: 152px; margin: 8px 4px; height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; background: var(--cs-panel2); border-bottom: 4px solid var(--rc); padding: 4px; }
+        .cr-item small { color: var(--cs-dim); font-size: 11px; } .cr-item b { font-size: 13px; color: #fff; }
+        .cr-marker { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: #ffd666; box-shadow: 0 0 10px #ffd666; }
+        .cr-odds { margin-top: 8px; font-size: 11px; color: var(--cs-dim); text-align: center; }
+        .cr-result { display: none; margin-top: 12px; align-items: center; gap: 18px; padding: 10px 14px; background: var(--cs-bg); border: 1px solid var(--rc); border-bottom-width: 4px; }
+        .cr-big { flex: none; width: 260px; height: 150px; background: center / contain no-repeat; }
+        .cr-rar { font-size: 12px; letter-spacing: 3px; font-weight: 800; } .cr-name { font-size: 24px; font-weight: 800; margin: 2px 0; } .cr-dupe { color: var(--cs-dim); font-size: 13px; } .cr-btns { margin-top: 10px; }
+        .cr-foot { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+        @media (max-width: 700px) { .cr-big { width: 150px; height: 90px; } .cr-name { font-size: 17px; } }
     </style>
 </head>
 <body>
@@ -711,6 +758,7 @@
         <div id="btn-jump" class="touch-btn">⤒</div>
         <div id="btn-reload" class="touch-btn">R</div>
         <div id="btn-switch-weapon" class="touch-btn">🔄</div>
+        <div id="btn-buy" class="touch-btn">🛒</div>
         <div id="btn-reset" class="touch-btn">↺</div>
         <div id="btn-scope" class="touch-btn">◎</div>
         <div id="btn-heal" class="touch-btn">💉</div>
@@ -721,7 +769,7 @@
     <div id="pause-menu">
         <h1>PAUSE</h1>
         <button id="pause-resume">WEITER</button>
-        <button id="pause-loadout">LOADOUT &amp; SKINS</button>
+        <button id="pause-loadout">INVENTAR · SKINS &amp; KISTEN</button>
         <button id="pause-reset" class="danger">RESET (RESPAWN)</button>
         <button id="pause-settings">EINSTELLUNGEN</button>
         <p id="lock-error" style="display:none; color:#ffaa00;">Maus konnte nicht erfasst werden – bitte auf WEITER klicken.</p>
@@ -754,12 +802,31 @@
         </div>
     </div>
 
+    <!-- Kaufmenü (Taste B): Primär- und Sekundärwaffe wählen, ohne Geld -->
+    <div id="buy-menu">
+        <div class="buy-box">
+            <div class="buy-head"><div><div class="buy-title">PRIMÄRWAFFE WÄHLEN</div><div class="buy-sub"></div></div><button id="buy-close">✕ B</button></div>
+            <div class="buy-list"></div>
+            <div class="buy-foot">Taste 1–6 oder Klick · erst Primär-, dann Sekundärwaffe · B schließt</div>
+        </div>
+    </div>
+
+    <!-- Kisten öffnen -->
+    <div id="crate-overlay">
+        <div class="cr-box">
+            <div class="cr-head"><h3>KISTE ÖFFNEN</h3><span class="cr-count"></span></div>
+            <div class="cr-window"><div class="cr-strip"></div><div class="cr-marker"></div></div>
+            <div class="cr-odds"></div>
+            <div class="cr-result"></div>
+            <div class="cr-foot"><button class="inv-btn primary" id="cr-open">KISTE ÖFFNEN</button><button class="inv-btn" id="cr-close">SCHLIESSEN</button></div>
+        </div>
+    </div>
+
     <!-- Tod: Waffen neu wählen, dann respawnen -->
     <div id="respawn-panel">
         <h2>YOU DIED</h2>
         <p>getötet von <span id="respawn-killer"></span></p>
-        <h3>WAFFEN WÄHLEN (2)</h3>
-        <div class="lo-picker" id="respawn-picker"></div>
+        <h3>NACH DEM RESPAWN: B = WAFFEN NEU WÄHLEN</h3>
         <button id="respawn-btn">RESPAWN (<span id="respawn-count">12</span>)</button>
     </div>
 
@@ -789,11 +856,10 @@
                     <label class="mm-label" for="map-select">KARTE</label>
                     <select id="map-select" class="mm-mapsel"></select>
                     <div id="mm-map-status"></div>
-                    <label class="mm-label">AUSRÜSTUNG · 2 WAFFEN</label>
-                    <div class="lo-picker" id="login-picker"></div>
+                    <div class="mm-hint">Du startest nur mit dem <b>Messer</b>. Im Spiel wählst du mit <kbd>B</kbd> zwei Waffen (Primär + Sekundär), wie im Deathmatch.</div>
                 </div>
                 <button id="enter-btn">▶ SPIELEN</button>
-                <button id="login-loadout-btn">⚙ INVENTAR · SKINS &amp; WAFFEN</button>
+                <button id="login-loadout-btn">INVENTAR · SKINS &amp; KISTEN</button>
                 <p class="mm-save">💾 Level, XP und Skins werden unter deinem Namen gespeichert (ohne Namen = Gast, nichts wird gespeichert).</p>
             </section>
             <section class="mm-right">
@@ -802,7 +868,7 @@
                     <div id="mm-stage-info"></div>
                     <div class="mm-views" id="mm-views"></div>
                 </div>
-                <div class="mm-keys"><div class="kc"><kbd>W A S D</kbd><span>Bewegen</span></div><div class="kc"><kbd>SHIFT</kbd><span>Sprinten</span></div><div class="kc"><kbd>C / STRG</kbd><span>Sliden</span></div><div class="kc"><kbd>SPACE</kbd><span>Springen</span></div><div class="kc"><kbd>1 / 2</kbd><span>Waffe wechseln</span></div><div class="kc"><kbd>RECHTSKLICK</kbd><span>Zielen</span></div><div class="kc"><kbd>R</kbd><span>Nachladen</span></div><div class="kc"><kbd>H</kbd><span>Heilspritze</span></div><div class="kc"><kbd>TAB</kbd><span>Leaderboard</span></div><div class="kc"><kbd>ESC</kbd><span>Pause · Reset · Optionen</span></div></div>
+                <div class="mm-keys"><div class="kc"><kbd>W A S D</kbd><span>Bewegen</span></div><div class="kc"><kbd>SHIFT</kbd><span>Sprinten</span></div><div class="kc"><kbd>C / STRG</kbd><span>Sliden</span></div><div class="kc"><kbd>SPACE</kbd><span>Springen</span></div><div class="kc"><kbd>B</kbd><span>Waffen wählen</span></div><div class="kc"><kbd>1 / 2 / 3</kbd><span>Waffe / Messer</span></div><div class="kc"><kbd>RECHTSKLICK</kbd><span>Zielen</span></div><div class="kc"><kbd>R</kbd><span>Nachladen</span></div><div class="kc"><kbd>H</kbd><span>Heilspritze</span></div><div class="kc"><kbd>TAB</kbd><span>Leaderboard</span></div><div class="kc"><kbd>ESC</kbd><span>Pause · Reset · Optionen</span></div></div>
             </section>
         </div>
         <p id="controls-hint">Waffenwahl nur vor dem Start und nach dem Tod möglich.</p>
