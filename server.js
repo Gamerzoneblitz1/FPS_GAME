@@ -25,9 +25,9 @@ const FALLBACK_SPAWN_POINTS = [
     { x:  153, y: 2, z:  45 }, { x: 177,  y: 2, z:  45 }
 ];
 
-function loadSpawnPointsFromMap() {
+function loadSpawnPointsFromGrid(file) {
     try {
-        const src = fs.readFileSync(path.join(__dirname, 'js', 'map.js'), 'utf8');
+        const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
         const tileMatch = src.match(/const\s+TILE_SIZE\s*=\s*([\d.]+)/);
         const gridStart = src.indexOf('const NEON_VAULT_GRID = [');
         if (!tileMatch || gridStart === -1) throw new Error('TILE_SIZE oder NEON_VAULT_GRID nicht gefunden');
@@ -43,15 +43,68 @@ function loadSpawnPointsFromMap() {
                 if (grid[r][c] === 'C')
                     points.push({ x: c * tile - halfW + tile / 2, y: 2, z: r * tile - halfD + tile / 2 });
         if (points.length === 0) throw new Error('keine C-Felder im Grid gefunden');
-        console.log(`Spawnpunkte: ${points.length} (Grid ${cols}x${rows}, TILE_SIZE ${tile})`);
+        console.log(`Spawnpunkte (${file}): ${points.length} (Grid ${cols}x${rows}, TILE_SIZE ${tile})`);
         return points;
     } catch (err) {
-        console.warn('Fallback-Spawnpunkte:', err.message);
+        console.warn(`Fallback-Spawnpunkte (${file}):`, err.message);
         return FALLBACK_SPAWN_POINTS;
     }
 }
 
-const SPAWN_POINTS = loadSpawnPointsFromMap();
+// ---------- Karten (maps/index.json) ----------
+// Alle Karten liegen im Ordner maps/. Der Server hält EINE aktive Karte für alle Spieler (Umschalten nur, wenn man allein ist).
+// Start-Karte: Umgebungsvariable MAP (z.B. MAP=italy) oder "default" aus der index.json.
+const FALLBACK_MANIFEST = { default: 'neon-vault', maps: [{ id: 'neon-vault', name: 'Neon Vault Megaplex', type: 'grid', file: 'maps/neon-vault.js' }] };
+function loadManifest() {
+    try {
+        const m = JSON.parse(fs.readFileSync(path.join(__dirname, 'maps', 'index.json'), 'utf8'));
+        const maps = (Array.isArray(m.maps) ? m.maps : []).filter(e => e && typeof e.id === 'string' && typeof e.file === 'string')
+            .map(e => ({ ...e, name: e.name || e.id, type: e.type === 'glb' ? 'glb' : 'grid' }));
+        if (!maps.length) throw new Error('keine Karten eingetragen');
+        return { default: maps.some(e => e.id === m.default) ? m.default : maps[0].id, maps };
+    } catch (err) {
+        console.warn('maps/index.json nicht lesbar - nur die eingebaute Karte:', err.message);
+        return FALLBACK_MANIFEST;
+    }
+}
+const MANIFEST = loadManifest();
+let currentMapId = MANIFEST.maps.some(m => m.id === process.env.MAP) ? process.env.MAP : MANIFEST.default;
+const spawnCache = {};      // Karten-ID -> Spawnpunkte aus Raster bzw. Manifest (null = unbekannt)
+const learnedSpawns = {};   // Karten-ID -> Spawnpunkte, die ein Client nach dem Laden einer .glb-Karte gemeldet hat
+function currentMapEntry() { return MANIFEST.maps.find(m => m.id === currentMapId) || MANIFEST.maps[0]; }
+const finitePoint = (a) => a && [a.x, a.y, a.z].every(Number.isFinite);
+function activeSpawnPoints() {
+    const e = currentMapEntry();
+    if (!(e.id in spawnCache)) {
+        let pts = null;
+        if (e.type === 'grid') pts = loadSpawnPointsFromGrid(e.file);
+        else if (Array.isArray(e.spawns)) pts = e.spawns.map(a => ({ x: Number(a[0]), y: Number(a[1]), z: Number(a[2]) })).filter(finitePoint);
+        spawnCache[e.id] = pts && pts.length ? pts : null;
+    }
+    return spawnCache[e.id] || learnedSpawns[e.id] || null; // null: noch keine bekannt -> der Client wählt selbst
+}
+// ---- Kartenrotation: alle ROUND_MINUTES Minuten (Standard 5) stimmen die Spieler über die nächste Karte ab ----
+// Läuft nur, wenn mindestens 2 Karten in maps/index.json stehen. Umgebungsvariable ROUND_MINUTES=0 schaltet es ab.
+const ROUND_MS = (process.env.ROUND_MINUTES !== undefined ? Number(process.env.ROUND_MINUTES) : 5) * 60000;
+const VOTE_MS = 15000;
+const rotationOn = () => MANIFEST.maps.length > 1 && ROUND_MS > 0;
+let roundEndsAt = Date.now() + ROUND_MS;
+let mapVote = null; // { options: [id], votes: { socketId: mapId }, endsAt }
+function mapInfoPayload() {
+    return {
+        id: currentMapId, maps: MANIFEST.maps.map(m => ({ id: m.id, name: m.name })),
+        roundLeftMs: rotationOn() && !mapVote ? Math.max(0, roundEndsAt - Date.now()) : null
+    };
+}
+function votePayload() {
+    const counts = {};
+    if (mapVote) for (const id of Object.values(mapVote.votes)) counts[id] = (counts[id] || 0) + 1;
+    return mapVote && {
+        options: mapVote.options.map(id => ({ id, name: (MANIFEST.maps.find(m => m.id === id) || {}).name || id })),
+        leftMs: Math.max(0, mapVote.endsAt - Date.now()), counts
+    };
+}
+console.log('Karten:', MANIFEST.maps.map(m => m.id).join(', '), '| aktiv:', currentMapId);
 
 // ---------- Waffen-Werte (Anti-Cheat) ----------
 // Der Server rechnet Schaden, Feuerrate und Magazin SELBST aus diesen Werten - der Client darf nur melden "ich habe
@@ -145,6 +198,8 @@ const RESET_COOLDOWN_MS = 5000;
 const SYRINGE_KILL_INTERVAL = 5;       // alle 5 Kills gibt es eine Heilspritze
 
 function getRandomSpawnPoint(excludeId) {
+    const SPAWN_POINTS = activeSpawnPoints();
+    if (!SPAWN_POINTS) return null;
     const others = Object.values(players).filter((_, i) => Object.keys(players)[i] !== excludeId);
     const dist = (p) => others.length === 0 ? Infinity : Math.min(...others.map(o => Math.hypot(p.x - o.x, p.z - o.z)));
     let candidates = SPAWN_POINTS.filter(p => dist(p) >= MIN_SAFE_SPAWN_DISTANCE);
@@ -191,7 +246,7 @@ function killPlayer(victimId, killerId, reason = 'hit') {
     victim.deadTimer = setTimeout(() => endDeadState(victimId), DEAD_TIMEOUT_MS); // Sicherung, falls der Client nie bestätigt
 
     const respawnPos = getRandomSpawnPoint(victimId);
-    Object.assign(victim, respawnPos);
+    if (respawnPos) Object.assign(victim, respawnPos);
 
     io.emit('playerKilled', {
         killerId: killer ? killerId : null,
@@ -350,18 +405,69 @@ function broadcastLeaderboard() {
     io.emit('leaderboard', board);
 }
 
+function startMapVote() {
+    const others = MANIFEST.maps.filter(m => m.id !== currentMapId).map(m => m.id);
+    for (let i = others.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [others[i], others[j]] = [others[j], others[i]]; }
+    mapVote = { options: others.slice(0, 3), votes: {}, endsAt: Date.now() + VOTE_MS };
+    io.emit('mapVote', votePayload());
+}
+function finishMapVote() {
+    const tally = {};
+    for (const id of Object.values(mapVote.votes)) tally[id] = (tally[id] || 0) + 1;
+    const best = Math.max(0, ...mapVote.options.map(id => tally[id] || 0));
+    const top = mapVote.options.filter(id => (tally[id] || 0) === best);
+    currentMapId = top[Math.floor(Math.random() * top.length)];
+    mapVote = null;
+    roundEndsAt = Date.now() + ROUND_MS;
+    console.log('Rotation -> Karte:', currentMapId);
+    io.emit('mapChanged', mapInfoPayload());
+}
+setInterval(() => {
+    if (!rotationOn()) return;
+    if (!Object.keys(players).length) { mapVote = null; roundEndsAt = Date.now() + ROUND_MS; return; }
+    if (mapVote) { if (Date.now() >= mapVote.endsAt) finishMapVote(); }
+    else if (Date.now() >= roundEndsAt) startMapVote();
+}, 1000);
+
 io.on('connection', (socket) => {
     console.log('Verbunden:', socket.id);
     let lastResetTime = 0;
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
     const spawn = getRandomSpawnPoint(socket.id);
-    players[socket.id] = { ...spawn, health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [0, 1] };
+    players[socket.id] = { ...(spawn || { x: 0, y: 2, z: 0 }), health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [0, 1] };
     resetCombatState(players[socket.id]);
 
+    socket.emit('mapInfo', mapInfoPayload());
+    if (mapVote) socket.emit('mapVote', votePayload());
     socket.emit('currentPlayers', players);
     socket.broadcast.emit('newPlayer', { id: socket.id, position: players[socket.id], name: players[socket.id].name });
     broadcastLeaderboard();
+
+    // Karte wählen: nur wenn man allein auf dem Server ist (sonst würden Spieler in verschiedenen Welten stehen)
+    socket.on('selectMap', (id) => {
+        const entry = MANIFEST.maps.find(m => m.id === id);
+        if (!entry) return;
+        if (entry.id === currentMapId) { socket.emit('mapInfo', mapInfoPayload()); return; }
+        if (Object.keys(players).length > 1) { socket.emit('mapDenied', { id: currentMapId, reason: 'players' }); return; }
+        currentMapId = entry.id;
+        roundEndsAt = Date.now() + ROUND_MS;
+        console.log('Karte gewechselt:', currentMapId);
+        io.emit('mapChanged', mapInfoPayload());
+    });
+    socket.on('mapVoteCast', (id) => {
+        if (!mapVote || !mapVote.options.includes(id)) return;
+        mapVote.votes[socket.id] = id;
+        io.emit('mapVoteUpdate', votePayload());
+    });
+    // .glb-Karten ohne feste Spawns: der erste Client meldet die automatisch gefundenen Spawnpunkte
+    socket.on('mapSpawns', (d) => {
+        const me = players[socket.id];
+        if (!me || !rateOk(me, 'mapSpawns', 3) || !d || d.id !== currentMapId || !Array.isArray(d.spawns)) return;
+        if (activeSpawnPoints()) return;
+        const pts = d.spawns.slice(0, 32).map(a => ({ x: Number(a?.x), y: Number(a?.y), z: Number(a?.z) })).filter(finitePoint);
+        if (pts.length) { learnedSpawns[currentMapId] = pts; console.log('Spawnpunkte für', currentMapId, 'vom Client:', pts.length); }
+    });
 
     // Name setzen (Client schickt direkt nach Connect)
     socket.on('setName', (rawName) => {
@@ -575,6 +681,7 @@ io.on('connection', (socket) => {
         console.log('Getrennt:', socket.id);
         if (players[socket.id]) clearTimeout(players[socket.id].deadTimer);
         delete players[socket.id];
+        if (mapVote) { delete mapVote.votes[socket.id]; io.emit('mapVoteUpdate', votePayload()); }
         io.emit('playerDisconnected', socket.id);
         broadcastLeaderboard();
     });
