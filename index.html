@@ -377,6 +377,9 @@
         .mm-card .lo-picker label { flex: 1; min-width: 130px; }
         .mm-card .lo-picker select { min-width: 0; width: 100%; font-size: 14px; }
 
+        .mm-mapsel { width: 100%; padding: 9px 10px; font-family: monospace; font-size: 14px; color: #cfe; background: rgba(0,20,30,0.8); border: 1px solid rgba(0,240,255,0.35); border-radius: 6px; }
+        #mm-map-status { margin-top: 6px; min-height: 14px; font-family: monospace; font-size: 11px; color: #7fa; opacity: 0.8; }
+        #enter-btn:disabled { filter: grayscale(0.8) brightness(0.7); cursor: wait; }
         #enter-btn {
             position: relative; overflow: hidden; padding: 16px; font-family: monospace; font-size: 22px; font-weight: bold; letter-spacing: 6px; cursor: pointer; color: #021a10;
             background: linear-gradient(180deg, #4dffb4, #00e68a); border: 0; border-radius: 10px; box-shadow: 0 0 22px rgba(0,255,153,0.5);
@@ -420,6 +423,124 @@
         #pause-menu button { width: 300px; padding: 13px; border-radius: 10px; transition: transform .12s, background .12s; }
         #pause-menu button:hover { transform: translateX(4px); }
         #pause-resume { color: #021a10 !important; background: linear-gradient(180deg, #4dffb4, #00e68a) !important; border-color: #00ff99 !important; font-weight: bold; box-shadow: 0 0 16px rgba(0,255,153,0.4); }
+
+        /* =====================================================================
+           CS2-LOOK  (überschreibt die Farben/Formen oben: flache dunkle Panels, weiße Schrift, Navigationsleiste)
+           ===================================================================== */
+        :root { --cs-bg: #0d0f13; --cs-panel: #15181d; --cs-panel2: #1c2027; --cs-line: #2b303a; --cs-text: #e8eaed; --cs-dim: #8d949f; --cs-hi: rgba(255,255,255,0.10); --cs-green: #5cb338; --cs-blue: #5b9cf0;
+                --cs-font: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
+        #instructions, #instructions *, #settings-panel, #settings-panel *, #loadout-panel, #loadout-panel *, #pause-menu, #pause-menu *, #respawn-panel, #respawn-panel *, #settings-btn { font-family: var(--cs-font) !important; }
+        #settings-btn { position: absolute; top: 9px; right: 14px; width: 38px; height: 38px; border: 0; background: transparent; color: var(--cs-text); font-size: 22px; border-radius: 3px; z-index: 50; }
+        #settings-btn:hover { background: var(--cs-hi); }
+
+        /* Hauptmenü */
+        #instructions { background: linear-gradient(180deg, #14171d 0%, #0a0b0e 100%); padding-top: 60px; }
+        .mm-glow, .mm-gridwrap, .mm-scan { display: none; }
+        .mm-vignette { background: radial-gradient(ellipse at 70% 50%, transparent 40%, rgba(0,0,0,0.6) 100%); }
+        #cs-nav { position: fixed; top: 0; left: 0; right: 0; height: 56px; z-index: 3; display: flex; align-items: stretch; padding: 0 64px 0 14px; background: rgba(10,12,15,0.92); border-bottom: 1px solid var(--cs-line); }
+        #cs-nav .nav-logo { display: flex; align-items: center; padding: 0 18px 0 6px; font-size: 18px; font-weight: 800; letter-spacing: 3px; color: var(--cs-text); }
+        #cs-nav button { position: relative; padding: 0 22px; background: transparent; border: 0; color: var(--cs-dim); font-size: 14px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; }
+        #cs-nav button:hover { color: #fff; background: var(--cs-hi); }
+        #cs-nav button.active { color: #fff; }
+        #cs-nav button.active::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; background: #fff; }
+        #cs-nav .nav-sp { flex: 1; }
+        #cs-nav .nav-user { display: flex; align-items: center; gap: 10px; color: var(--cs-text); font-size: 13px; font-weight: 600; letter-spacing: 1px; }
+        #cs-nav .nav-lv { padding: 3px 9px; background: var(--cs-panel2); border: 1px solid var(--cs-line); border-radius: 3px; color: #ffd666; font-weight: 800; }
+        .mm-wrap { width: min(1240px, 96vw); }
+        .mm-logo .t { font-size: 15px; letter-spacing: 8px; color: var(--cs-dim); text-shadow: none; }
+        .mm-logo .b { font-size: 54px; letter-spacing: 6px; background: none; -webkit-background-clip: border-box; background-clip: border-box; color: #fff; animation: none; font-weight: 800; }
+        .mm-tag { color: var(--cs-dim); letter-spacing: 3px; }
+        #mm-status { color: #e8c14a; letter-spacing: 1px; } #mm-status.ok { color: #6fd04a; } #mm-status.bad { color: #ff5a5a; }
+        .mm-card { background: var(--cs-panel); border: 1px solid var(--cs-line); border-radius: 3px; }
+        .mm-label, .lo-picker label, .inv-cat, .st-pane h4 { color: var(--cs-dim); letter-spacing: 2px; font-weight: 700; }
+        #name-input, .mm-mapsel, .lo-picker select, .st-row select { background: #0f1216; border: 1px solid var(--cs-line); color: var(--cs-text); border-radius: 2px; }
+        #name-input:focus { border-color: #fff; box-shadow: none; }
+        #name-input::placeholder { color: #565d68; }
+        .mm-lv { color: var(--cs-text); }
+        .mm-xpbar { background: #0f1216; border: 1px solid var(--cs-line); border-radius: 0; }
+        #mm-xpfill { background: #ffd666; box-shadow: none; }
+        #mm-xptext { color: var(--cs-dim); }
+        #mm-map-status { color: var(--cs-dim); }
+        #enter-btn { border-radius: 3px; background: linear-gradient(180deg, #6cc644, #4c9a2a); color: #fff; box-shadow: none; letter-spacing: 4px; font-size: 20px; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+        #enter-btn::after { display: none; }
+        #enter-btn:hover { filter: brightness(1.1); transform: none; }
+        #login-loadout-btn { border-radius: 3px; color: var(--cs-text); background: var(--cs-panel2); border: 1px solid var(--cs-line); letter-spacing: 2px; }
+        #login-loadout-btn:hover { background: #262b34; }
+        .mm-save { color: var(--cs-dim); }
+        .mm-stage { border-radius: 3px; border: 1px solid var(--cs-line); background: radial-gradient(ellipse at 50% 70%, rgba(255,255,255,0.07), rgba(0,0,0,0) 65%), #0f1216; }
+        .mm-view { border-radius: 2px; background: rgba(15,18,22,.85); border-color: var(--cs-line); color: var(--cs-dim); }
+        .mm-view.active { color: #fff; border-color: #fff; background: var(--cs-hi); }
+        .kc { background: var(--cs-panel); border: 1px solid var(--cs-line); border-radius: 3px; color: var(--cs-dim); }
+        .kc kbd { color: #fff; background: var(--cs-panel2); border: 1px solid var(--cs-line); border-bottom-width: 2px; border-radius: 2px; }
+
+        /* Pause-Menü: Liste links wie in CS2 */
+        #pause-menu { background: linear-gradient(90deg, rgba(6,8,11,0.96) 0%, rgba(6,8,11,0.88) 32%, rgba(6,8,11,0.35) 70%, rgba(6,8,11,0.15) 100%); align-items: flex-start; justify-content: center; gap: 2px; padding: 0 0 0 clamp(28px, 7vw, 110px); }
+        #pause-menu h1 { font-size: 13px; font-weight: 700; letter-spacing: 6px; color: var(--cs-dim); background: none; -webkit-background-clip: border-box; background-clip: border-box; filter: none; text-shadow: none; margin: 0 0 18px; }
+        #pause-menu button { width: min(360px, 80vw); padding: 13px 20px; text-align: left; font-size: 19px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: var(--cs-text); background: transparent; border: 0; border-left: 3px solid transparent; border-radius: 0; box-shadow: none; transition: background .1s, border-color .1s; }
+        #pause-menu button:hover { transform: none; background: var(--cs-hi); border-left-color: #fff; }
+        #pause-resume { color: #fff !important; background: transparent !important; border: 0 !important; border-left: 3px solid var(--cs-green) !important; box-shadow: none !important; font-weight: 700 !important; }
+        #pause-resume:hover { background: rgba(92,179,56,0.2) !important; }
+        #pause-menu button.danger { color: #ff6b6b; background: transparent; border: 0; border-left: 3px solid transparent; }
+        #pause-menu button.danger:hover { background: rgba(255,80,80,0.15); border-left-color: #ff6b6b; }
+        #pause-menu p { color: var(--cs-dim); margin-top: 14px; max-width: 360px; line-height: 1.5; }
+
+        /* Einstellungen */
+        #settings-panel { background: var(--cs-bg); }
+        .st-head { background: var(--cs-panel); border-bottom: 1px solid var(--cs-line); padding: 14px 24px 14px 24px; }
+        .st-head h3 { color: #fff; text-shadow: none; letter-spacing: 6px; font-size: 18px; font-weight: 800; }
+        #settings-close { border-radius: 3px; color: var(--cs-text); background: var(--cs-panel2); border: 1px solid var(--cs-line); }
+        #settings-close:hover { background: #2a303a; }
+        .st-tabs { border-right: 1px solid var(--cs-line); background: var(--cs-panel); }
+        .st-tab { border-radius: 0; border: 0; border-left: 3px solid transparent; font-weight: 700; color: var(--cs-dim); }
+        .st-tab:hover { background: var(--cs-hi); color: #fff; }
+        .st-tab.active { color: #fff; background: var(--cs-hi); border: 0; border-left: 3px solid #fff; }
+        .st-pane h4 { border-bottom: 1px solid var(--cs-line); }
+        .st-row { border-bottom: 1px solid var(--cs-line); }
+        .st-row .val { color: #fff; }
+        .st-row input[type="range"] { accent-color: #fff; }
+        .st-switch { background: #2b303a; border-color: #3a414d; }
+        .st-switch:checked { background: #5cb338; border-color: #5cb338; }
+        #ch-preview { border: 1px solid var(--cs-line); border-radius: 3px; background: linear-gradient(135deg, #1a1e25, #252b34 55%, #14171c); }
+
+        /* Inventar: ganzer Bildschirm unter der Leiste wie in CS2 */
+        #loadout-panel { top: 0; left: 0; transform: none; width: 100vw; height: 100vh; border: 0; border-radius: 0; background: var(--cs-bg); }
+        .inv-head { background: rgba(10,12,15,0.95); border-bottom: 1px solid var(--cs-line); padding: 0 18px 0 8px; height: 56px; }
+        .inv-head h2 { color: #fff; text-shadow: none; letter-spacing: 5px; font-weight: 800; }
+        #loadout-close { order: -1; width: 44px; height: 44px; border: 0; background: transparent; color: var(--cs-text); font-size: 22px; border-radius: 3px; }
+        #loadout-close:hover { background: var(--cs-hi); }
+        #loadout-level { color: var(--cs-dim); text-align: right; }
+        .inv-side { background: var(--cs-panel); border-right: 1px solid var(--cs-line); }
+        .inv-row { border-radius: 2px; background: var(--cs-panel2); }
+        .inv-row:hover { background: #262b34; }
+        .inv-row.active { border-color: #fff; background: #2a303a; box-shadow: none; }
+        .inv-slot { color: #fff; border: 1px solid #fff; }
+        .inv-stage { background: radial-gradient(ellipse at 50% 60%, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0) 65%), #101318; border-bottom: 1px solid var(--cs-line); }
+        .inv-stat i { background: #0f1216; border-radius: 0; }
+        .inv-stat i b { background: #fff; }
+        .inv-stat em { color: #fff; }
+        .inv-actions { background: var(--cs-panel); border-bottom: 1px solid var(--cs-line); }
+        .inv-btn { border-radius: 2px; color: var(--cs-text); background: var(--cs-panel2); border: 1px solid var(--cs-line); font-weight: 600; }
+        .inv-btn:hover:not(:disabled) { background: #2a303a; }
+        .inv-btn.primary { color: #fff; background: linear-gradient(180deg, #6cc644, #4c9a2a); border-color: #4c9a2a; }
+        .inv-btn.primary:hover:not(:disabled) { filter: brightness(1.1); background: linear-gradient(180deg, #6cc644, #4c9a2a); }
+        .inv-btn.warn { color: #ffd666; background: var(--cs-panel2); border-color: #6b5a22; }
+        .inv-btn.on { color: #fff; border-color: #fff; background: #2a303a; }
+        .inv-chip { border-radius: 2px; }
+        .skin-card { border-radius: 2px; background: var(--cs-panel); border: 1px solid var(--cs-line); border-bottom: 4px solid var(--rc, #555); }
+        .skin-card:hover { border-color: #5a6270; border-bottom-color: var(--rc, #555); background: var(--cs-panel2); }
+        .skin-card.viewing { border-color: #fff; border-bottom-color: var(--rc, #555); box-shadow: none; }
+        .skin-swatch { border-radius: 2px; border: 1px solid var(--cs-line); }
+
+        .inv-head { padding-right: 64px; }
+        #map-title { color: #cfd3d9 !important; text-shadow: none !important; letter-spacing: 4px; font-weight: 700; }
+
+        /* Tod */
+        #respawn-panel { background: rgba(10,12,15,0.92); }
+        #respawn-panel h2 { color: #ff5a5a; text-shadow: none; }
+        #respawn-panel h3 { color: var(--cs-dim); }
+        #respawn-btn { border-radius: 3px; color: #fff; background: linear-gradient(180deg, #6cc644, #4c9a2a); border: 0; }
+        #respawn-btn:hover { background: linear-gradient(180deg, #7cd654, #5cab38); }
+        @media (max-width: 860px) { #cs-nav .nav-user { display: none; } #cs-nav button { padding: 0 12px; } #cs-nav .nav-logo { display: none; } }
     </style>
 </head>
 <body>
@@ -590,6 +711,14 @@
     <!-- Hauptmenü / Login -->
     <div id="instructions">
         <div class="mm-bg"><div class="mm-glow g1"></div><div class="mm-glow g2"></div><div class="mm-gridwrap"><div class="mm-grid"></div></div><div class="mm-scan"></div><div class="mm-vignette"></div></div>
+        <div id="cs-nav">
+            <div class="nav-logo">NEON VAULT</div>
+            <button id="nav-play" class="active">Spielen</button>
+            <button id="nav-inv">Inventar</button>
+            <button id="nav-set">Einstellungen</button>
+            <div class="nav-sp"></div>
+            <div class="nav-user"><span id="nav-name">GAST</span><span class="nav-lv" id="nav-lv">LV 1</span></div>
+        </div>
         <div class="mm-wrap">
             <section class="mm-left">
                 <div>
@@ -601,6 +730,9 @@
                     <label class="mm-label" for="name-input">SPIELERNAME</label>
                     <input id="name-input" type="text" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
                     <div class="mm-lv"><span id="mm-level">LV 1</span><div class="mm-xpbar"><div id="mm-xpfill"></div></div><span id="mm-xptext">0 / 200 XP</span></div>
+                    <label class="mm-label" for="map-select">KARTE</label>
+                    <select id="map-select" class="mm-mapsel"></select>
+                    <div id="mm-map-status"></div>
                     <label class="mm-label">AUSRÜSTUNG · 2 WAFFEN</label>
                     <div class="lo-picker" id="login-picker"></div>
                 </div>
@@ -654,10 +786,28 @@
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/postprocessing/ShaderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/postprocessing/UnrealBloomPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js" data-optional></script>
 
     <script type="module" src="js/main.js"></script>
 
     <script>
+        // Hauptmenü-Navigationsleiste (CS2-Stil): Knöpfe lösen die vorhandenen Menü-Knöpfe aus
+        (function () {
+            const $ = (id) => document.getElementById(id);
+            const click = (id) => { const e = $(id); if (e) e.click(); };
+            $('nav-inv').addEventListener('click', () => click('login-loadout-btn'));
+            $('nav-set').addEventListener('click', () => click('settings-btn'));
+            $('nav-play').addEventListener('click', () => { const n = $('name-input'); if (n) n.focus(); });
+            const sync = () => {
+                const n = $('name-input'), l = $('mm-level');
+                $('nav-name').textContent = (n && n.value.trim()) ? n.value.trim().toUpperCase() : 'GAST';
+                if (l) $('nav-lv').textContent = l.textContent;
+            };
+            const n = $('name-input'); if (n) n.addEventListener('input', sync);
+            const l = $('mm-level'); if (l) new MutationObserver(sync).observe(l, { childList: true, characterData: true, subtree: true });
+            setInterval(sync, 1500); sync();
+        })();
         // Tab-Taste für Leaderboard
         document.addEventListener('keydown', e => {
             if (e.code === 'Tab') { e.preventDefault(); document.getElementById('leaderboard').style.display = 'block'; }
