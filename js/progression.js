@@ -3,43 +3,60 @@
 // 'saveProgress'), damit der Spielstand auch auf anderen Geräten unter demselben Namen verfügbar ist.
 // Ohne eingegebenen Namen (Gast) wird nichts gespeichert.
 // Hinweis: Die XP werden im Client berechnet (technisch manipulierbar) - für ein Hobby-Spiel ok.
-import { SKINS } from './skins.js';
+import { SKINS, skinFits, TARGET_CHAR, rollCrate } from './skins.js';
 
-const KEY = 'nv_progress_v2';          // { "name": { xp, skin, wskins, loadout } }
+const KEY = 'nv_progress_v3';          // { "name": { xp, skin, wskins, loadout, owned, opened } }  (v3: Skins gehören zu einer Waffe, Kisten)
+const OLD_KEY = 'nv_progress_v2';
 const LEGACY_KEY = 'nv_progress';      // alter Einzel-Spielstand (vor der Speicherung pro Name) -> wird einmalig übernommen
 const LAST_NAME_KEY = 'nv_last_name';
-export const MAX_LEVEL = 30;
+export const MAX_LEVEL = Infinity; // kein Level-Limit mehr
 export const XP_PER_KILL = 150;
 export const XP_PER_DAMAGE = 0.25; // pro Schadenspunkt, abgerundet
-export const WEAPON_COUNT = 6;     // Anzahl Waffen (WEAPON_CONFIGS in weapon.js)
+export const WEAPON_COUNT = 7;     // Anzahl Waffen inkl. Messer (WEAPON_CONFIGS in weapon.js)
 export const DEFAULT_LOADOUT = [0, 1];
-const MAX_XP = 10_000_000;
+const MAX_XP = 200_000_000;
 
 // XP, die von Level L auf L+1 nötig sind: 200, 300, 400, ...
 export function xpToNext(level) { return 200 + 100 * (level - 1); }
+
+// Pro Level-Aufstieg gibt es eine Kiste (Level 2 = erste Kiste). Verfügbar = verdient - geöffnet.
+export const cratesEarned = (level) => Math.max(0, level - 1);
 
 export const nameKey = (name) => String(name || '').trim().toLowerCase().slice(0, 20);
 
 const validSkin = (v) => Number.isInteger(v) && v >= 0 && !!SKINS[v];
 
 // Wandelt beliebige (auch alte/kaputte) Daten in einen gültigen Stand um.
-// Alter Stand mit nur "skin": der Skin galt für alles -> wird für Charakter und alle Waffen übernommen.
+// Skins: nur gültige, zur Waffe passende Skins, die man besitzt (alte Spielstände ohne "owned" starten ohne Skins; Kisten gibt es rückwirkend).
 export function sanitize(s) {
-    const out = { xp: 0, skin: 0, wskins: new Array(WEAPON_COUNT).fill(0), loadout: DEFAULT_LOADOUT.slice() };
+    const out = { xp: 0, skin: 0, wskins: new Array(WEAPON_COUNT).fill(0), loadout: DEFAULT_LOADOUT.slice(), owned: [], opened: 0 };
     if (!s) return out;
     if (Number.isFinite(s.xp) && s.xp >= 0) out.xp = Math.min(MAX_XP, Math.floor(s.xp));
-    if (validSkin(s.skin)) out.skin = s.skin;
-    out.wskins = out.wskins.map((_, i) => (Array.isArray(s.wskins) && validSkin(s.wskins[i])) ? s.wskins[i] : (Array.isArray(s.wskins) ? 0 : out.skin));
+    if (Array.isArray(s.owned)) {
+        const set = new Set();
+        for (const id of s.owned) if (validSkin(id) && id !== 0) set.add(id);
+        out.owned = [...set].sort((x, y) => x - y);
+    }
+    const has = (id) => id === 0 || out.owned.includes(id);
+    if (validSkin(s.skin) && skinFits(SKINS[s.skin], TARGET_CHAR) && has(s.skin)) out.skin = s.skin;
+    out.wskins = out.wskins.map((_, i) => (Array.isArray(s.wskins) && validSkin(s.wskins[i]) && skinFits(SKINS[s.wskins[i]], i) && has(s.wskins[i])) ? s.wskins[i] : 0);
     if (Array.isArray(s.loadout) && s.loadout.length === 2) {
         const [a, b] = s.loadout;
-        if (Number.isInteger(a) && Number.isInteger(b) && a !== b && a >= 0 && b >= 0 && a < WEAPON_COUNT && b < WEAPON_COUNT) out.loadout = [a, b];
+        // Messer (letzter Index) ist keine Kaufwaffe
+        if (Number.isInteger(a) && Number.isInteger(b) && a !== b && a >= 0 && b >= 0 && a < WEAPON_COUNT - 1 && b < WEAPON_COUNT - 1) out.loadout = [a, b];
     }
+    if (Number.isInteger(s.opened) && s.opened >= 0) out.opened = Math.min(s.opened, 1_000_000);
     return out;
 }
 
 let db = {};
 let legacy = null;
 try { db = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { db = {}; }
+// Einmalig: XP aus dem alten Format (v2) übernehmen (alte Skin-IDs gelten nicht mehr -> Kisten statt Skins)
+try {
+    const old = JSON.parse(localStorage.getItem(OLD_KEY)) || {};
+    for (const k of Object.keys(old)) if (!db[k] && old[k] && Number.isFinite(old[k].xp)) db[k] = sanitize({ xp: old[k].xp });
+} catch (e) { /* ignorieren */ }
 try { const l = JSON.parse(localStorage.getItem(LEGACY_KEY)); if (l && Number.isFinite(l.xp)) legacy = sanitize(l); } catch (e) { legacy = null; }
 
 let activeKey = null;                  // null = Gast: nichts wird gespeichert
@@ -75,7 +92,7 @@ export function setActiveName(name, commit = true) {
 }
 
 export function isPersistent() { return activeKey !== null; }
-export function getState() { return { xp: state.xp, skin: state.skin, wskins: state.wskins.slice(), loadout: state.loadout.slice() }; }
+export function getState() { return { xp: state.xp, skin: state.skin, wskins: state.wskins.slice(), loadout: state.loadout.slice(), owned: state.owned.slice(), opened: state.opened }; }
 
 // Stand vom Server übernehmen (Server hat das Maximum aus Server- und Client-Stand gebildet)
 export function applyServer(s) {
@@ -84,14 +101,17 @@ export function applyServer(s) {
     state.skin = clean.skin;
     state.wskins = clean.wskins;
     state.loadout = clean.loadout;
+    // Besitz nie verlieren: Vereinigung aus lokalem und Server-Stand, geöffnete Kisten = Maximum
+    state.owned = [...new Set([...state.owned, ...clean.owned])].sort((x, y) => x - y);
+    state.opened = Math.max(state.opened, clean.opened);
+    state.wskins = clean.wskins.map((v, i) => v || (state.wskins[i] && state.owned.includes(state.wskins[i]) ? state.wskins[i] : 0));
     save();
 }
 
 export function getProgress() {
     let level = 1, rem = state.xp;
-    while (level < MAX_LEVEL && rem >= xpToNext(level)) { rem -= xpToNext(level); level++; }
-    const max = level >= MAX_LEVEL;
-    return { level, xpInLevel: rem, need: max ? 0 : xpToNext(level), totalXp: state.xp, max };
+    while (rem >= xpToNext(level)) { rem -= xpToNext(level); level++; }
+    return { level, xpInLevel: rem, need: xpToNext(level), totalXp: state.xp, max: false };
 }
 
 // Gibt zurück, ob dabei ein Level-Aufstieg passiert ist (und von/zu welchem Level)
@@ -104,29 +124,46 @@ export function addXp(amount) {
     return { levelUp: to > from, from, to };
 }
 
-// ---------- Skins ----------
-export const isSkinUnlocked = (id) => !!SKINS[id] && getProgress().level >= SKINS[id].unlockLevel;
+// ---------- Skins (Besitz) ----------
+// Ein Skin gehört zu genau einer Waffe (oder dem Soldaten). ID 0 = Standard, gehört immer allen.
+export const hasSkin = (id) => id === 0 || state.owned.includes(id);
+export function getOwned() { return state.owned.slice(); }
 
-// Charakter-Skin (so sehen dich andere). Noch nicht freigeschaltet -> Standard.
-export function getSkinId() { return isSkinUnlocked(state.skin) ? state.skin : 0; }
+// Charakter-Skin (so sehen dich andere). Nicht im Besitz -> Standard.
+export function getSkinId() { return hasSkin(state.skin) ? state.skin : 0; }
 export function setSkinId(id) {
-    if (!isSkinUnlocked(id)) return false;
+    if (!validSkin(id) || !hasSkin(id) || !skinFits(SKINS[id], TARGET_CHAR)) return false;
     state.skin = id; save(); return true;
 }
 
-// Skin pro Waffe (Index 0..5)
-export function getWeaponSkin(i) { return isSkinUnlocked(state.wskins[i]) ? state.wskins[i] : 0; }
+// Skin pro Waffe (Index 0..6)
+export function getWeaponSkin(i) { return hasSkin(state.wskins[i]) && skinFits(SKINS[state.wskins[i]], i) ? state.wskins[i] : 0; }
 export function setWeaponSkin(i, id) {
-    if (!(i >= 0 && i < WEAPON_COUNT) || !isSkinUnlocked(id)) return false;
+    if (!(i >= 0 && i < WEAPON_COUNT) || !validSkin(id) || !hasSkin(id) || !skinFits(SKINS[id], i)) return false;
     state.wskins[i] = id; save(); return true;
 }
-export function setAllWeaponSkins(id) {
-    if (!isSkinUnlocked(id)) return false;
-    state.wskins = state.wskins.map(() => id); save(); return true;
+
+// ---------- Kisten ----------
+export const getCrates = () => Math.max(0, cratesEarned(getProgress().level) - state.opened);
+export const getOpened = () => state.opened;
+// Kiste öffnen: gibt { skin, dupe } zurück oder null (keine Kiste). Bevorzugt Skins, die man noch nicht hat.
+export function openCrate(rng = Math.random) {
+    if (getCrates() <= 0) return null;
+    let skin = null, dupe = false;
+    for (let tries = 0; tries < 40; tries++) {
+        const s = rollCrate(rng);
+        if (!state.owned.includes(s.id)) { skin = s; break; }
+        if (!skin) skin = s;
+    }
+    if (state.owned.includes(skin.id)) dupe = true;
+    else { state.owned.push(skin.id); state.owned.sort((x, y) => x - y); }
+    state.opened += 1;
+    save();
+    return { skin, dupe };
 }
 
-// ---------- Waffen-Loadout (2 Waffen) ----------
-// Die Auswahl wird gespeichert, gilt im Spiel aber erst beim nächsten Spawn (Start oder nach dem Tod).
+// ---------- Waffen-Loadout (2 Waffen, Kaufmenü mit Taste B) ----------
+// Gespeichert wird die letzte Wahl (Vorauswahl im Kaufmenü). Alle Waffen sind frei verfügbar; im Spiel startet man nur mit dem Messer.
 export function getLoadout() { return state.loadout.slice(); }
 export function setLoadout(pair) {
     const clean = sanitize({ loadout: pair }).loadout;
