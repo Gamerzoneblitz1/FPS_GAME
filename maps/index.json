@@ -9,7 +9,7 @@
       "scale": 2,
       "background": "#9fc9ff",
       "fogDensity": 0.004,
-      "stepHeight": 0.9
+      "stepHeight": 1.2
     },
     {
       "id": "mirage",
