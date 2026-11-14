@@ -116,7 +116,8 @@ const FALLBACK_WEAPONS = [
     { name: 'Sniper',   damage: 75, pellets: 1, fireCooldown: 1.2,   magSize: 5,  reloadDuration: 2400 },
     { name: 'SMG',      damage: 11, pellets: 1, fireCooldown: 0.055, magSize: 40, reloadDuration: 1600 },
     { name: 'Shotgun',  damage: 12, pellets: 8, fireCooldown: 0.85,  magSize: 6,  reloadDuration: 2300 },
-    { name: 'Revolver', damage: 55, pellets: 1, fireCooldown: 0.5,   magSize: 6,  reloadDuration: 2100 }
+    { name: 'Revolver', damage: 55, pellets: 1, fireCooldown: 0.5,   magSize: 6,  reloadDuration: 2100 },
+    { name: 'Knife',    damage: 40, pellets: 1, fireCooldown: 0.55,  magSize: 1,  reloadDuration: 1000, infinite: true, melee: 2.7 }
 ];
 function loadWeaponTable() {
     try {
@@ -127,7 +128,8 @@ function loadWeaponTable() {
         const text = src.slice(src.indexOf('[', start), end + 3).replace(/buildModel:\s*\w+/g, 'buildModel: null');
         const table = new Function('return ' + text)().map(c => ({
             name: String(c.name), damage: Number(c.damage), pellets: Number(c.pellets || 1),
-            fireCooldown: Number(c.fireCooldown), magSize: Number(c.magSize), reloadDuration: Number(c.reloadDuration)
+            fireCooldown: Number(c.fireCooldown), magSize: Number(c.magSize), reloadDuration: Number(c.reloadDuration),
+            infinite: !!c.infiniteAmmo, melee: Number(c.melee || 0)
         }));
         if (!table.length || !table.every(w => [w.damage, w.pellets, w.fireCooldown, w.magSize, w.reloadDuration].every(v => Number.isFinite(v) && v > 0))) {
             throw new Error('ungültige Werte in WEAPON_CONFIGS');
@@ -140,6 +142,7 @@ function loadWeaponTable() {
     }
 }
 const WEAPONS = loadWeaponTable();
+const KNIFE = WEAPONS.length - 1;   // Messer: immer erlaubt, kein Magazin
 const HIT_WINDOW_MS = 1500;     // ein Treffer muss zu einem Schuss der letzten 1.5 s gehören
 const HIT_RADIUS = 3.5;         // Meter: so weit darf der Einschlagspunkt von der (zeitversetzt gemeldeten) Zielposition entfernt sein
 const SHOT_ORIGIN_MAX = 8;      // Meter: Mündung darf nicht weit vom gemeldeten Spieler entfernt sein
@@ -165,8 +168,9 @@ function rateOk(p, key, perSecond) {
 // Darf dieser Schuss fallen? Prüft Waffe, Ausrüstung, Magazin, Nachladen, Feuerrate, Position und Reichweite.
 function acceptShot(me, w, start, end, now) {
     const cfg = WEAPONS[w];
-    if (!cfg || !me.loadout.includes(w)) return false;            // nur die 2 ausgerüsteten Waffen
+    if (!cfg || !(w === KNIFE || me.loadout.includes(w))) return false;   // nur die gekauften Waffen + Messer
     const mag = me.mags[w];
+    if (cfg.infinite) mag.ammo = 1, mag.reloadUntil = 0;           // Messer: unbegrenzt
     if (mag.reloadUntil) {
         if (now < mag.reloadUntil) return false;                   // lädt noch nach
         mag.ammo = cfg.magSize; mag.reloadUntil = 0;
@@ -178,10 +182,10 @@ function acceptShot(me, w, start, end, now) {
     if (me.tokens[w] < 1) return false;
     // Mündung muss in der Nähe des Spielers sein, Schuss nicht absurd lang
     if (Math.hypot(start.x - me.x, start.y - (me.y + 1.5), start.z - me.z) > SHOT_ORIGIN_MAX) return false;
-    if (Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z) > SHOT_RANGE_MAX) return false;
+    if (Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z) > (cfg.melee ? cfg.melee + 1.5 : SHOT_RANGE_MAX)) return false;
 
     me.tokens[w] -= 1;
-    mag.ammo -= 1;
+    if (!cfg.infinite) mag.ammo -= 1;
     me.shot = { t: now, w, ends: [end], credits: cfg.pellets, tracers: cfg.pellets - 1 };
     return true;
 }
@@ -274,7 +278,7 @@ const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const useUpstash = !!(UPSTASH_URL && UPSTASH_TOKEN && typeof fetch === 'function');
 // "Dauerhaft" = der Spielstand überlebt Neustarts/Deploys: Upstash-Datenbank oder eingebundene Render-Disk (DATA_DIR gesetzt)
 const storageDurable = useUpstash || !!process.env.DATA_DIR;
-const MAX_XP = 10000000;
+const MAX_XP = 200000000;
 const MAX_XP_PER_SAVE = 5000;   // so viel XP kann zwischen zwei Speicherungen (ca. 4 s) nie legitim dazukommen
 const SAVE_INTERVAL_MS = 5000;
 
@@ -293,7 +297,7 @@ const nameKey = (name) => String(name || '').trim().toLowerCase().slice(0, 20);
 
 // Kosmetik eines Spielstands prüfen: Charakter-Skin, Skin pro Waffe (6 Waffen), Loadout (2 verschiedene Waffen).
 // Alte Profile ohne wskins/loadout: der eine Skin galt für alles, Loadout = Standard.
-const MAX_SKIN_ID = 63, WEAPON_COUNT = 6;
+const MAX_SKIN_ID = 127, WEAPON_COUNT = 7;   // WEAPON_COUNT inkl. Messer
 const intIn = (v, min, max, fallback) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
 function sanitizeCosmetics(src) {
     const skin = intIn(src?.skin, 0, MAX_SKIN_ID, 0);
@@ -302,10 +306,13 @@ function sanitizeCosmetics(src) {
     let loadout = [0, 1];
     if (Array.isArray(src?.loadout) && src.loadout.length === 2) {
         const [a, b] = src.loadout;
-        const valid = (v) => Number.isInteger(v) && v >= 0 && v < WEAPON_COUNT;
+        const valid = (v) => Number.isInteger(v) && v >= 0 && v < WEAPON_COUNT - 1;
         if (valid(a) && valid(b) && a !== b) loadout = [a, b];
     }
-    return { skin, wskins, loadout };
+    // Besitz (Skin-IDs aus Kisten) und Anzahl geöffneter Kisten; Kisten selbst ergeben sich aus dem Level (siehe progression.js)
+    const owned = Array.isArray(src?.owned) ? [...new Set(src.owned.map(v => intIn(v, 0, MAX_SKIN_ID, 0)).filter(v => v > 0))].sort((x, y) => x - y).slice(0, MAX_SKIN_ID) : [];
+    const opened = intIn(src?.opened, 0, 1000000, 0);
+    return { skin, wskins, loadout, owned, opened };
 }
 
 // Tod/Respawn: Wer stirbt, wählt seine Waffen neu und bestätigt per 'respawnReady'. Bis dahin (max. DEAD_TIMEOUT_MS)
@@ -313,12 +320,12 @@ function sanitizeCosmetics(src) {
 const DEAD_TIMEOUT_MS = 15000;
 const SPAWN_PROTECTION_MS = 2000;
 
-// Test-Accounts: diese Namen bekommen beim Einloggen immer Maximal-Level (Level 30 = alle Waffen + alle Skins).
+// Test-Accounts: diese Namen bekommen beim Einloggen immer ein hohes Level (Level 100 = 99 Kisten zum Ausprobieren).
 // Standard: "Tester". Ändern/erweitern per Environment-Variable TEST_ACCOUNTS (Namen mit Komma getrennt,
 // Groß-/Kleinschreibung egal), z.B. TEST_ACCOUNTS=tester,nicolas. Leer lassen (TEST_ACCOUNTS=) schaltet sie ab.
 // Achtung: Wer den Namen kennt, bekommt den Max-Stand - für Tests praktisch, für ein öffentliches Spiel abschalten.
 const TEST_ACCOUNTS = new Set(String(process.env.TEST_ACCOUNTS ?? 'tester').split(',').map(nameKey).filter(Boolean));
-const TEST_XP = 50000; // Level 30 braucht 46400 XP (200 + 300 + ... , siehe progression.js)
+const TEST_XP = 505000; // Level 100 braucht ca. 504900 XP (200 + 300 + ... , siehe progression.js)
 if (TEST_ACCOUNTS.size) console.log('Test-Accounts (Max-Level):', [...TEST_ACCOUNTS].join(', '));
 
 async function upstash(cmd) {
@@ -435,7 +442,7 @@ io.on('connection', (socket) => {
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
     const spawn = getRandomSpawnPoint(socket.id);
-    players[socket.id] = { ...(spawn || { x: 0, y: 2, z: 0 }), health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [0, 1] };
+    players[socket.id] = { ...(spawn || { x: 0, y: 2, z: 0 }), health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [] };   // Start nur mit Messer, Waffen per Kaufmenü (B)
     resetCombatState(players[socket.id]);
 
     socket.emit('mapInfo', mapInfoPayload());
@@ -487,7 +494,7 @@ io.on('connection', (socket) => {
     socket.on('setProfile', (p) => {
         const me = players[socket.id];
         if (!me) return;
-        me.level = clampInt(p?.level, 1, 99, 1);
+        me.level = clampInt(p?.level, 1, 9999, 1);
         me.skin = clampInt(p?.skin, 0, MAX_SKIN_ID, 0);
         io.emit('playerProfile', { id: socket.id, level: me.level, skin: me.skin });
         broadcastLeaderboard();
@@ -517,6 +524,13 @@ io.on('connection', (socket) => {
             queueSave(key, chosen);
         } else {
             chosen = { ...prof, ...sanitizeCosmetics(prof) }; // ältere Profile ohne Waffen-Skins/Loadout werden ergänzt
+        }
+        // Besitz nie verlieren: Skins beider Seiten vereinigen, geöffnete Kisten = Maximum
+        const merged = [...new Set([...(chosen.owned || []), ...clientCosm.owned])].sort((x, y) => x - y);
+        const openedMax = Math.max(chosen.opened || 0, clientCosm.opened);
+        if (merged.length !== (chosen.owned || []).length || openedMax !== (chosen.opened || 0)) {
+            chosen = { ...chosen, owned: merged, opened: openedMax, updated: Date.now() };
+            queueSave(key, chosen);
         }
         if (isTest && chosen.xp < TEST_XP) { // Test-Account: immer Maximal-Level
             chosen = { name: me.name, xp: TEST_XP, ...sanitizeCosmetics(chosen), updated: Date.now() };
@@ -575,19 +589,25 @@ io.on('connection', (socket) => {
         return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
     };
     // Ausrüstung (2 Waffen) melden: wird beim Spielstart und bei jedem Respawn gesendet
+    // Kaufmenü (Taste B): jederzeit möglich, solange man lebt. [] = nur Messer (Spawn ohne Kauf). Frisch gekaufte Waffen haben volle Magazine.
     socket.on('setLoadout', (pair) => {
         const me = players[socket.id];
-        if (!me || !Array.isArray(pair) || pair.length !== 2) return;
+        if (!me || !Array.isArray(pair) || !rateOk(me, 'loadout', 4)) return;
+        if (pair.length === 0) { me.loadout = []; return; }
+        if (pair.length !== 2) return;
         const [a, b] = pair;
-        const valid = (v) => Number.isInteger(v) && v >= 0 && v < WEAPONS.length; // strikt: ungültige Werte werden abgelehnt, nicht gekürzt
-        if (valid(a) && valid(b) && a !== b) me.loadout = [a, b];
+        const valid = (v) => Number.isInteger(v) && v >= 0 && v < KNIFE; // strikt; das Messer ist keine Kaufwaffe
+        if (valid(a) && valid(b) && a !== b) {
+            for (const w of [a, b]) if (!me.loadout.includes(w)) { me.mags[w] = { ammo: WEAPONS[w].magSize, reloadUntil: 0 }; me.tokens[w] = 2; me.tokenAt[w] = Date.now(); }
+            me.loadout = [a, b];
+        }
     });
 
     // Nachladen gemeldet: erst nach Ablauf der Nachladezeit (minus kleiner Toleranz) darf wieder geschossen werden
     socket.on('reloadStarted', (d) => {
         const me = players[socket.id];
         const w = Number.isInteger(d?.w) ? d.w : -1;
-        if (!me || me.dead || !WEAPONS[w] || !me.loadout.includes(w)) return;
+        if (!me || me.dead || !WEAPONS[w] || WEAPONS[w].infinite || !me.loadout.includes(w)) return;
         const mag = me.mags[w];
         if (mag.reloadUntil || mag.ammo >= WEAPONS[w].magSize) return;   // lädt schon / Magazin voll
         mag.reloadUntil = Date.now() + WEAPONS[w].reloadDuration * 0.85;
