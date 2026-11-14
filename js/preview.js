@@ -130,3 +130,69 @@ export function createPreview(canvas) {
         get failed() { return failed; }
     };
 }
+
+// ---------- Vorschaubilder ("Waffe mit Skin" wie die Inventarbilder in CS2) ----------
+// Rendert Waffe/Soldat mit einem Skin einmal in ein Bild (PNG, transparent) und merkt es sich. Eigener kleiner Renderer.
+export function createThumbMaker(W = 320, H = 200) {
+    let renderer = null, scene = null, camera = null, pivot = null, failed = false, charMesh = null;
+    const weapons = new Map(), cache = new Map();
+
+    function init() {
+        if (renderer || failed) return !failed;
+        try {
+            const c = document.createElement('canvas');
+            renderer = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true, preserveDrawingBuffer: true });
+        } catch (e) { failed = true; return false; }
+        renderer.setPixelRatio(1);
+        renderer.setSize(W, H, false);
+        renderer.setClearColor(0x000000, 0);
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(30, W / H, 0.05, 60);
+        pivot = new THREE.Group();
+        scene.add(pivot);
+        return true;
+    }
+
+    // target: 0..6 (Waffe) oder 'char'; skinId: Skin (0 = Standard). Gibt eine data-URL zurück oder null.
+    function make(target, skinId) {
+        const key = target + ':' + skinId;
+        if (cache.has(key)) return cache.get(key);
+        if (!init()) return null;
+        const skin = SKINS[skinId] || SKINS[0];
+        let obj, yaw;
+        if (target === 'char') {
+            if (!charMesh) charMesh = createPlayerMesh('thumb', skinId); else applySkin(charMesh, skinId);
+            charMesh.rotation.set(0, Math.PI, 0);
+            obj = charMesh; yaw = 0.35;
+        } else {
+            let w = weapons.get(target);
+            if (!w) { w = buildPreviewWeapon(target); weapons.set(target, w); }
+            w.setSkin(skin);
+            if (skin.rainbow) w.setAccent(new THREE.Color().setHSL(0.55, 1, 0.55).getHex());
+            obj = w.group; yaw = Math.PI / 2 + 0.3;
+        }
+        obj.position.set(0, 0, 0);
+        obj.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(obj);
+        const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+        const wrap = new THREE.Group();
+        obj.position.sub(c);
+        wrap.add(obj);
+        pivot.add(wrap);
+        pivot.rotation.set(target === 'char' ? 0 : 0.14, yaw, 0);
+        const tanV = Math.tan(camera.fov * Math.PI / 360), tanH = tanV * camera.aspect;
+        const wide = Math.max(size.x, size.z);
+        const d = Math.max((wide / 2 * 1.2) / tanH, (size.y / 2 * 1.35) / tanV, 0.3) + wide * 0.35;
+        camera.position.set(0, 0, d);
+        camera.lookAt(0, 0, 0);
+        renderer.render(scene, camera);
+        let url = null;
+        try { url = renderer.domElement.toDataURL('image/png'); } catch (e) { url = null; }
+        pivot.remove(wrap);
+        wrap.remove(obj);
+        obj.position.set(0, 0, 0);
+        if (url) cache.set(key, url);
+        return url;
+    }
+    return { make, has: (target, skinId) => cache.has(target + ':' + skinId), get failed() { return failed; } };
+}
