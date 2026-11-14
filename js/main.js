@@ -333,14 +333,19 @@ function init() {
     socket.on('mapInfo', (d) => {
         if (!d || typeof d.id !== 'string') return;
         serverMapId = d.id;
+        setRoundLeft(d.roundLeftMs);
         if (!mapManifest) return;                                   // initMaps() nimmt serverMapId später
         if (!mapHandle || mapHandle.entry.id !== d.id) switchMap(d.id); else reportMapSpawns();
     });
     socket.on('mapChanged', (d) => {
         if (!d || typeof d.id !== 'string') return;
+        setRoundLeft(d.roundLeftMs);
+        hideVote();
         serverMapId = d.id;
         switchMap(d.id);
     });
+    socket.on('mapVote', (v) => showVote(v));
+    socket.on('mapVoteUpdate', (v) => showVote(v));
     socket.on('mapDenied', () => {
         showNotice('Kartenwechsel nur möglich, wenn du allein auf dem Server bist');
         syncMapSelect();
@@ -1513,6 +1518,56 @@ function updateResetHold(now) {
         if (wrap) wrap.style.display = 'none';
     }
 }
+
+// ================= Kartenrotation: Countdown + Abstimmung =================
+let roundEndAt = null, voteState = null, roundUi = null;
+function ensureRoundUi() {
+    if (roundUi) return roundUi;
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:3;pointer-events:none;font:12px monospace;letter-spacing:2px;color:#7fe;opacity:.8;display:none;text-shadow:0 0 6px #0ff';
+    const v = document.createElement('div');
+    v.style.cssText = 'position:fixed;top:90px;left:50%;transform:translateX(-50%);z-index:5;display:none;min-width:300px;padding:14px 18px;background:rgba(5,8,22,.92);border:1px solid rgba(0,240,255,.5);border-radius:10px;font:14px monospace;color:#fff;box-shadow:0 0 24px rgba(0,240,255,.25)';
+    document.body.appendChild(t); document.body.appendChild(v);
+    roundUi = { t, v };
+    setInterval(updateRoundUi, 500);
+    return roundUi;
+}
+function setRoundLeft(ms) { roundEndAt = (typeof ms === 'number') ? performance.now() + ms : null; updateRoundUi(); }
+function updateRoundUi() {
+    const u = ensureRoundUi();
+    if (voteState) {
+        const left = Math.max(0, Math.ceil((voteState.endAt - performance.now()) / 1000));
+        const head = u.v.querySelector('.vh'); if (head) head.textContent = 'NÄCHSTE KARTE WÄHLEN · ' + left + 's';
+    }
+    if (roundEndAt === null || voteState) { u.t.style.display = 'none'; return; }
+    const s = Math.max(0, Math.ceil((roundEndAt - performance.now()) / 1000));
+    u.t.textContent = 'KARTENWECHSEL IN ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    u.t.style.display = hasEntered ? 'block' : 'none';
+}
+function showVote(v) {
+    if (!v || !Array.isArray(v.options)) return;
+    const u = ensureRoundUi();
+    const keep = voteState && voteState.myVote;
+    voteState = { endAt: performance.now() + (v.leftMs || 0), options: v.options, myVote: keep };
+    u.v.style.display = 'block';
+    u.v.innerHTML = '<div class="vh" style="color:#0ff;margin-bottom:8px;font-weight:bold"></div>' + v.options.map((o, i) =>
+        '<div data-id="' + esc(o.id) + '" style="padding:6px 8px;margin:4px 0;border-radius:6px;cursor:pointer;background:' + (voteState.myVote === o.id ? 'rgba(0,255,153,.25)' : 'rgba(255,255,255,.07)') + '">' +
+        '[' + (7 + i) + '] ' + esc(o.name) + ' <span style="float:right;color:#7fe">' + ((v.counts && v.counts[o.id]) || 0) + '</span></div>').join('');
+    u.v.querySelectorAll('[data-id]').forEach(el => el.addEventListener('click', () => castVote(el.dataset.id)));
+    updateRoundUi();
+}
+function hideVote() { voteState = null; if (roundUi) roundUi.v.style.display = 'none'; }
+function castVote(id) {
+    if (!voteState || !voteState.options.some(o => o.id === id)) return;
+    voteState.myVote = id;
+    socket.emit('mapVoteCast', id);
+}
+// Abstimmen per Taste 7/8/9 (während des Spiels, ohne Maus)
+window.addEventListener('keydown', (e) => {
+    if (!voteState || e.repeat) return;
+    const i = { Digit7: 0, Digit8: 1, Digit9: 2 }[e.code];
+    if (i !== undefined && voteState.options[i]) castVote(voteState.options[i].id);
+});
 
 // ================= Karten (Ordner maps/) =================
 const _noColliders = [];
