@@ -300,6 +300,22 @@ function buildRevolverModel(g) {
     return [0, 0.035, -0.49];
 }
 
+function buildKnifeModel(g) {
+    const STEEL = 0xb9c0cc, DARK = 0x15151b, MID = 0x2e2e3b, CYAN = 0x00f0ff;
+    // Klinge (Spitze zeigt nach vorn = -z), Rücken leicht abgesetzt
+    box(g, 0.012, 0.062, 0.30, STEEL, 0, 0.0, -0.25, { edge: 0xdde3ee });
+    box(g, 0.016, 0.014, 0.28, MID, 0, 0.034, -0.24, { edge: null });
+    const tip = box(g, 0.012, 0.045, 0.07, STEEL, 0, -0.008, -0.43, { rx: 0, ry: 0, edge: 0xdde3ee });
+    tip.scale.set(1, 0.45, 1);
+    neon(g, 0.004, 0.008, 0.22, CYAN, 0.0085, 0.0, -0.25);
+    neon(g, 0.004, 0.008, 0.22, CYAN, -0.0085, 0.0, -0.25);
+    // Parierstange + Griff
+    box(g, 0.05, 0.028, 0.016, DARK, 0, 0.0, -0.095, { edge: 0x4a4a5e });
+    box(g, 0.03, 0.044, 0.15, DARK, 0, -0.004, -0.005, { edge: 0x4a4a5e });
+    box(g, 0.034, 0.048, 0.02, MID, 0, -0.004, 0.08, { edge: null });
+    return [0, 0, -0.45];
+}
+
 // ---------- Waffentypen ----------
 // automatic  = true: Dauerfeuer bei gehaltener Feuertaste (sonst ein Schuss pro Klick)
 // infiniteAmmo = false: Magazin muss nachgeladen werden. reserveAmmo: Infinity = unbegrenzte Reserve (man kann
@@ -332,7 +348,7 @@ export const WEAPON_CONFIGS = [
         magSize: 5, reserveAmmo: Infinity, reloadDuration: 2400, infiniteAmmo: false,
         color: 0xff2bd6, tracerWidth: 0.06, tracerLife: 0.28, holeSize: 0.42,
         kick: 0.14, kickRot: 0.16,
-        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true, drawTime: 0.60, unlockLevel: 4,
+        aimFov: 18, aimPos: [0, -0.15, -0.40], aimSpeed: 7, aimMoveFactor: 0.5, scopeOverlay: true, drawTime: 0.60, unlockLevel: 1,
         buildModel: buildSniperModel
     },
     {
@@ -340,7 +356,7 @@ export const WEAPON_CONFIGS = [
         magSize: 40, reserveAmmo: Infinity, reloadDuration: 1600, infiniteAmmo: false,
         color: 0x39ff14, tracerWidth: 0.022, tracerLife: 0.07, holeSize: 0.2,
         kick: 0.035, kickRot: 0.035,
-        aimFov: 60, aimPos: [0, -0.16, -0.32], aimSpeed: 11, aimMoveFactor: 0.85, scopeOverlay: false, drawTime: 0.32, unlockLevel: 2,
+        aimFov: 60, aimPos: [0, -0.16, -0.32], aimSpeed: 11, aimMoveFactor: 0.85, scopeOverlay: false, drawTime: 0.32, unlockLevel: 1,
         buildModel: buildSmgModel
     },
     {
@@ -348,7 +364,7 @@ export const WEAPON_CONFIGS = [
         magSize: 6, reserveAmmo: Infinity, reloadDuration: 2300, infiniteAmmo: false,
         color: 0xff7a00, tracerWidth: 0.02, tracerLife: 0.08, holeSize: 0.16,
         kick: 0.16, kickRot: 0.14,
-        aimFov: 65, aimPos: [0, -0.13, -0.38], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false, drawTime: 0.50, unlockLevel: 6,
+        aimFov: 65, aimPos: [0, -0.13, -0.38], aimSpeed: 9, aimMoveFactor: 0.8, scopeOverlay: false, drawTime: 0.50, unlockLevel: 1,
         buildModel: buildShotgunModel
     },
     {
@@ -356,10 +372,20 @@ export const WEAPON_CONFIGS = [
         magSize: 6, reserveAmmo: Infinity, reloadDuration: 2100, infiniteAmmo: false,
         color: 0xff3355, tracerWidth: 0.045, tracerLife: 0.16, holeSize: 0.3,
         kick: 0.12, kickRot: 0.15,
-        aimFov: 50, aimPos: [0, -0.098, -0.36], aimSpeed: 10, aimMoveFactor: 0.85, scopeOverlay: false, drawTime: 0.38, unlockLevel: 9,
+        aimFov: 50, aimPos: [0, -0.098, -0.36], aimSpeed: 10, aimMoveFactor: 0.85, scopeOverlay: false, drawTime: 0.38, unlockLevel: 1,
         buildModel: buildRevolverModel
+    },
+    {
+        // Nahkampf: man startet jede Runde nur damit (Slot 3). melee = Reichweite in Metern, kein Magazin, kein Zielen
+        name: 'Knife', damage: 40, fireCooldown: 0.55, melee: 2.7,
+        magSize: 1, reserveAmmo: Infinity, reloadDuration: 1000, infiniteAmmo: true,
+        color: 0xffffff, tracerWidth: 0.01, tracerLife: 0.05, holeSize: 0.1,
+        kick: -0.22, kickRot: -0.95, recoilDecay: 5.5,
+        aimFov: 75, aimPos: [0.12, -0.2, -0.45], aimSpeed: 12, aimMoveFactor: 1, scopeOverlay: false, drawTime: 0.28, unlockLevel: 1,
+        buildModel: buildKnifeModel
     }
 ];
+export const KNIFE_INDEX = WEAPON_CONFIGS.length - 1;
 
 // ---------- Einzelne Waffe ----------
 const BASE_POS = new THREE.Vector3(0.3, -0.25, -0.5);
@@ -384,6 +410,8 @@ export class Weapon {
         this.baseColor = config.color;
         this.unlockLevel = config.unlockLevel ?? 1;
         this.unlocked = this.unlockLevel <= 1;
+        this.melee = config.melee ?? 0;               // >0: Nahkampf (Reichweite in m)
+        this.recoilDecay = config.recoilDecay ?? 10;
         this.pellets = config.pellets ?? 1;
         this.spread = config.spread ?? 0;
         this.rainbow = false;
@@ -544,11 +572,11 @@ export class Weapon {
 
         this._emit('shoot');
         this.recoil = 1;
-        this.flashTimer = 0.045;
+        this.flashTimer = this.melee ? 0 : 0.045;
         this.flash.rotation.z = Math.random() * Math.PI * 2; // jedes Mal anders gedreht
         const s = 0.8 + Math.random() * 0.5;
         this.flash.scale.set(s, s, s);
-        this.flash.visible = true;
+        this.flash.visible = !this.melee;
 
         return true;
     }
@@ -614,13 +642,13 @@ export class Weapon {
             this._recolor(_tmpColor.getHex());
         }
         // Rückstoß klingt schnell ab (ca. 0.1 s), Nachladen senkt sanft ab/hebt an
-        this.recoil = Math.max(0, this.recoil - delta * 10);
+        this.recoil = Math.max(0, this.recoil - delta * this.recoilDecay);
         this.dryNudge = Math.max(0, this.dryNudge - delta * 14);
         const sinkTarget = this.isReloading ? 1 : 0;
         this.reloadSink += (sinkTarget - this.reloadSink) * Math.min(1, delta * 10);
 
         // Zielen: beim Nachladen nicht möglich; aimT läuft linear, aimE ist die geglättete Version
-        const aimTarget = (this.aiming && !this.isReloading && this.drawT >= 0.75) ? 1 : 0;
+        const aimTarget = (this.aiming && !this.melee && !this.isReloading && this.drawT >= 0.75) ? 1 : 0;
         const step = delta * this.aimSpeed;
         this.aimT += Math.sign(aimTarget - this.aimT) * Math.min(step, Math.abs(aimTarget - this.aimT));
         const e = this.aimE = this.aimT * this.aimT * (3 - 2 * this.aimT);
@@ -659,8 +687,9 @@ export class Weapon {
 export class WeaponManager {
     constructor(camera, scene, onAmmoChange = null) {
         this.onAmmoChange = onAmmoChange;
-        this.activeIndex = 0;
-        this.loadout = [0, 1]; // Indizes der zwei ausgerüsteten Waffen (Tasten 1 und 2). Änderung nur beim Spawn (siehe setLoadout)
+        this.activeIndex = KNIFE_INDEX;
+        this.loadout = [0, 1]; // Indizes der zwei gewählten Waffen (Tasten 1 und 2), gilt erst wenn armed (Kaufmenü, Taste B)
+        this.armed = false;    // false = nur das Messer
         this._ready = false; // Ammo-Callback darf während des Aufbaus (this.weapons existiert noch nicht) nicht feuern
         this.weapons = WEAPON_CONFIGS.map(
             config => new Weapon(camera, scene, config, (w) => this._handleWeaponAmmoChange(w))
@@ -704,8 +733,14 @@ export class WeaponManager {
     setSkins(skinList) { this.weapons.forEach((w, i) => w.setSkin(skinList[i] || null)); }
 
     // ---- Loadout: nur 2 Waffen gleichzeitig ----
-    isEquipped(i) { return this.loadout.includes(i); }
-    get slot() { return Math.max(0, this.loadout.indexOf(this.activeIndex)); }
+    isEquipped(i) { return i === KNIFE_INDEX || (this.armed && this.loadout.includes(i)); }
+    get slot() { return this.activeIndex === KNIFE_INDEX ? 2 : Math.max(0, this.loadout.indexOf(this.activeIndex)); }
+    // Nur Messer (Spawn ohne Kauf)
+    disarm() {
+        this.armed = false;
+        this.switchTo(KNIFE_INDEX, true);
+        this._notify();
+    }
 
     // Neue Auswahl übernehmen (der Aufrufer ruft das nur beim Spawn auf). Gibt false zurück, wenn die Auswahl ungültig ist
     // (gleiche Waffe zweimal, außerhalb des Bereichs oder noch nicht freigeschaltet) - dann bleibt alles wie es war.
@@ -715,13 +750,17 @@ export class WeaponManager {
         const ok = (i) => Number.isInteger(i) && i >= 0 && i < this.weapons.length && this.weapons[i].unlocked;
         if (a === b || !ok(a) || !ok(b)) return false;
         this.loadout = [a, b];
-        if (!this.loadout.includes(this.activeIndex)) this.switchTo(a, true); // aktive Waffe nicht mehr ausgerüstet -> Primärwaffe ziehen
+        this.armed = true;
+        this.weapons[a].refill(); this.weapons[b].refill();   // frisch gekauft: volle Magazine
+        this.switchTo(a, true);                              // Primärwaffe ziehen
         this._notify();
         return true;
     }
 
     // Taste 1/2: Slot wählen
     switchToSlot(slot) {
+        if (slot === 2) { this.switchTo(KNIFE_INDEX, true); return; }
+        if (!this.armed) return;
         const i = this.loadout[slot];
         if (i !== undefined) this.switchTo(i);
     }
@@ -746,7 +785,7 @@ export class WeaponManager {
     switchTo(index, force = false) {
         if (index < 0 || index >= this.weapons.length || index === this.activeIndex) return;
         if (!this.weapons[index].unlocked) return; // noch nicht freigeschaltet
-        if (!force && !this.loadout.includes(index)) return; // nur die 2 ausgerüsteten Waffen
+        if (!force && index !== KNIFE_INDEX && !(this.armed && this.loadout.includes(index))) return; // nur gekaufte Waffen + Messer
         this.current.cancelReload(); // Wechsel bricht Nachladen ab (kein Nachladen im Hintergrund)
         this.current.resetAnimation();
         this.current.active = false;
@@ -761,7 +800,8 @@ export class WeaponManager {
     }
 
     switchNext() {
-        this.switchToSlot((this.slot + 1) % 2); // Touch/Zyklus: wechselt zwischen den beiden ausgerüsteten Waffen
+        if (!this.armed) return;
+        this.switchToSlot(this.activeIndex === this.loadout[0] ? 1 : 0); // Touch/Zyklus: wechselt zwischen den beiden gekauften Waffen
     }
 
     _handleWeaponAmmoChange(weapon) {
