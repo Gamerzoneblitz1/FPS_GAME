@@ -152,6 +152,9 @@ function shotSound(out, t, weaponIndex) {
         tone(out, t, { f0: 145 * v, f1: 40, dur: 0.28, gain: 1.0 });
         tone(out, t, { type: 'sawtooth', f0: 900 * v, f1: 120, dur: 0.16, gain: 0.28 });
         noise(out, t + 0.1, { filter: 'lowpass', f0: 700, f1: 250, dur: 0.4, gain: 0.25 });
+    } else if (weaponIndex === 6) {     // Messer: Luftzug
+        noise(out, t, { filter: 'highpass', f0: 1800 * v, dur: 0.16, gain: 0.45 });
+        noise(out, t + 0.03, { f0: 900 * v, q: 0.8, dur: 0.1, gain: 0.35 });
     } else {                            // Rifle: Neon-Laser-Knall
         noise(out, t, { f0: 2200 * v, q: 0.8, dur: 0.09, gain: 0.85 });
         tone(out, t, { type: 'sawtooth', f0: 1500 * v, f1: 190, dur: 0.09, gain: 0.3 });
