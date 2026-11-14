@@ -1303,10 +1303,15 @@ function renderInvSide(p) {
     const lo = prog.getLoadout();
     const row = (key, title, skinId, locked, slotNo) => {
         const sk = SKINS[skinId], r = rarityOf(sk);
-        return `<div class="inv-row${String(key) === String(skinTarget) ? ' active' : ''}${locked ? ' locked' : ''}" data-target="${key}" style="--rc:${r.color}">
+        return `<div class="inv-row${String(key) === String(skinTarget) ? ' active' : ''}${locked ? ' locked' : ''}" data-target="${key}" draggable="true" style="--rc:${r.color}">
             <div class="r-name">${esc(title)}<small>${esc(sk.name)}</small></div>${locked ? '🔒' : ''}${slotNo ? `<span class="inv-slot">${slotNo}</span>` : ''}</div>`;
     };
-    let html = `<div class="inv-cat">CHARAKTER</div>` + row('char', 'Neon-Soldat', prog.getSkinId(), false, 0);
+    const slotBox = (slot) => {
+        const wi = lo[slot], c = WEAPON_CONFIGS[wi], sk = SKINS[prog.getWeaponSkin(wi)], r = rarityOf(sk);
+        return `<div class="slot-drop" data-slot="${slot}" data-target="${wi}" style="--rc:${r.color}"><span class="sd-no">${slot + 1}</span><div class="sd-name">${esc(c.name)}<small>${esc(sk.name)}</small></div></div>`;
+    };
+    let html = `<div class="inv-slots"><div class="inv-slots-h">AUSRÜSTUNG · WAFFE AUF EINEN SLOT ZIEHEN · SKIN AUF EINE WAFFE ZIEHEN</div>${slotBox(0)}${slotBox(1)}</div>` +
+        `<div class="inv-cat">CHARAKTER</div>` + row('char', 'Neon-Soldat', prog.getSkinId(), false, 0);
     for (const [cat, list] of INV_CATEGORIES) {
         html += `<div class="inv-cat">${cat}</div>`;
         for (const i of list) {
@@ -1378,6 +1383,70 @@ function renderInvStage(p) {
     act.querySelectorAll('[data-slot]').forEach(b => b.addEventListener('click', () => setLoadoutSlot(parseInt(b.dataset.slot, 10), skinTarget)));
 }
 
+// ---- Drag & Drop wie im CS2-Loadout ----
+// Waffenkarte -> Slot 1/2: Waffe ins Loadout. Skin-Karte -> Waffenkarte/Slot/Soldat/3D-Fläche: Skin ausrüsten.
+let dragData = null;
+function equipSkinTo(target, id) {
+    const p = prog.getProgress();
+    if (!SKINS[id]) return;
+    if (p.level < SKINS[id].unlockLevel) { showNotice('Skin ab Level ' + SKINS[id].unlockLevel); return; }
+    let ok;
+    if (target === 'char') { ok = prog.setSkinId(id); if (ok) sendProfile(); }
+    else { ok = prog.setWeaponSkin(target, id); if (ok) applyOwnSkin(); }
+    if (ok) { flushProgress(); skinTarget = target; invSkin = null; renderLoadout(); }
+}
+function wireInventoryDnd(panel) {
+    const dropEl = (e) => e.target.closest('.slot-drop, .inv-row, .inv-stage');
+    panel.addEventListener('dragstart', (e) => {
+        const w = e.target.closest('.inv-row'), k = e.target.closest('.skin-card');
+        if (w) dragData = { kind: 'w', target: w.dataset.target === 'char' ? 'char' : parseInt(w.dataset.target, 10) };
+        else if (k) dragData = { kind: 's', id: parseInt(k.dataset.skin, 10) };
+        else return;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', JSON.stringify(dragData)); // Firefox startet das Ziehen nur mit gesetzten Daten
+        panel.classList.add('dragging-' + dragData.kind);
+    });
+    panel.addEventListener('dragend', () => {
+        dragData = null;
+        panel.classList.remove('dragging-w', 'dragging-s');
+        panel.querySelectorAll('.drop-ok').forEach(x => x.classList.remove('drop-ok'));
+    });
+    const accepts = (el) => {
+        if (!dragData || !el) return false;
+        if (dragData.kind === 's') return true;                                  // Skin: auf Waffe, Slot, Soldat, Vorschau
+        return dragData.kind === 'w' && dragData.target !== 'char' && el.classList.contains('slot-drop'); // Waffe: nur auf Slots
+    };
+    panel.addEventListener('dragover', (e) => {
+        const el = dropEl(e);
+        panel.querySelectorAll('.drop-ok').forEach(x => { if (x !== el) x.classList.remove('drop-ok'); });
+        if (accepts(el)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drop-ok'); }
+    });
+    panel.addEventListener('drop', (e) => {
+        const el = dropEl(e);
+        if (!accepts(el)) return;
+        e.preventDefault();
+        const d = dragData;
+        dragData = null;
+        panel.classList.remove('dragging-w', 'dragging-s');
+        el.classList.remove('drop-ok');
+        if (d.kind === 'w') {
+            const cfg = WEAPON_CONFIGS[d.target];
+            if (prog.getProgress().level < cfg.unlockLevel) { showNotice(cfg.name + ' ab Level ' + cfg.unlockLevel); return; }
+            skinTarget = d.target;
+            setLoadoutSlot(parseInt(el.dataset.slot, 10), d.target);
+        } else {
+            let target = skinTarget;
+            if (el.classList.contains('slot-drop') || el.classList.contains('inv-row')) target = el.dataset.target === 'char' ? 'char' : parseInt(el.dataset.target, 10);
+            equipSkinTo(target, d.id);
+        }
+    });
+    // Klick auf einen Slot wählt dessen Waffe zum Ansehen
+    panel.addEventListener('click', (e) => {
+        const sd = e.target.closest('.slot-drop');
+        if (sd) { skinTarget = parseInt(sd.dataset.target, 10); invSkin = null; renderLoadout(); }
+    });
+}
+
 function equipSkin(id) {
     let ok;
     if (skinTarget === 'char') { ok = prog.setSkinId(id); if (ok) sendProfile(); }
@@ -1406,7 +1475,7 @@ function renderInvSkins(p) {
                 else pending.push(s);
             }
             const r = rarityOf(s);
-            return `<div class="skin-card${s.id === viewing ? ' viewing' : ''}${s.id === equipped ? ' equipped' : ''}${unlocked ? '' : ' locked'}" data-skin="${s.id}" style="--rc:${r.color}">
+            return `<div class="skin-card${s.id === viewing ? ' viewing' : ''}${s.id === equipped ? ' equipped' : ''}${unlocked ? '' : ' locked'}" data-skin="${s.id}" draggable="true" style="--rc:${r.color}">
                 <div class="skin-swatch" style="background:${swatch};background-size:cover;background-position:center"></div>${esc(s.name)}
                 <small>${unlocked ? r.name : '🔒 Level ' + s.unlockLevel}</small></div>`;
         }).join('');
@@ -1435,6 +1504,7 @@ function renderInvSkins(p) {
 function wireLoadoutUi() {
     const panel = document.getElementById('loadout-panel');
     document.getElementById('loadout-close').addEventListener('click', closeInventory);
+    wireInventoryDnd(panel);
     document.getElementById('respawn-btn').addEventListener('click', doRespawn);
 
     // Startbildschirm: Skins & Waffen schon vor dem Spielstart ansehen/wählen
