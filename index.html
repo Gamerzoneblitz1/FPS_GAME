@@ -582,6 +582,20 @@
             .skin-card { padding: 8px; font-size: 13px; }
             .skin-swatch { height: 84px; }
         }
+
+        /* Drag & Drop im Inventar */
+        .inv-slots { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--cs-line); margin-bottom: 4px; }
+        .inv-slots-h { width: 100%; font-size: 10px; letter-spacing: 2px; font-weight: 700; color: var(--cs-dim); }
+        .slot-drop { position: relative; width: 190px; min-height: 64px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; background: #11141a; border: 2px dashed #3a414d; border-bottom: 3px solid var(--rc, #555); border-radius: 2px; transition: background .1s, border-color .1s; }
+        .slot-drop .sd-no { font-size: 24px; font-weight: 800; color: #fff; opacity: .75; }
+        .slot-drop .sd-name { font-size: 14px; font-weight: 700; line-height: 1.25; }
+        .slot-drop .sd-name small { display: block; font-size: 11px; font-weight: 400; color: var(--rc, #aaa); }
+        .slot-drop:hover { background: #1a1e26; }
+        .inv-row[draggable="true"], .skin-card[draggable="true"] { cursor: grab; }
+        .inv-row:active, .skin-card:active { cursor: grabbing; }
+        #loadout-panel.dragging-w .slot-drop, #loadout-panel.dragging-s .slot-drop, #loadout-panel.dragging-s .inv-row { border-color: #7a8494; }
+        .slot-drop.drop-ok, .inv-row.drop-ok { background: rgba(92,179,56,0.22) !important; border-color: #6cc644 !important; }
+        .inv-stage.drop-ok { outline: 2px dashed #6cc644; outline-offset: -6px; background-color: rgba(92,179,56,0.10); }
     </style>
 </head>
 <body>
@@ -729,7 +743,7 @@
                     <div id="inv-fail">3D-Vorschau nicht verfügbar</div>
                     <div class="inv-info" id="inv-info"></div>
                     <div class="inv-stats" id="inv-stats"></div>
-                    <div class="inv-hint">ZIEHEN = DREHEN</div>
+                    <div class="inv-hint">ZIEHEN = DREHEN · SKIN HIERHER ZIEHEN = AUSRÜSTEN</div>
                 </div>
                 <div class="inv-actions" id="inv-actions"></div>
                 <div class="inv-skins">
