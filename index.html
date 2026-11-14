@@ -541,6 +541,47 @@
         #respawn-btn { border-radius: 3px; color: #fff; background: linear-gradient(180deg, #6cc644, #4c9a2a); border: 0; }
         #respawn-btn:hover { background: linear-gradient(180deg, #7cd654, #5cab38); }
         @media (max-width: 860px) { #cs-nav .nav-user { display: none; } #cs-nav button { padding: 0 12px; } #cs-nav .nav-logo { display: none; } }
+
+        /* ---- CS2-Look 2: Hauptmenü mit Vollbild-Figur, Inventar als Raster ---- */
+        #cs-nav { background: linear-gradient(180deg, rgba(0,0,0,0.78), rgba(0,0,0,0)); border-bottom: 0; height: 60px; }
+        #cs-nav .nav-logo { min-width: 190px; font-size: 15px; letter-spacing: 3px; }
+        #cs-nav .nav-user { min-width: 190px; justify-content: flex-end; }
+        #cs-nav button { font-size: 15px; padding: 0 26px; color: rgba(255,255,255,0.7); }
+        #cs-nav button.active { font-size: 18px; letter-spacing: 3px; }
+        #cs-nav button.active::after { bottom: 6px; height: 2px; }
+        #instructions { padding-top: 0; background: radial-gradient(ellipse at 50% 38%, #3a3f48 0%, #1b1e24 45%, #0b0c0f 100%); }
+        .mm-wrap { position: static; display: block; width: 100%; padding: 0; }
+        .mm-right { position: static; animation: none; }
+        .mm-stage { position: fixed; left: 0; right: 0; top: 0; bottom: 0; height: auto; border: 0; border-radius: 0; background: transparent; z-index: 0; }
+        #mm-stage-info { left: 28px; top: 84px; }
+        #mm-stage-info .i-skin { font-size: 26px; }
+        .mm-views { bottom: 18px; }
+        .mm-left { position: fixed; left: 24px; bottom: 24px; width: min(370px, 92vw); z-index: 2; animation: none; gap: 10px; }
+        .mm-left > div:first-child { display: none; }
+        .mm-card { background: rgba(12,14,18,0.82); backdrop-filter: none; }
+        .mm-keys { position: fixed; right: 24px; bottom: 24px; width: 330px; grid-template-columns: 1fr 1fr; gap: 4px; z-index: 2; opacity: 0.85; }
+        .kc { padding: 4px 6px; font-size: 10px; background: rgba(12,14,18,0.7); }
+        #controls-hint { display: none; }
+        @media (max-width: 1100px) { .mm-keys { display: none; } }
+        @media (max-width: 860px) { .mm-left { left: 8px; bottom: 8px; } #mm-stage-info { top: 70px; } }
+
+        @media (min-width: 761px) {
+            .inv { grid-template-columns: minmax(300px, 36%) minmax(0, 1fr); grid-template-rows: 56px minmax(210px, 38%) auto minmax(0, 1fr);
+                   grid-template-areas: "head head" "stage side" "actions actions" "skins skins"; }
+            .inv-head { grid-area: head; }
+            .inv-main { display: contents; }
+            .inv-stage { grid-area: stage; border-bottom: 0; border-right: 1px solid var(--cs-line); }
+            .inv-actions { grid-area: actions; border-top: 1px solid var(--cs-line); }
+            .inv-skins { grid-area: skins; background: var(--cs-bg); }
+            .inv-side { grid-area: side; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; padding: 12px 16px; border-right: 0; background: var(--cs-panel); }
+            .inv-cat { width: 100%; padding: 4px 0 0; }
+            .inv-row { width: 148px; min-height: 58px; margin: 0; border-left: 0; border-bottom: 3px solid var(--rc, #555); padding: 8px 10px; }
+            .inv-row.active { border-color: #fff; border-bottom-color: var(--rc, #fff); background: #2c323c; }
+            .inv-filter { padding: 12px 18px 6px; gap: 6px; }
+            .skin-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; padding: 8px 18px 18px; }
+            .skin-card { padding: 8px; font-size: 13px; }
+            .skin-swatch { height: 84px; }
+        }
     </style>
 </head>
 <body>
@@ -712,9 +753,10 @@
     <div id="instructions">
         <div class="mm-bg"><div class="mm-glow g1"></div><div class="mm-glow g2"></div><div class="mm-gridwrap"><div class="mm-grid"></div></div><div class="mm-scan"></div><div class="mm-vignette"></div></div>
         <div id="cs-nav">
-            <div class="nav-logo">NEON VAULT</div>
-            <button id="nav-play" class="active">Spielen</button>
+            <div class="nav-logo">⌂ NEON VAULT</div>
+            <div class="nav-sp"></div>
             <button id="nav-inv">Inventar</button>
+            <button id="nav-play" class="active">Spielen</button>
             <button id="nav-set">Einstellungen</button>
             <div class="nav-sp"></div>
             <div class="nav-user"><span id="nav-name">GAST</span><span class="nav-lv" id="nav-lv">LV 1</span></div>
