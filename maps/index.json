@@ -9,6 +9,15 @@
       "scale": 2,
       "background": "#9fc9ff",
       "fogDensity": 0.004
+    },
+    {
+      "id": "mirage",
+      "name": "Mirage",
+      "type": "glb",
+      "file": "maps/mirage.glb",
+      "scale": 120,
+      "background": "#9fc9ff",
+      "fogDensity": 0.003
     }
   ]
 }
