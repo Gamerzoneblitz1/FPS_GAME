@@ -3,8 +3,8 @@ import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
 import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } from './player.js';
-import { SKINS, RARITIES, rarityOf } from './skins.js';
-import { createPreview } from './preview.js';
+import { SKINS, RARITIES, rarityOf, skinFullName, rollCrate } from './skins.js';
+import { createPreview, createThumbMaker } from './preview.js';
 import { getSkinPreview, isPreviewCached } from './skintex.js';
 import * as prog from './progression.js';
 import { DEFAULTS as CONTROL_DEFAULTS, sanitizeControls, renderCrosshairSVG, wrapAngle, CROSSHAIR_STYLES, CROSSHAIR_COLORS } from './settings.js';
@@ -232,6 +232,7 @@ function init() {
         controls.addEventListener('unlock', () => {
             fireHeld = false;
             if (weapon) weapon.setAiming(false);
+            closeBuyMenu();
             if (isDead) return; // beim Tod zeigt das Respawn-Panel die Waffenwahl
             if (hasEntered) pauseMenu.style.display = 'flex';
             else instructions.style.display = 'flex';
@@ -326,7 +327,7 @@ function init() {
         progressSynced = false;
         if (prog.isPersistent()) socket.emit('syncProgress', prog.getState());
         sendProfile();
-        if (weapon) socket.emit('setLoadout', weapon.loadout); // neuer Server-Spieler kennt die Ausrüstung noch nicht
+        if (weapon) socket.emit('setLoadout', weapon.armed ? weapon.loadout : []); // neuer Server-Spieler kennt die Ausrüstung noch nicht
     });
 
     // Karte: der Server bestimmt die aktive Karte (alle Spieler spielen dieselbe)
@@ -495,7 +496,8 @@ function handleShooting() {
 
     camera.updateMatrixWorld(true);
     // Tracer startet an der Mündung der Waffe (sieht man in der Ego-Ansicht als Linie zum Zielpunkt)
-    const startPos = weapon.getMuzzleWorldPosition(new THREE.Vector3());
+    const reach = weapon.current.melee || 0;                         // Messer: kurze Reichweite, kein Tracer
+    const startPos = reach ? camera.position.clone() : weapon.getMuzzleWorldPosition(new THREE.Vector3());
     const baseDir = camera.getWorldDirection(new THREE.Vector3());
 
     const pellets = weapon.pellets;                                  // 1 bei normalen Waffen, 8 bei der Shotgun
@@ -516,11 +518,12 @@ function handleShooting() {
         }
 
         raycaster.set(camera.position, dir);
+        raycaster.far = reach || Infinity;
         const playerHits = raycaster.intersectObjects(playerMeshesList, true);
         // Wände/Türme/Kisten/Rampen blockieren Schüsse (Gates bewusst ausgenommen - Portale bleiben durchlässig)
         const wallHits = shootBlockers.length ? raycaster.intersectObjects(shootBlockers, false) : [];
 
-        let endPos = camera.position.clone().add(dir.clone().multiplyScalar(100));
+        let endPos = camera.position.clone().add(dir.clone().multiplyScalar(reach || 100));
         const nearestPlayerHit = playerHits.length > 0 ? playerHits[0] : null;
         const nearestWallHit = wallHits.length > 0 ? wallHits[0] : null;
 
@@ -553,6 +556,7 @@ function handleShooting() {
         });
     }
 
+    raycaster.far = Infinity;
     for (const [targetId, n] of Object.entries(hitsByTarget)) {
         socket.emit('hitPlayer', { targetId, w: weaponIndex, n }); // nur WEN und wie viele Kugeln - kein Schaden
     }
@@ -583,6 +587,11 @@ function getHitWorldNormal(hit, rayDir) {
 function playShotEffects(start, end, weaponIndex, normal, hitPlayer, color) {
     const cfg = WEAPON_CONFIGS[weaponIndex] || WEAPON_CONFIGS[0];
     const col = color ?? cfg.color; // Skin-Farbe des Schützen, sonst Waffenfarbe
+    if (cfg.melee) {                // Messerhieb: nur ein kleiner Funke am Treffer
+        if (hitPlayer) spawnImpactSpark(end, 0xff3355, 0.9);
+        else if (normal) spawnImpactSpark(end, 0xffffff, 0.45);
+        return;
+    }
     createTracer(start, end, col, cfg.tracerWidth, cfg.tracerLife);
     if (normal) {
         addBulletHole(end, normal, col, cfg.holeSize);
@@ -873,11 +882,15 @@ function onKeyChange(keyCode, isPressed) {
         case 82: // R
             if (isPressed) weapon.reload();
             break;
-        case 49: // 1 = Primärwaffe
-            if (isPressed && !isDead) weapon.switchToSlot(0);
+        case 49: case 50: case 51: case 52: case 53: case 54: // 1-6
+            if (!isPressed || isDead) break;
+            if (buyOpen) buyPick(keyCode - 49);                       // Kaufmenü offen: Taste = Waffe wählen
+            else if (keyCode === 49) weapon.switchToSlot(0);          // 1 = Primärwaffe
+            else if (keyCode === 50) weapon.switchToSlot(1);          // 2 = Sekundärwaffe
+            else if (keyCode === 51) weapon.switchToSlot(2);          // 3 = Messer
             break;
-        case 50: // 2 = Sekundärwaffe
-            if (isPressed && !isDead) weapon.switchToSlot(1);
+        case 66: // B = Kaufmenü (Waffen wählen)
+            if (isPressed && !isDead && hasEntered && (controls.isLocked || touchActive)) { if (buyOpen) closeBuyMenu(); else openBuyMenu(); }
             break;
     }
 }
@@ -1017,6 +1030,8 @@ function setupTouchControls() {
         btnReset.addEventListener('touchcancel', () => onKeyChange(75, false));
     }
 
+    const btnBuy = document.getElementById('btn-buy');
+    if (btnBuy) btnBuy.addEventListener('touchstart', (e) => { if (buyOpen) closeBuyMenu(); else openBuyMenu(); e.preventDefault(); }, { passive: false });
     const btnSwitch = document.getElementById('btn-switch-weapon');
     if (btnSwitch) {
         btnSwitch.addEventListener('touchstart', (e) => {
@@ -1059,7 +1074,6 @@ function handleWeaponEvent(type, idx) {
 // Nach Wechsel des Spielstands (Login, Server-Abgleich): Waffen, Skin und HUD neu setzen
 function refreshProgressUI() {
     weapon.setLevel(prog.getProgress().level);
-    if (!weapon.isUnlocked(weapon.activeIndex)) weapon.switchTo(0); // aktuelle Waffe nicht mehr freigeschaltet
     lastSlotKey = '';
     applyOwnSkin();
     updateXpUI();
@@ -1105,16 +1119,16 @@ function refreshMenu() {
     const wrap = document.getElementById('mm-views');
     if (!wrap || hasEntered) return;
     const lo = prog.getLoadout();
-    const views = [['char', 'SOLDAT'], ['w0', WEAPON_CONFIGS[lo[0]].name.toUpperCase() + ' (1)'], ['w1', WEAPON_CONFIGS[lo[1]].name.toUpperCase() + ' (2)']];
+    const views = [['char', 'SOLDAT'], ['w0', WEAPON_CONFIGS[lo[0]].name.toUpperCase()], ['w1', WEAPON_CONFIGS[lo[1]].name.toUpperCase()], ['k', 'MESSER']];
     wrap.innerHTML = views.map(([k, t]) => `<button class="mm-view${k === mmView ? ' active' : ''}" data-v="${k}">${esc(t)}</button>`).join('');
     wrap.querySelectorAll('.mm-view').forEach(b => b.addEventListener('click', () => { mmView = b.dataset.v; refreshMenu(); }));
 
-    const target = mmView === 'char' ? 'char' : lo[mmView === 'w0' ? 0 : 1];
+    const target = mmView === 'char' ? 'char' : mmView === 'k' ? WEAPON_CONFIGS.length - 1 : lo[mmView === 'w0' ? 0 : 1];
     const skinId = target === 'char' ? prog.getSkinId() : prog.getWeaponSkin(target);
     const sk = SKINS[skinId], r = rarityOf(sk);
     document.getElementById('mm-stage-info').innerHTML =
         `<div class="i-weapon">${target === 'char' ? 'NEON-SOLDAT' : esc(WEAPON_CONFIGS[target].name.toUpperCase())}</div>` +
-        `<div class="i-skin" style="color:${r.color}">${esc(sk.name)}</div><div class="i-rarity" style="color:${r.color}">${r.name.toUpperCase()}</div>`;
+        `<div class="i-skin" style="color:${r.color}">${esc(skinId === 0 ? 'Standard' : sk.name)}</div><div class="i-rarity" style="color:${r.color}">${r.name.toUpperCase()}</div>`;
     if (!menuPreview) { menuPreview = createPreview(document.getElementById('mm-canvas')); menuPreview.start(); }
     menuPreview.show(target, skinId);
 }
@@ -1146,8 +1160,8 @@ function onLevelUp(from, to) {
     sfx.playLevelUp();
 
     const lines = [];
-    WEAPON_CONFIGS.forEach(c => { if (c.unlockLevel > from && c.unlockLevel <= to) lines.push(`🔫 Neue Waffe: ${c.name}`); });
-    SKINS.forEach(s => { if (s.unlockLevel > from && s.unlockLevel <= to) lines.push(`🎨 Neuer Skin: ${s.name}`); });
+    const got = to - from;
+    lines.push(`🎁 ${got > 1 ? got + ' neue Kisten' : 'Neue Kiste'}! (${prog.getCrates()} im Inventar)`);
 
     const banner = document.getElementById('levelup-banner');
     if (!banner) return;
@@ -1164,63 +1178,105 @@ function onLevelUp(from, to) {
 function renderWeaponSlots() {
     const el = document.getElementById('weapon-slots');
     if (!el || !weapon) return;
-    const key = weapon.activeIndex + '|' + weapon.loadout.join(',');
+    const key = weapon.activeIndex + '|' + weapon.loadout.join(',') + '|' + weapon.armed;
     if (key === lastSlotKey) return;
     lastSlotKey = key;
-    el.innerHTML = weapon.loadout.map((wi, slot) =>
-        `<div class="wslot${wi === weapon.activeIndex ? ' active' : ''}"><b>${slot + 1}</b>${esc(WEAPON_CONFIGS[wi].name)}</div>`).join('');
+    const slot = (n, wi, label) => `<div class="wslot${wi === weapon.activeIndex ? ' active' : ''}${label === null ? ' empty' : ''}"><b>${n}</b>${label === null ? '—' : esc(label)}</div>`;
+    el.innerHTML = slot(1, weapon.loadout[0], weapon.armed ? WEAPON_CONFIGS[weapon.loadout[0]].name : null) +
+        slot(2, weapon.loadout[1], weapon.armed ? WEAPON_CONFIGS[weapon.loadout[1]].name : null) +
+        slot(3, WEAPON_CONFIGS.length - 1, 'Messer') + (weapon.armed ? '' : '<div class="wslot buyhint"><b>B</b>WAFFEN</div>');
 }
 
-// ================= Loadout: 2 Waffen wählen + Skins (Tabs) =================
-// Die Waffenwahl gilt nur beim Spawn: am Spielstart und nach dem Tod. Im Menü kann man sie jederzeit vorbereiten.
+// ================= Waffen: Kaufmenü (Taste B) wie im CS-Deathmatch, ohne Geld =================
+// Man startet nur mit dem Messer. B öffnet das Menü: erst Primär-, dann Sekundärwaffe wählen (Maus oder Tasten 1-6).
+// Nach dem Tod bekommt man die zuletzt gewählten Waffen wieder (wie im Deathmatch); mit B kann man jederzeit neu wählen.
+const BUY_WEAPONS = [0, 1, 2, 3, 4, 5];
+let buyChosen = false;     // in dieser Sitzung schon gekauft?
+let buyOpen = false, buyFirst = null;
 
 function applyLoadout() {
-    if (!weapon.setLoadout(prog.getLoadout())) {      // ungültig (z.B. Waffe noch gesperrt) -> sicherer Standard
-        weapon.setLoadout([0, 1]);
-        prog.setLoadout([0, 1]);
-    }
+    if (!(buyChosen && weapon.setLoadout(prog.getLoadout()))) weapon.disarm();
     lastSlotKey = '';
     renderWeaponSlots();
-    renderAllPickers();
-    socket.emit('setLoadout', weapon.loadout); // Server erlaubt nur Schüsse mit diesen zwei Waffen
+    socket.emit('setLoadout', weapon.armed ? weapon.loadout : []); // Server erlaubt Schüsse nur mit gekauften Waffen + Messer
+}
+const renderAllPickers = () => refreshMenu(); // Hauptmenü-Schaufenster
+
+// ---- Vorschaubilder: Waffe MIT Skin als Bild (wie in CS2), lazy und nacheinander erzeugt ----
+let thumbMaker = null; const thumbQueue = []; let thumbBusy = false;
+function applyThumb(el, url) { el.style.backgroundImage = `url(${url})`; el.dataset.done = '1'; }
+function queueThumbs(root) {
+    if (!root) return;
+    if (!thumbMaker) thumbMaker = createThumbMaker();
+    root.querySelectorAll('[data-t]:not([data-done])').forEach(el => {
+        const [t, id] = el.dataset.t.split(':');
+        const target = t === 'char' ? 'char' : parseInt(t, 10), sid = parseInt(id, 10);
+        if (thumbMaker.has(target, sid)) applyThumb(el, thumbMaker.make(target, sid));
+        else thumbQueue.push({ el, target, sid });
+    });
+    pumpThumbs();
+}
+function pumpThumbs() {
+    if (thumbBusy) return;
+    thumbBusy = true;
+    const step = () => {
+        const j = thumbQueue.shift();
+        if (!j) { thumbBusy = false; return; }
+        if (j.el.isConnected && !j.el.dataset.done) {
+            let url = null;
+            try { url = thumbMaker.make(j.target, j.sid); } catch (e) { url = null; }
+            if (url) applyThumb(j.el, url);
+            else { j.el.dataset.done = '1'; const s = SKINS[j.sid]; if (s && s.pattern && j.target === 'char') j.el.style.background = `${getSkinPreview(s)} center / cover`; }
+        }
+        setTimeout(step, 0);
+    };
+    step();
 }
 
-// Zwei Auswahllisten (Primär/Sekundär). Gesperrte Waffen sind deaktiviert; gleiche Waffe zweimal -> die beiden tauschen.
-function buildLoadoutPicker(container) {
-    if (!container) return;
-    const lo = prog.getLoadout();
-    const level = prog.getProgress().level;
-    container.innerHTML = ['PRIMÄR (1)', 'SEKUNDÄR (2)'].map((label, slot) =>
-        `<label>${label}<select data-slot="${slot}">` + WEAPON_CONFIGS.map((c, i) => {
-            const ok = level >= c.unlockLevel;
-            return `<option value="${i}"${i === lo[slot] ? ' selected' : ''}${ok ? '' : ' disabled'}>${ok ? '' : '🔒 '}${esc(c.name)}${ok ? '' : ' (Lv ' + c.unlockLevel + ')'}</option>`;
-        }).join('') + `</select></label>`).join('');
-    container.querySelectorAll('select').forEach(sel => sel.addEventListener('change', () => {
-        setLoadoutSlot(parseInt(sel.dataset.slot, 10), parseInt(sel.value, 10));
-    }));
+function renderBuyMenu() {
+    const el = document.getElementById('buy-menu');
+    if (!el) return;
+    el.querySelector('.buy-title').textContent = buyFirst === null ? 'PRIMÄRWAFFE WÄHLEN' : 'SEKUNDÄRWAFFE WÄHLEN';
+    el.querySelector('.buy-sub').textContent = weapon.armed
+        ? `Aktuell: ${WEAPON_CONFIGS[weapon.loadout[0]].name} + ${WEAPON_CONFIGS[weapon.loadout[1]].name}`
+        : 'Aktuell: nur Messer';
+    el.querySelector('.buy-list').innerHTML = BUY_WEAPONS.map(i => {
+        const c = WEAPON_CONFIGS[i], sk = SKINS[prog.getWeaponSkin(i)], r = rarityOf(sk);
+        const dmg = c.damage * (c.pellets || 1), rpm = Math.round(60 / c.fireCooldown);
+        return `<div class="buy-card${buyFirst === i ? ' picked' : ''}" data-w="${i}" style="--rc:${r.color}">
+            <span class="buy-key">${i + 1}</span><div class="buy-img" data-t="${i}:${sk.id}"></div>
+            <div class="buy-name">${esc(c.name)}</div><small>${esc(sk.name)}</small>
+            <div class="buy-stat">${c.pellets > 1 ? c.damage + '×' + c.pellets : dmg} Schaden · ${rpm}/min · ${c.magSize} Schuss</div>
+            ${buyFirst === i ? '<div class="buy-tag">PRIMÄR</div>' : ''}</div>`;
+    }).join('');
+    el.querySelectorAll('.buy-card').forEach(c => c.addEventListener('click', () => buyPick(parseInt(c.dataset.w, 10))));
+    queueThumbs(el);
 }
-
-// Waffe in Slot 0 (Primär) oder 1 (Sekundär) legen; ist sie schon im anderen Slot, tauschen die beiden.
-function setLoadoutSlot(slot, val) {
-    const cur = prog.getLoadout();
-    const next = cur.slice();
-    next[slot] = val;
-    if (next[0] === next[1]) next[1 - slot] = cur[slot];
-    if (prog.setLoadout(next)) {
-        flushProgress();
-        renderAllPickers();
-        if (document.getElementById('loadout-panel').style.display === 'block') renderLoadout();
-    }
+function openBuyMenu() {
+    if (buyOpen || isDead || !hasEntered || !weapon) return;
+    buyOpen = true; buyFirst = null;
+    document.getElementById('buy-menu').style.display = 'flex';
+    renderBuyMenu();
 }
-
-function renderAllPickers() {
-    buildLoadoutPicker(document.getElementById('login-picker'));
-    buildLoadoutPicker(document.getElementById('respawn-picker'));
-    refreshMenu();
+function closeBuyMenu() {
+    buyOpen = false; buyFirst = null;
+    const el = document.getElementById('buy-menu');
+    if (el) el.style.display = 'none';
+}
+function buyPick(i) {
+    if (!buyOpen || !BUY_WEAPONS.includes(i)) return;
+    if (buyFirst === null) { buyFirst = i; renderBuyMenu(); return; }
+    if (i === buyFirst) return;
+    prog.setLoadout([buyFirst, i]);
+    buyChosen = true;
+    flushProgress();
+    applyLoadout();
+    closeBuyMenu();
 }
 
 // ---- Tod / Respawn ----
 function enterDeadState(killerName) {
+    closeBuyMenu();
     isDead = true;
     fireHeld = false;
     resetHeld = false;
@@ -1266,12 +1322,15 @@ function setPlayerVisible(mesh, on) {
     });
 }
 
-// ---- Inventar (CS2-Stil): links Kategorien, Mitte 3D-Vorschau + Aktionen, unten Skin-Raster ----
-const INV_CATEGORIES = [['PISTOLEN', [1, 5]], ['SMGS', [3]], ['GEWEHRE', [0]], ['SNIPER', [2]], ['SCHROT', [4]]];
+// ---- Inventar (CS2-Stil): Waffen/Soldat als Karten, 3D-Vorschau, unten alle eigenen Skins (Bild = Waffe MIT Skin) ----
+// Skins werden per Drag & Drop auf die passende Waffe gezogen (oder: Karte anklicken + AUSRÜSTEN). Skins gibt es aus Kisten.
+const INV_TARGETS = ['char', 0, 1, 2, 3, 4, 5, 6];
+const TARGET_DE = (t) => t === 'char' ? 'Soldat' : t === WEAPON_CONFIGS.length - 1 ? 'Messer' : WEAPON_CONFIGS[t].name;
+let invOnly = false;      // nur Skins der gewählten Waffe zeigen
 const STAT_MAX = {
     dmg: Math.max(...WEAPON_CONFIGS.map(c => c.damage * (c.pellets || 1))),
     rpm: Math.max(...WEAPON_CONFIGS.map(c => 60 / c.fireCooldown)),
-    mag: Math.max(...WEAPON_CONFIGS.map(c => c.magSize))
+    mag: Math.max(...WEAPON_CONFIGS.filter(c => !c.melee).map(c => c.magSize))
 };
 
 function openInventory(fromLogin = false) {
@@ -1283,6 +1342,7 @@ function openInventory(fromLogin = false) {
     if (invPreview) invPreview.start();
 }
 function closeInventory() {
+    closeCrateOverlay();
     document.getElementById('loadout-panel').style.display = 'none';
     if (invPreview) invPreview.stop();
     refreshMenu();
@@ -1293,41 +1353,29 @@ const equippedSkinFor = (t) => t === 'char' ? prog.getSkinId() : prog.getWeaponS
 function renderLoadout() {
     const p = prog.getProgress();
     const lvl = document.getElementById('loadout-level');
-    if (lvl) lvl.textContent = `Level ${p.level}` + (p.max ? ' (MAX)' : ` — ${p.xpInLevel} / ${p.need} XP bis Level ${p.level + 1}`) + ` — Kill: +${prog.XP_PER_KILL} XP`;
+    if (lvl) lvl.innerHTML = `Level ${p.level} — ${p.xpInLevel} / ${p.need} XP · 🎁 ${prog.getCrates()} Kisten · ${prog.getOwned().length} Skins`;
     renderInvSide(p);
     renderInvSkins(p);
     renderInvStage(p);
 }
 
-function renderInvSide(p) {
-    const lo = prog.getLoadout();
-    const row = (key, title, skinId, locked, slotNo) => {
-        const sk = SKINS[skinId], r = rarityOf(sk);
-        return `<div class="inv-row${String(key) === String(skinTarget) ? ' active' : ''}${locked ? ' locked' : ''}" data-target="${key}" draggable="true" style="--rc:${r.color}">
-            <div class="r-name">${esc(title)}<small>${esc(sk.name)}</small></div>${locked ? '🔒' : ''}${slotNo ? `<span class="inv-slot">${slotNo}</span>` : ''}</div>`;
-    };
-    const slotBox = (slot) => {
-        const wi = lo[slot], c = WEAPON_CONFIGS[wi], sk = SKINS[prog.getWeaponSkin(wi)], r = rarityOf(sk);
-        return `<div class="slot-drop" data-slot="${slot}" data-target="${wi}" style="--rc:${r.color}"><span class="sd-no">${slot + 1}</span><div class="sd-name">${esc(c.name)}<small>${esc(sk.name)}</small></div></div>`;
-    };
-    let html = `<div class="inv-slots"><div class="inv-slots-h">AUSRÜSTUNG · WAFFE AUF EINEN SLOT ZIEHEN · SKIN AUF EINE WAFFE ZIEHEN</div>${slotBox(0)}${slotBox(1)}</div>` +
-        `<div class="inv-cat">CHARAKTER</div>` + row('char', 'Neon-Soldat', prog.getSkinId(), false, 0);
-    for (const [cat, list] of INV_CATEGORIES) {
-        html += `<div class="inv-cat">${cat}</div>`;
-        for (const i of list) {
-            const c = WEAPON_CONFIGS[i];
-            html += row(i, c.name, prog.getWeaponSkin(i), p.level < c.unlockLevel, lo.indexOf(i) + 1);
-        }
-    }
+function renderInvSide() {
+    const html = INV_TARGETS.map(t => {
+        const sk = SKINS[equippedSkinFor(t)], r = rarityOf(sk);
+        return `<div class="inv-row${String(t) === String(skinTarget) ? ' active' : ''}" data-target="${t}" style="--rc:${r.color}">
+            <div class="inv-thumb" data-t="${t}:${sk.id}"></div>
+            <div class="r-name">${esc(TARGET_DE(t))}<small>${esc(sk.name)}</small></div></div>`;
+    }).join('');
     const side = document.getElementById('inv-side');
     const scroll = side.scrollTop;
-    side.innerHTML = html;
+    side.innerHTML = `<div class="inv-cat">AUSGERÜSTET · SKIN AUF EINE KARTE ZIEHEN</div>` + html;
     side.scrollTop = scroll;
     side.querySelectorAll('.inv-row').forEach(r => r.addEventListener('click', () => {
         skinTarget = r.dataset.target === 'char' ? 'char' : parseInt(r.dataset.target, 10);
         invSkin = null;
         renderLoadout();
     }));
+    queueThumbs(side);
 }
 
 // 3D-Vorschau, Name/Seltenheit, Werte und Aktionsknöpfe für das gewählte Ziel + den angesehenen Skin
@@ -1337,7 +1385,6 @@ function renderInvStage(p) {
     const isChar = skinTarget === 'char';
     const cfg = isChar ? null : WEAPON_CONFIGS[skinTarget];
 
-    // 3D
     if (!invPreview) {
         invPreview = createPreview(document.getElementById('inv-canvas'));
         invPreview.start();
@@ -1345,160 +1392,177 @@ function renderInvStage(p) {
     const ok = invPreview.show(skinTarget, viewId);
     document.getElementById('inv-fail').style.display = ok ? 'none' : 'flex';
 
-    // Info
     document.getElementById('inv-info').innerHTML =
-        `<div class="i-weapon">${isChar ? 'NEON-SOLDAT' : esc(cfg.name.toUpperCase())}</div>` +
-        `<div class="i-skin" style="color:${r.color}">${esc(sk.name)}</div>` +
+        `<div class="i-weapon">${esc(TARGET_DE(skinTarget).toUpperCase())}</div>` +
+        `<div class="i-skin" style="color:${r.color}">${esc(viewId === 0 ? 'Standard' : sk.name)}</div>` +
         `<div class="i-rarity" style="color:${r.color}">${r.name.toUpperCase()}${sk.pattern ? '' : ' · Original'}</div>`;
 
-    // Werte
     const stats = document.getElementById('inv-stats');
     if (isChar) stats.innerHTML = '';
     else {
         const dmg = cfg.damage * (cfg.pellets || 1), rpm = Math.round(60 / cfg.fireCooldown);
         const bar = (label, val, max, txt) => `<div class="inv-stat"><span>${label}</span><i><b style="width:${Math.max(4, Math.round(100 * val / max))}%"></b></i><em>${txt}</em></div>`;
         stats.innerHTML = bar('SCHADEN', dmg, STAT_MAX.dmg, cfg.pellets > 1 ? `${cfg.damage}×${cfg.pellets}` : dmg) +
-            bar('FEUERRATE', rpm, STAT_MAX.rpm, rpm) + bar('MAGAZIN', cfg.magSize, STAT_MAX.mag, cfg.magSize);
+            bar('FEUERRATE', rpm, STAT_MAX.rpm, rpm) + (cfg.melee ? '' : bar('MAGAZIN', cfg.magSize, STAT_MAX.mag, cfg.magSize));
     }
 
-    // Aktionen
-    const unlockedSkin = p.level >= sk.unlockLevel;
-    const equipped = viewId === equippedSkinFor(skinTarget);
-    const lo = prog.getLoadout();
-    let a = `<button class="inv-btn primary" id="inv-equip"${equipped || !unlockedSkin ? ' disabled' : ''}>${equipped ? 'AUSGERÜSTET ✔' : unlockedSkin ? 'SKIN AUSRÜSTEN' : '🔒 AB LEVEL ' + sk.unlockLevel}</button>`;
-    if (!isChar) {
-        a += `<button class="inv-btn warn" id="inv-all"${!unlockedSkin ? ' disabled' : ''}>SKIN AUF ALLE WAFFEN</button><span class="inv-sep"></span>`;
-        const wOk = p.level >= cfg.unlockLevel;
-        a += ['ALS PRIMÄR (1)', 'ALS SEKUNDÄR (2)'].map((t, slot) =>
-            `<button class="inv-btn${lo[slot] === skinTarget ? ' on' : ''}" data-slot="${slot}"${wOk ? '' : ' disabled'}>${lo[slot] === skinTarget ? '✔ ' : ''}${t}</button>`).join('');
-        const chosen = lo, differs = hasEntered && weapon && (chosen[0] !== weapon.loadout[0] || chosen[1] !== weapon.loadout[1]);
-        a += `<div id="loadout-note">${!wOk ? '🔒 Waffe ab Level ' + cfg.unlockLevel : differs ? 'Neue Waffenwahl gilt ab dem nächsten Respawn (nach dem Tod oder Reset).' : 'Die Waffenwahl kann nur vor dem Start und nach dem Tod gewechselt werden.'}</div>`;
-    }
-    const act = document.getElementById('inv-actions');
-    act.innerHTML = a;
-    const eq = document.getElementById('inv-equip');
-    if (eq) eq.addEventListener('click', () => equipSkin(viewId));
-    const all = document.getElementById('inv-all');
-    if (all) all.addEventListener('click', () => { if (prog.setAllWeaponSkins(viewId)) { applyOwnSkin(); flushProgress(); invSkin = null; renderLoadout(); } });
-    act.querySelectorAll('[data-slot]').forEach(b => b.addEventListener('click', () => setLoadoutSlot(parseInt(b.dataset.slot, 10), skinTarget)));
+    const equippedId = equippedSkinFor(skinTarget);
+    const equipped = viewId === equippedId;
+    const crates = prog.getCrates();
+    document.getElementById('inv-actions').innerHTML =
+        `<button class="inv-btn primary" id="inv-equip"${equipped ? ' disabled' : ''}>${equipped ? 'AUSGERÜSTET ✔' : 'SKIN AUSRÜSTEN'}</button>` +
+        `<button class="inv-btn" id="inv-default"${equippedId === 0 ? ' disabled' : ''}>STANDARD</button><span class="inv-sep"></span>` +
+        `<button class="inv-btn warn" id="inv-crate"${crates > 0 ? '' : ' disabled'}>🎁 KISTE ÖFFNEN (${crates})</button>` +
+        `<div id="loadout-note">${crates > 0 ? 'Du hast ungeöffnete Kisten!' : 'Pro Level-Aufstieg gibt es eine Kiste. Waffen wählst du im Spiel mit B.'}</div>`;
+    document.getElementById('inv-equip').addEventListener('click', () => equipSkinTo(skinTarget, viewId));
+    document.getElementById('inv-default').addEventListener('click', () => equipSkinTo(skinTarget, 0));
+    document.getElementById('inv-crate').addEventListener('click', openCrateOverlay);
 }
 
-// ---- Drag & Drop wie im CS2-Loadout ----
-// Waffenkarte -> Slot 1/2: Waffe ins Loadout. Skin-Karte -> Waffenkarte/Slot/Soldat/3D-Fläche: Skin ausrüsten.
-let dragData = null;
 function equipSkinTo(target, id) {
-    const p = prog.getProgress();
     if (!SKINS[id]) return;
-    if (p.level < SKINS[id].unlockLevel) { showNotice('Skin ab Level ' + SKINS[id].unlockLevel); return; }
+    if (!prog.hasSkin(id)) { showNotice('Diesen Skin besitzt du nicht'); return; }
+    if (id !== 0 && SKINS[id].target !== target) { showNotice(`Dieser Skin passt nicht auf: ${TARGET_DE(target)}`); return; }
     let ok;
     if (target === 'char') { ok = prog.setSkinId(id); if (ok) sendProfile(); }
     else { ok = prog.setWeaponSkin(target, id); if (ok) applyOwnSkin(); }
     if (ok) { flushProgress(); skinTarget = target; invSkin = null; renderLoadout(); }
 }
+
+function renderInvSkins(p) {
+    const filter = document.getElementById('inv-filter');
+    filter.innerHTML = `<button class="inv-chip${invRarity === 'all' ? ' active' : ''}" data-r="all">ALLE</button>` +
+        RARITIES.filter(r => r.odds).map(r => `<button class="inv-chip${invRarity === r.key ? ' active' : ''}" data-r="${r.key}" style="--rc:${r.color}">${r.name}</button>`).join('') +
+        `<span class="inv-sep"></span><button class="inv-chip${invOnly ? ' active' : ''}" data-only="1">NUR ${esc(TARGET_DE(skinTarget).toUpperCase())}</button>`;
+    filter.querySelectorAll('.inv-chip[data-r]').forEach(c => c.addEventListener('click', () => { invRarity = c.dataset.r; renderInvSkins(prog.getProgress()); }));
+    filter.querySelector('[data-only]').addEventListener('click', () => { invOnly = !invOnly; renderInvSkins(prog.getProgress()); });
+
+    const viewing = invSkin ?? equippedSkinFor(skinTarget);
+    const rank = Object.fromEntries(RARITIES.map((r, i) => [r.key, i]));
+    const list = prog.getOwned().map(id => SKINS[id]).filter(s => s &&
+        (invRarity === 'all' || s.rarity === invRarity) && (!invOnly || s.target === skinTarget))
+        .sort((a, b) => (a.target === 'char' ? 99 : a.target) - (b.target === 'char' ? 99 : b.target) || rank[b.rarity] - rank[a.rarity] || a.id - b.id);
+    const grid = document.getElementById('skin-grid');
+    const keepScroll = grid.scrollTop;
+    grid.innerHTML = list.length ? list.map(s => {
+        const r = rarityOf(s);
+        return `<div class="skin-card${s.id === viewing ? ' viewing' : ''}${s.id === equippedSkinFor(s.target) ? ' equipped' : ''}" data-skin="${s.id}" draggable="true" style="--rc:${r.color}">
+            <div class="skin-img" data-t="${s.target}:${s.id}"></div><div class="sc-name">${esc(skinFullName(s))}</div><small style="color:${r.color}">${r.name}</small></div>`;
+    }).join('') : `<div class="skin-empty">${prog.getOwned().length ? 'Keine Skins in diesem Filter.' : 'Noch keine Skins. Öffne Kisten – du bekommst eine pro Level-Aufstieg!'}</div>`;
+    grid.scrollTop = keepScroll;
+    grid.querySelectorAll('.skin-card').forEach(card => {
+        card.addEventListener('click', () => {            // ansehen: wechselt zur passenden Waffe und zeigt den Skin
+            const s = SKINS[parseInt(card.dataset.skin, 10)];
+            skinTarget = s.target; invSkin = s.id;
+            renderLoadout();
+        });
+        card.addEventListener('dblclick', () => equipSkinTo(SKINS[parseInt(card.dataset.skin, 10)].target, parseInt(card.dataset.skin, 10)));
+    });
+    queueThumbs(grid);
+}
+
+// ---- Drag & Drop (nur Skins): Skin-Karte -> Waffenkarte (oder 3D-Vorschau) = ausrüsten ----
+let dragData = null;
 function wireInventoryDnd(panel) {
-    const dropEl = (e) => e.target.closest('.slot-drop, .inv-row, .inv-stage');
+    const dropEl = (e) => e.target.closest('.inv-row, .inv-stage');
     panel.addEventListener('dragstart', (e) => {
-        const w = e.target.closest('.inv-row'), k = e.target.closest('.skin-card');
-        if (w) dragData = { kind: 'w', target: w.dataset.target === 'char' ? 'char' : parseInt(w.dataset.target, 10) };
-        else if (k) dragData = { kind: 's', id: parseInt(k.dataset.skin, 10) };
-        else return;
+        const k = e.target.closest('.skin-card');
+        if (!k) { e.preventDefault(); return; }
+        dragData = { id: parseInt(k.dataset.skin, 10) };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', JSON.stringify(dragData)); // Firefox startet das Ziehen nur mit gesetzten Daten
-        panel.classList.add('dragging-' + dragData.kind);
+        panel.classList.add('dragging-s');
     });
     panel.addEventListener('dragend', () => {
         dragData = null;
-        panel.classList.remove('dragging-w', 'dragging-s');
-        panel.querySelectorAll('.drop-ok').forEach(x => x.classList.remove('drop-ok'));
+        panel.classList.remove('dragging-s');
+        panel.querySelectorAll('.drop-ok, .drop-bad').forEach(x => x.classList.remove('drop-ok', 'drop-bad'));
     });
-    const accepts = (el) => {
-        if (!dragData || !el) return false;
-        if (dragData.kind === 's') return true;                                  // Skin: auf Waffe, Slot, Soldat, Vorschau
-        return dragData.kind === 'w' && dragData.target !== 'char' && el.classList.contains('slot-drop'); // Waffe: nur auf Slots
+    const fits = (el) => {
+        if (!dragData) return null;
+        if (el.classList.contains('inv-row')) { const t = el.dataset.target === 'char' ? 'char' : parseInt(el.dataset.target, 10); return SKINS[dragData.id].target === t; }
+        return true;                                                          // Vorschau: Skin geht auf seine eigene Waffe
     };
     panel.addEventListener('dragover', (e) => {
         const el = dropEl(e);
-        panel.querySelectorAll('.drop-ok').forEach(x => { if (x !== el) x.classList.remove('drop-ok'); });
-        if (accepts(el)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drop-ok'); }
+        panel.querySelectorAll('.drop-ok, .drop-bad').forEach(x => { if (x !== el) x.classList.remove('drop-ok', 'drop-bad'); });
+        if (!el || !dragData) return;
+        e.preventDefault();
+        const ok = fits(el);
+        e.dataTransfer.dropEffect = ok ? 'move' : 'none';
+        el.classList.toggle('drop-ok', !!ok); el.classList.toggle('drop-bad', !ok);
     });
     panel.addEventListener('drop', (e) => {
         const el = dropEl(e);
-        if (!accepts(el)) return;
+        if (!el || !dragData) return;
         e.preventDefault();
-        const d = dragData;
-        dragData = null;
-        panel.classList.remove('dragging-w', 'dragging-s');
-        el.classList.remove('drop-ok');
-        if (d.kind === 'w') {
-            const cfg = WEAPON_CONFIGS[d.target];
-            if (prog.getProgress().level < cfg.unlockLevel) { showNotice(cfg.name + ' ab Level ' + cfg.unlockLevel); return; }
-            skinTarget = d.target;
-            setLoadoutSlot(parseInt(el.dataset.slot, 10), d.target);
-        } else {
-            let target = skinTarget;
-            if (el.classList.contains('slot-drop') || el.classList.contains('inv-row')) target = el.dataset.target === 'char' ? 'char' : parseInt(el.dataset.target, 10);
-            equipSkinTo(target, d.id);
-        }
-    });
-    // Klick auf einen Slot wählt dessen Waffe zum Ansehen
-    panel.addEventListener('click', (e) => {
-        const sd = e.target.closest('.slot-drop');
-        if (sd) { skinTarget = parseInt(sd.dataset.target, 10); invSkin = null; renderLoadout(); }
+        const d = dragData; dragData = null;
+        panel.classList.remove('dragging-s');
+        el.classList.remove('drop-ok', 'drop-bad');
+        const target = el.classList.contains('inv-row') ? (el.dataset.target === 'char' ? 'char' : parseInt(el.dataset.target, 10)) : SKINS[d.id].target;
+        equipSkinTo(target, d.id);
     });
 }
 
-function equipSkin(id) {
-    let ok;
-    if (skinTarget === 'char') { ok = prog.setSkinId(id); if (ok) sendProfile(); }
-    else { ok = prog.setWeaponSkin(skinTarget, id); if (ok) applyOwnSkin(); }
-    if (ok) { flushProgress(); invSkin = null; renderLoadout(); }
+// ---- Kisten öffnen (wie CS2): Streifen läuft durch, bleibt beim Gewinn stehen ----
+let crateBusy = false;
+function openCrateOverlay() {
+    const ov = document.getElementById('crate-overlay');
+    if (!ov) return;
+    ov.style.display = 'flex';
+    renderCrateOverlay(null);
 }
-
-function renderInvSkins(p) {
-    // Seltenheits-Filter
-    const filter = document.getElementById('inv-filter');
-    filter.innerHTML = `<button class="inv-chip${invRarity === 'all' ? ' active' : ''}" data-r="all">ALLE</button>` +
-        RARITIES.map(r => `<button class="inv-chip${invRarity === r.key ? ' active' : ''}" data-r="${r.key}" style="--rc:${r.color}">${r.name}</button>`).join('');
-    filter.querySelectorAll('.inv-chip').forEach(c => c.addEventListener('click', () => { invRarity = c.dataset.r; renderInvSkins(prog.getProgress()); }));
-
-    const equipped = equippedSkinFor(skinTarget);
-    const viewing = invSkin ?? equipped;
-    const grid = document.getElementById('skin-grid');
-    const keepScroll = grid.scrollTop;
-    const pending = [];
-    grid.innerHTML = [...SKINS].filter(s => invRarity === 'all' || rarityOf(s).key === invRarity)
-        .sort((a, b) => a.unlockLevel - b.unlockLevel || a.id - b.id).map(s => {
-            const unlocked = p.level >= s.unlockLevel;
-            let swatch = s.preview || 'linear-gradient(135deg,#1a1a24,#2a2a38)';
-            if (s.pattern) {
-                if (isPreviewCached(s)) swatch = getSkinPreview(s);
-                else pending.push(s);
-            }
-            const r = rarityOf(s);
-            return `<div class="skin-card${s.id === viewing ? ' viewing' : ''}${s.id === equipped ? ' equipped' : ''}${unlocked ? '' : ' locked'}" data-skin="${s.id}" draggable="true" style="--rc:${r.color}">
-                <div class="skin-swatch" style="background:${swatch};background-size:cover;background-position:center"></div>${esc(s.name)}
-                <small>${unlocked ? r.name : '🔒 Level ' + s.unlockLevel}</small></div>`;
-        }).join('');
-    grid.scrollTop = keepScroll;
-    grid.querySelectorAll('.skin-card').forEach(card => card.addEventListener('click', () => {
-        invSkin = parseInt(card.dataset.skin, 10);   // nur ansehen; ausrüsten per Knopf (oder Doppelklick)
-        renderInvStage(prog.getProgress());
-        grid.querySelectorAll('.skin-card').forEach(c => c.classList.toggle('viewing', c === card));
-    }));
-    grid.querySelectorAll('.skin-card').forEach(card => card.addEventListener('dblclick', () => {
-        const id = parseInt(card.dataset.skin, 10);
-        if (prog.getProgress().level >= SKINS[id].unlockLevel) equipSkin(id);
-    }));
-
-    // Vorschaubilder nacheinander erzeugen (jedes Muster braucht einige ms; so bleibt das Menü flüssig)
-    const run = ++previewRun;
-    (function next() {
-        if (run !== previewRun || !pending.length) return;
-        const s = pending.shift();
-        const sw = grid.querySelector(`.skin-card[data-skin="${s.id}"] .skin-swatch`);
-        if (sw) sw.style.background = `${getSkinPreview(s)} center / cover`;
-        setTimeout(next, 0);
-    })();
+function closeCrateOverlay() {
+    const ov = document.getElementById('crate-overlay');
+    if (ov && !crateBusy) ov.style.display = 'none';
+}
+function renderCrateOverlay(result) {
+    const ov = document.getElementById('crate-overlay');
+    const crates = prog.getCrates();
+    ov.querySelector('.cr-count').textContent = `🎁 ${crates} ${crates === 1 ? 'Kiste' : 'Kisten'}`;
+    ov.querySelector('.cr-odds').innerHTML = RARITIES.filter(r => r.odds).map(r => `<span style="color:${r.color}">${r.name} ${String(r.odds).replace('.', ',')}%</span>`).join(' · ');
+    const res = ov.querySelector('.cr-result');
+    if (result) {
+        const s = result.skin, r = rarityOf(s);
+        res.style.display = 'flex';
+        res.style.setProperty('--rc', r.color);
+        res.innerHTML = `<div class="cr-big" data-t="${s.target}:${s.id}"></div><div class="cr-info"><div class="cr-rar" style="color:${r.color}">${r.name.toUpperCase()}</div>
+            <div class="cr-name">${esc(skinFullName(s))}</div><div class="cr-dupe">${result.dupe ? 'Doppelt – du hattest ihn schon' : 'Neu in deinem Inventar!'}</div>
+            <div class="cr-btns"><button class="inv-btn primary" id="cr-equip">AUSRÜSTEN</button></div></div>`;
+        queueThumbs(res);
+        document.getElementById('cr-equip').addEventListener('click', () => { equipSkinTo(s.target, s.id); });
+    } else res.style.display = 'none';
+    const open = ov.querySelector('#cr-open');
+    open.disabled = crates <= 0 || crateBusy;
+    open.textContent = crates > 0 ? (result ? 'NOCH EINE ÖFFNEN' : 'KISTE ÖFFNEN') : 'KEINE KISTEN';
+    ov.querySelector('#cr-close').disabled = crateBusy;
+}
+function runCrate() {
+    if (crateBusy || prog.getCrates() <= 0) return;
+    const out = prog.openCrate();
+    if (!out) return;
+    flushProgress();
+    crateBusy = true;
+    const ov = document.getElementById('crate-overlay');
+    ov.querySelector('.cr-result').style.display = 'none';
+    const strip = ov.querySelector('.cr-strip'), win = ov.querySelector('.cr-window');
+    const WIN_IDX = 38, ITEM_W = 160, N = 46;
+    const items = [];
+    for (let i = 0; i < N; i++) items.push(i === WIN_IDX ? out.skin : rollCrate());
+    strip.style.transition = 'none';
+    strip.style.transform = 'translateX(0)';
+    strip.innerHTML = items.map(s => { const r = rarityOf(s); return `<div class="cr-item" style="--rc:${r.color}"><small>${esc(TARGET_DE(s.target))}</small><b>${esc(s.name)}</b></div>`; }).join('');
+    void strip.offsetWidth;
+    const x = WIN_IDX * ITEM_W + ITEM_W / 2 - win.clientWidth / 2 + (Math.random() - 0.5) * ITEM_W * 0.6;
+    strip.style.transition = 'transform 6.4s cubic-bezier(0.07, 0.6, 0.08, 1)';
+    strip.style.transform = `translateX(${-x}px)`;
+    renderCrateOverlay(null);
+    setTimeout(() => {
+        crateBusy = false;
+        if (['c', 'v', 'g'].includes(out.skin.rarity)) sfx.playLevelUp();
+        renderCrateOverlay(out);
+        if (document.getElementById('loadout-panel').style.display === 'block') { renderInvSide(); renderInvSkins(prog.getProgress()); renderInvStage(prog.getProgress()); document.getElementById('loadout-level').innerHTML = `Level ${prog.getProgress().level} — 🎁 ${prog.getCrates()} Kisten · ${prog.getOwned().length} Skins`; }
+    }, 6700);
 }
 
 function wireLoadoutUi() {
@@ -1506,6 +1570,9 @@ function wireLoadoutUi() {
     document.getElementById('loadout-close').addEventListener('click', closeInventory);
     wireInventoryDnd(panel);
     document.getElementById('respawn-btn').addEventListener('click', doRespawn);
+    document.getElementById('cr-open').addEventListener('click', runCrate);
+    document.getElementById('cr-close').addEventListener('click', closeCrateOverlay);
+    document.getElementById('buy-close').addEventListener('click', closeBuyMenu);
 
     // Startbildschirm: Skins & Waffen schon vor dem Spielstart ansehen/wählen
     const nameField = document.getElementById('name-input');
