@@ -95,7 +95,7 @@ function triCount(mesh) {
 }
 
 // ---------- Kollision: Wand-Dreiecke -> Voxel -> verschmolzene Boxen ----------
-function buildColliders(meshes, bbox, size, wallNy) {
+function buildColliders(meshes, bbox, size, wallNy, stepH = 0) {
     const ox = bbox.min.x - 1, oy = bbox.min.y - 1, oz = bbox.min.z - 1;
     const DX = Math.ceil((bbox.max.x - bbox.min.x + 2) / size) + 2;
     const DY = Math.ceil((bbox.max.y - bbox.min.y + 2) / size) + 2;
@@ -118,6 +118,8 @@ function buildColliders(meshes, bbox, size, wallNy) {
             const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
             if (len < 1e-9) continue;
             if (Math.abs(ny) / len > wallNy) continue;           // fast waagerecht: Boden/Dach -> das macht der Boden-Raycast
+            // Niedrige senkrechte Flächen (Bordsteine, Kanten, Stufen) sind keine Wände: darüber läuft der Boden-Raycast (Stufenhöhe)
+            if (stepH > 0 && Math.max(a.y, b.y, c.y) - Math.min(a.y, b.y, c.y) <= stepH) continue;
             const longest = Math.max(e1.length(), e2.length(), b.distanceTo(c));
             const steps = Math.min(400, Math.max(1, Math.ceil(longest / step)));
             for (let s = 0; s <= steps; s++) {
@@ -130,7 +132,7 @@ function buildColliders(meshes, bbox, size, wallNy) {
             }
         }
     }
-    if (voxels.size > 2500000 && size < 2) return buildColliders(meshes, bbox, size * 1.5, wallNy); // zu fein -> gröber
+    if (voxels.size > 2500000 && size < 2) return buildColliders(meshes, bbox, size * 1.5, wallNy, stepH); // zu fein -> gröber
 
     // 1) Läufe entlang X, 2) Läufe entlang Z zu Platten, 3) Platten entlang Y zu Boxen
     const rows = new Map(); // "iy,iz" -> [ix...]
@@ -303,7 +305,7 @@ export async function loadGlbMap(target, entry, adapter, onProgress = () => {}) 
 
     // Kollision
     const t0 = performance.now();
-    const colliders = buildColliders(meshes, bbox, entry.voxel || 0.5, entry.wallSlope || 0.7);
+    const colliders = buildColliders(meshes, bbox, entry.voxel || 0.5, entry.wallSlope || 0.7, entry.stepHeight ?? 0.5);
     const size3 = bbox.getSize(new THREE.Vector3());
     // Unsichtbare Außengrenze (hoch und dick), damit man nicht aus der Karte läuft
     const T = 3, H = 150, y0 = bbox.min.y - 20;
@@ -339,7 +341,7 @@ export async function loadGlbMap(target, entry, adapter, onProgress = () => {}) 
     colliders.shootBlockers = meshes;
     colliders.skyboxGroup = null;
     colliders.portalRings = [];
-    colliders.groundStepUp = 0.6;               // Boden-Raycast startet nur knapp über den Füßen (sonst steht man in Gebäuden auf dem Dach)
+    colliders.groundStepUp = Math.max(0.6, (entry.stepHeight ?? 0.5) + 0.2);               // Boden-Raycast startet nur knapp über den Füßen (sonst steht man in Gebäuden auf dem Dach)
     colliders.killY = bbox.min.y - 40;
     colliders.info = {
         name: entry.name, scale, size: [size3.x, size3.y, size3.z],
