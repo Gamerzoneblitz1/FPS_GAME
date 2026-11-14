@@ -8,7 +8,8 @@
       "file": "maps/italy.glb",
       "scale": 2,
       "background": "#9fc9ff",
-      "fogDensity": 0.004
+      "fogDensity": 0.004,
+      "stepHeight": 0.8
     },
     {
       "id": "mirage",
