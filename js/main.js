@@ -3,7 +3,7 @@ import { WeaponManager, WEAPON_CONFIGS, KNIFE_INDEX, KNIFE_TYPES, setKnifeVarian
 import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } from './player.js';
-import { SKINS, RARITIES, rarityOf, skinFullName, rollCrate } from './skins.js';
+import { SKINS, RARITIES, rarityOf, skinFullName, rollCrate, CRATES } from './skins.js';
 import { createPreview, createThumbMaker } from './preview.js';
 import { getSkinPreview, isPreviewCached } from './skintex.js';
 import * as prog from './progression.js';
@@ -1534,8 +1534,11 @@ function closeCrateOverlay() {
 function renderCrateOverlay(result) {
     const ov = document.getElementById('crate-overlay');
     const crates = prog.getCrates();
+    const ct = prog.nextCrateType();
     ov.querySelector('.cr-count').textContent = `🎁 ${crates} ${crates === 1 ? 'Kiste' : 'Kisten'}`;
-    ov.querySelector('.cr-odds').innerHTML = RARITIES.filter(r => r.odds).map(r => `<span style="color:${r.color}">${r.name} ${String(r.odds).replace('.', ',')}%</span>`).join(' · ');
+    const hd = ov.querySelector('.cr-head h3');
+    if (hd) { hd.textContent = crates > 0 ? ct.name.toUpperCase() : 'KISTE ÖFFNEN'; hd.style.color = crates > 0 ? ct.color : ''; }
+    ov.querySelector('.cr-odds').innerHTML = (crates > 0 ? `<span style="color:${ct.color}">${ct.desc}</span><br>` : '') + RARITIES.filter(r => r.odds).map(r => `<span style="color:${r.color}">${r.name} ${String(r.odds).replace('.', ',')}%</span>`).join(' · ');
     const res = ov.querySelector('.cr-result');
     if (result) {
         const s = result.skin, r = rarityOf(s);
@@ -1563,7 +1566,7 @@ function runCrate() {
     const strip = ov.querySelector('.cr-strip'), win = ov.querySelector('.cr-window');
     const WIN_IDX = 38, ITEM_W = 160, N = 46;
     const items = [];
-    for (let i = 0; i < N; i++) items.push(i === WIN_IDX ? out.skin : rollCrate());
+    for (let i = 0; i < N; i++) items.push(i === WIN_IDX ? out.skin : rollCrate(Math.random, out.crate.key));
     strip.style.transition = 'none';
     strip.style.transform = 'translateX(0)';
     strip.innerHTML = items.map(s => { const r = rarityOf(s); return `<div class="cr-item" style="--rc:${r.color}"><small>${esc(TARGET_DE(s.target))}</small><b>${esc(s.name)}</b></div>`; }).join('');
