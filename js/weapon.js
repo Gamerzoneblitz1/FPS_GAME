@@ -592,7 +592,10 @@ export const KNIFE_INDEX = WEAPON_CONFIGS.length - 1;
 // ---------- Einzelne Waffe ----------
 const BASE_POS = new THREE.Vector3(0.3, -0.25, -0.5);
 // Einstellungen für die Ego-Waffe (aus dem Einstellungsmenü): sichtbar, Linkshänder, Verschiebung, Größe
-export const viewSettings = { visible: true, left: false, x: 0, y: 0, z: 0, scale: 1 };
+export const viewSettings = { visible: true, left: false, x: 0, y: 0, z: 0, scale: 1,
+    crouch: 0, slide: 0 }; // crouch 0..1 (Duck-Fortschritt) und slide 0/1 kommen jeden Frame aus main.js
+const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
+const bump = (p, c, w) => Math.exp(-(((p - c) / w) ** 2)); // glockenförmiger Impuls um c
 const _tmpColor = new THREE.Color();
 
 export class Weapon {
@@ -637,6 +640,7 @@ export class Weapon {
         this.recoil = 0;       // 0..1
         this.dryNudge = 0;     // "Klick" bei leerem Magazin
         this.reloadSink = 0;   // 0..1, Waffe wird beim Nachladen abgesenkt
+        this._reloadStart = 0; this._crouchPrev = 0; this._crouchVel = 0; this._slideBlend = 0;
         this.flashTimer = 0;
 
         // --- Zielen (ADS) ---
@@ -816,6 +820,7 @@ export class Weapon {
         if (this.drawT < 0.75) return; // erst fertig ziehen
 
         this.isReloading = true;
+        this._reloadStart = performance.now();
         this._notifyAmmoChange();
         this._emit('reloadStart');
         this._midTimer = setTimeout(() => { this._midTimer = null; this._emit('reloadMid'); }, this.reloadDuration * 0.55);
@@ -893,15 +898,45 @@ export class Weapon {
         const k = this.recoil * this.recoil * (1 - 0.5 * e);
         // Verschiebung/Spiegelung aus den Einstellungen; beim Zielen (e) zählt nur die Skalierung nicht mehr, damit das Visier mittig bleibt
         const vs = viewSettings, side = vs.left ? -1 : 1, off = 1 - e;
+
+        // --- Nachlade-Animation (Fortschritt p 0..1): Waffe kippt zur Seite und nach unten, Magazin wird "gewechselt"
+        // (Ruck bei 35 % = Magazin raus, Ruck bei 72 % = Magazin rein), danach zurück in Anschlag. Beim Zielen schwächer.
+        let rY = 0, rX = 0, rZ = 0, rRX = 0, rRY = 0, rRZ = 0;
+        if (this.isReloading && !this.melee) {
+            const p = Math.min(1, (performance.now() - this._reloadStart) / this.reloadDuration);
+            const env = smooth01(p / 0.22) * (1 - smooth01((p - 0.82) / 0.18));   // runter/kippen -> zurück
+            const a = env * (1 - 0.6 * e);
+            const out = bump(p, 0.36, 0.05), inn = bump(p, 0.72, 0.045);
+            rY = -0.13 * a - 0.035 * out + 0.03 * inn;
+            rX = -0.07 * a * side;
+            rZ = 0.05 * inn + 0.02 * out;
+            rRX = 0.32 * a - 0.18 * out + 0.22 * inn;
+            rRY = 0.38 * a * side + 0.06 * Math.sin(p * 18) * a;
+            rRZ = 0.5 * a * side + 0.08 * (out - inn) * side;
+        }
+        // --- Duck-/Slide-Animation: Waffe sinkt ab und rückt nach innen, hinkt beim Hinhocken/Aufstehen kurz hinterher;
+        // beim Sliden kippt sie seitlich weg. Beim Zielen nur schwach (Visier bleibt nutzbar).
+        const cr = vs.crouch, cvRaw = (cr - this._crouchPrev) / Math.max(delta, 0.001);
+        this._crouchPrev = cr;
+        this._crouchVel += (cvRaw - this._crouchVel) * Math.min(1, delta * 14);
+        this._slideBlend += (vs.slide - this._slideBlend) * Math.min(1, delta * 9);
+        const cw = 1 - 0.7 * e, sl = this._slideBlend * cw;
+        const cY = -0.035 * cr * cw + this._crouchVel * 0.012 * cw - 0.02 * sl;
+        const cX = -0.025 * cr * cw * side - 0.05 * sl * side;
+        const cRX = this._crouchVel * 0.03 * cw + 0.05 * cr * cw;
+        const cRZ = 0.1 * cr * cw * side + 0.42 * sl * side;
+        const cRY = -0.25 * sl * side;
+
         this.weaponGroup.position.set(
-            side * (BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e) + vs.x * off + this.dryNudge * 0.02 + d * 0.14 * side,
-            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e + vs.y * off - this.reloadSink * 0.15 - d * 0.40,
-            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + vs.z * off + k * this.kick + d * 0.08
+            side * (BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e) + vs.x * off + this.dryNudge * 0.02 + d * 0.14 * side + rX + cX,
+            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e + vs.y * off + rY + cY - d * 0.40,
+            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + vs.z * off + k * this.kick + d * 0.08 + rZ
         );
         const sc = 1 + (vs.scale - 1) * off;
         this.weaponGroup.scale.set(sc * side, sc, sc);
-        this.weaponGroup.rotation.x = k * this.kickRot + this.reloadSink * 0.35 - d * 0.95;
-        this.weaponGroup.rotation.z = d * 0.45 * side;
+        this.weaponGroup.rotation.x = k * this.kickRot + rRX + cRX - d * 0.95;
+        this.weaponGroup.rotation.y = rRY + cRY;
+        this.weaponGroup.rotation.z = d * 0.45 * side + rRZ + cRZ;
 
         // Zielfernrohr-Ansicht: Waffenmodell ausblenden, sobald fast voll gezoomt (dann zeigt das Overlay das Rohr)
         if (this.active) this.weaponGroup.visible = viewSettings.visible && !(this.scopeOverlay && this.aimT > 0.9);
