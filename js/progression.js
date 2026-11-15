@@ -61,6 +61,13 @@ try {
 } catch (e) { /* ignorieren */ }
 try { const l = JSON.parse(localStorage.getItem(LEGACY_KEY)); if (l && Number.isFinite(l.xp)) legacy = sanitize(l); } catch (e) { legacy = null; }
 
+// Test-Konto: Der Spielername "Tester" besitzt automatisch alle Skins (zum Ausprobieren). Gilt nur für diesen Namen.
+const TESTER_KEY = 'tester';
+function grantTesterSkins() {
+    if (activeKey !== TESTER_KEY) return;
+    state.owned = Object.keys(SKINS).map(Number).filter(id => id > 0 && SKINS[id]).sort((a, b) => a - b);
+}
+
 let activeKey = null;                  // null = Gast: nichts wird gespeichert
 let state = sanitize(null);
 
@@ -86,6 +93,7 @@ export function setActiveName(name, commit = true) {
         try { localStorage.removeItem(LEGACY_KEY); } catch (e) { /* ignorieren */ }
     }
     state = sanitize(s || (legacy && !commit ? null : null));
+    grantTesterSkins();
     if (commit) {
         db[key] = state;
         save();
@@ -108,6 +116,7 @@ export function applyServer(s) {
     state.opened = Math.max(state.opened, clean.opened);
     // Messertyp: nur lokal gespeichert (state.knife bleibt unverändert)
     state.wskins = clean.wskins.map((v, i) => v || (state.wskins[i] && state.owned.includes(state.wskins[i]) ? state.wskins[i] : 0));
+    grantTesterSkins();
     save();
 }
 
