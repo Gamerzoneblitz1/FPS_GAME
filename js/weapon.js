@@ -72,6 +72,19 @@ function cyl(g, r, len, color, x, y, z, axis = 'z', { r2 = r, seg = 14 } = {}) {
     return m;
 }
 
+// Ring (Torus), z. B. Fingerloch am Messer, Ringe am Dämpfer
+function torus(g, R, r, color, x, y, z, { rx = 0, ry = 0, rz = 0, seg = 16 } = {}) {
+    const m = new THREE.Mesh(new THREE.TorusGeometry(R, r, 8, seg), mat(color));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    m.userData.body = true;
+    m.userData.baseColor = color;
+    g.add(m);
+    return m;
+}
+// n gleiche Teile in einer Reihe (Rillen, Schlitze, Zähne): fn(i) gibt die Position, step = Abstand
+function row(n, fn) { for (let i = 0; i < n; i++) fn(i); }
+
 // Leuchtstreifen (Neon-Akzent, ungelittet)
 // Eigenes Material + Markierung, damit Skins die Akzentfarbe später umfärben können
 function markAccent(mesh, color) {
@@ -122,6 +135,26 @@ function buildRifleModel(g) {
     box(g, 0.056, 0.008, 0.012, DARK, 0, 0.196, -0.07);
     neon(g, 0.007, 0.007, 0.004, CYAN, 0, 0.172, -0.134); // Leuchtpunkt (liegt beim Zielen exakt in der Bildmitte)
 
+    // --- Details (alles seitlich/unterhalb der Visierlinie) ---
+    const SIDE = [1, -1];
+    for (const sx of SIDE) {
+        box(g, 0.004, 0.03, 0.07, DARK, sx * 0.046, 0.065, -0.02, { edge: null });          // Auswurffenster
+        box(g, 0.006, 0.014, 0.03, MID, sx * 0.047, 0.0, 0.07);                              // Sicherung/Schalter
+        row(5, (i) => box(g, 0.004, 0.012, 0.03, DARK, sx * 0.0385, 0.0, -0.27 - i * 0.045, { edge: null })); // M-LOK-Schlitze
+        box(g, 0.006, 0.02, 0.04, MID, sx * 0.047, 0.03, -0.12);                              // Magazinhalter/Verschlussfang
+    }
+    box(g, 0.012, 0.012, 0.05, MID, 0.056, 0.09, 0.1);                                        // Spannhebel (seitlich)
+    box(g, 0.02, 0.016, 0.02, DARK, 0.062, 0.09, 0.125);
+    box(g, 0.035, 0.04, 0.04, MID, 0, 0.083, -0.50);                                          // Gasblock
+    cyl(g, 0.006, 0.2, DARK, 0, 0.098, -0.40);                                                // Gasrohr
+    row(4, (i) => { const a = i * Math.PI / 2; box(g, 0.008, 0.008, 0.045, DARK, Math.cos(a) * 0.022, 0.06 + Math.sin(a) * 0.022, -0.685, { edge: null }); }); // Mündungsfeuerdämpfer
+    box(g, 0.03, 0.09, 0.035, DARK, 0, -0.04, -0.40, { rx: 0.35 });                           // Vordergriff
+    row(4, (i) => box(g, 0.056, 0.006, 0.074, MID, 0, -0.045 - i * 0.032, -0.083 - i * 0.004, { rx: -0.12, edge: null })); // Magazinrippen
+    row(4, (i) => box(g, 0.062, 0.006, 0.072, MID, 0, -0.035 - i * 0.026, 0.075 + i * 0.008, { rx: 0.3, edge: null }));   // Griffrillen
+    box(g, 0.05, 0.03, 0.12, MID, 0, 0.085, 0.28);                                            // Wangenauflage
+    row(3, (i) => box(g, 0.066, 0.006, 0.02, DARK, 0, 0.0 - i * 0.03, 0.39, { edge: null })); // Schaftkappe
+    torus(g, 0.012, 0.003, MID, 0.034, 0.0, 0.18, { ry: Math.PI / 2 });                       // Riemenöse
+
     return [0, 0.06, -0.69];
 }
 
@@ -153,6 +186,18 @@ function buildPistolModel(g) {
     // Kimme + Korn
     box(g, 0.045, 0.02, 0.012, DARK, 0, 0.092, 0.07);
     neon(g, 0.012, 0.022, 0.012, YEL, 0, 0.092, -0.2);
+
+    // --- Details ---
+    row(4, (i) => box(g, 0.079, 0.05, 0.007, DARK, 0, 0.05, -0.17 - i * 0.016, { edge: null }));      // Frontrillen
+    for (const sx of [1, -1]) {
+        box(g, 0.004, 0.03, 0.06, DARK, sx * 0.039, 0.058, -0.05, { edge: null });                    // Auswurffenster
+        box(g, 0.006, 0.012, 0.045, MID, sx * 0.037, 0.0, -0.01);                                     // Schlittenfang
+        row(4, (i) => box(g, 0.004, 0.012, 0.05, MID, sx * 0.035, -0.07 - i * 0.022, 0.075 + i * 0.005, { rx: 0.2, edge: null })); // Griffrillen
+    }
+    box(g, 0.03, 0.012, 0.1, MID, 0, -0.045, -0.13);                                              // Zubehörschiene
+    box(g, 0.075, 0.012, 0.09, MID, 0, -0.19, 0.105, { rx: 0.2 });                                // Magazinboden
+    box(g, 0.012, 0.012, 0.02, DARK, 0, 0.085, 0.14, { edge: null });                             // Hahn (niedrig, stört das Visier nicht)
+    cyl(g, 0.02, 0.03, MID, 0, 0.045, -0.255);                                                    // Laufbuchse
 
     return [0, 0.048, -0.26];
 }
@@ -202,6 +247,20 @@ function buildSniperModel(g) {
     knob.position.set(0.112, 0.045, 0.02);
     g.add(knob);
 
+    // --- Details ---
+    box(g, 0.03, 0.01, 0.34, MID, 0, 0.077, -0.05);                                              // Montageschiene
+    row(5, (i) => torus(g, 0.034, 0.004, MID, 0, 0.05, -0.93 - i * 0.04, { seg: 14 }));          // Dämpferringe
+    for (const sx of [1, -1]) {
+        row(5, (i) => box(g, 0.004, 0.02, 0.035, DARK, sx * 0.0355, 0.03, -0.25 - i * 0.07, { edge: null })); // Handschutz-Schlitze
+        box(g, 0.02, 0.006, 0.03, DARK, sx * 0.035, -0.027, -0.64, { edge: null });               // Zweibeinfüße
+        box(g, 0.006, 0.03, 0.05, MID, sx * 0.046, 0.025, 0.05);                                  // Verschlussfang
+    }
+    row(3, (i) => box(g, 0.072, 0.006, 0.12, MID, 0, 0.03 - i * 0.03, 0.30, { edge: null }));    // Schaftrippen
+    row(3, (i) => box(g, 0.052, 0.006, 0.07, MID, 0, -0.045 - i * 0.025, -0.02, { edge: null })); // Magazinrippen
+    box(g, 0.082, 0.12, 0.016, 0x0a0a0c, 0, 0.0, 0.405);                                         // Schaftkappe
+    torus(g, 0.014, 0.003, MID, 0.04, -0.03, 0.28, { ry: Math.PI / 2 });                          // Riemenöse
+    box(g, 0.02, 0.02, 0.02, MID, 0.034, 0.15, -0.1);                                             // Kappe am Seitenturm
+
     return [0, 0.05, -1.13];
 }
 
@@ -239,6 +298,21 @@ function buildSmgModel(g) {
     box(g, 0.008, 0.045, 0.012, DARK, 0.024, 0.12, 0.02, { edge: null });
     box(g, 0.008, 0.045, 0.012, DARK, -0.024, 0.12, 0.02, { edge: null });
 
+    // --- Details ---
+    row(6, (i) => box(g, 0.072, 0.008, 0.01, DARK, 0, 0.113, -0.17 + i * 0.05, { edge: null })); // Schienenzähne (unterhalb der Visierlinie)
+    for (const sx of [1, -1]) {
+        box(g, 0.004, 0.028, 0.06, DARK, sx * 0.0435, 0.05, -0.04, { edge: null });               // Auswurffenster
+        box(g, 0.006, 0.014, 0.03, MID, sx * 0.045, 0.0, 0.07);                                    // Sicherung
+        row(3, (i) => box(g, 0.004, 0.02, 0.014, DARK, sx * 0.036, 0.04, -0.33 + i * 0.03, { edge: null })); // Mantel-Lüftung
+    }
+    box(g, 0.012, 0.012, 0.05, MID, 0.052, 0.09, 0.0);                                             // Spannhebel
+    box(g, 0.03, 0.09, 0.035, DARK, 0, -0.045, -0.30, { rx: 0.2 });                                // Vordergriff
+    box(g, 0.06, 0.03, 0.08, MID, 0, -0.03, -0.10);                                                // Magazinschacht
+    row(5, (i) => box(g, 0.052, 0.006, 0.067, MID, 0, -0.06 - i * 0.04, -0.108 - i * 0.006, { rx: -0.1, edge: null })); // Magazinrippen
+    row(4, (i) => box(g, 0.06, 0.006, 0.07, MID, 0, -0.03 - i * 0.026, 0.085 + i * 0.01, { rx: 0.28, edge: null }));    // Griffrillen
+    box(g, 0.034, 0.04, 0.03, MID, 0.032, 0.04, 0.10);                                              // Klappgelenk der Stütze
+    cyl(g, 0.02, 0.04, MID, 0, 0.04, -0.57);                                                        // Gewindekappe
+
     return [0, 0.04, -0.55];
 }
 
@@ -269,6 +343,20 @@ function buildShotgunModel(g) {
     neon(g, 0.01, 0.012, 0.01, ORG, 0, 0.123, -0.90);
     box(g, 0.04, 0.012, 0.02, DARK, 0, 0.092, 0.08, { edge: null });
 
+    // --- Details ---
+    row(4, (i) => cyl(g, 0.011, 0.034, 0xb02020, -0.043, 0.07 - i * 0.026, 0.20, 'x'));         // Patronenhalter an der Schaftseite
+    row(4, (i) => cyl(g, 0.011, 0.008, 0xd9a521, -0.06, 0.07 - i * 0.026, 0.20, 'x'));          // Messingböden
+    box(g, 0.004, 0.035, 0.08, DARK, 0.0435, 0.04, 0.03, { edge: null });                       // Auswurffenster
+    box(g, 0.07, 0.12, 0.02, DARK, 0, 0.045, -0.72);                                            // Laufschelle hinten
+    box(g, 0.07, 0.12, 0.02, DARK, 0, 0.045, -0.88);                                            // Laufschelle vorn
+    box(g, 0.02, 0.008, 0.08, BODY, 0, -0.045, 0.06);                                           // Abzugsbügel
+    box(g, 0.02, 0.04, 0.008, BODY, 0, -0.03, 0.02);
+    box(g, 0.01, 0.03, 0.01, DARK, 0, -0.03, 0.06, { rx: 0.3, edge: null });                    // Abzug
+    box(g, 0.01, 0.025, 0.04, MID, -0.044, 0.0, 0.06);                                           // Sicherung
+    row(6, (i) => box(g, 0.087, 0.004, 0.012, DARK, 0, 0.034, -0.34 - i * 0.03, { edge: null })); // Griffrillen
+    torus(g, 0.012, 0.003, MID, 0.04, -0.04, 0.34, { ry: Math.PI / 2 });                         // Riemenöse
+    box(g, 0.076, 0.14, 0.02, 0x0a0a0a, 0, 0.0, 0.455);                                         // Gummi-Schaftkappe
+
     return [0, 0.075, -0.97];
 }
 
@@ -297,24 +385,138 @@ function buildRevolverModel(g) {
     neon(g, 0.01, 0.01, 0.01, RED, 0, 0.093, -0.45);
     box(g, 0.05, 0.022, 0.02, DARK, 0, 0.068, 0.07, { edge: null });
 
+    // --- Details ---
+    row(6, (i) => { const a = i * Math.PI / 3; cyl(g, 0.0085, 0.01, DARK, Math.cos(a) * 0.026, 0.01 + Math.sin(a) * 0.026, -0.117, 'z', { seg: 10 }); }); // Kammern
+    cyl(g, 0.007, 0.22, MID, 0.0, -0.036, -0.27);                                                // Ausstoßerstange
+    cyl(g, 0.012, 0.02, DARK, 0.0, -0.036, -0.385);                                              // Stangenkopf
+    box(g, 0.004, 0.045, 0.05, DARK, 0.0385, 0.0, 0.035, { edge: null });                        // Ladeklappe
+    box(g, 0.01, 0.035, 0.01, DARK, 0, -0.05, 0.02, { rx: 0.3, edge: null });                    // Abzug
+    markAccent(cyl(g, 0.014, 0.004, RED, 0.032, -0.11, 0.105, 'x'), RED);                        // Griff-Medaillon
+    markAccent(cyl(g, 0.014, 0.004, RED, -0.032, -0.11, 0.105, 'x'), RED);
+    row(3, (i) => box(g, 0.062, 0.004, 0.09, DARK, 0, -0.07 - i * 0.04, 0.10 + i * 0.012, { rx: 0.3, edge: null })); // Griffrillen
+    box(g, 0.03, 0.02, 0.05, MID, 0, -0.07, 0.04);                                               // Rahmen unter dem Abzug
+
     return [0, 0.035, -0.49];
 }
 
-function buildKnifeModel(g) {
+// ---------- Messer: 6 Typen (Auswahl im Inventar). Spitze zeigt nach vorn (-z), Griff liegt um z = 0 ----------
+function knifeCombat(g) {
     const STEEL = 0xb9c0cc, DARK = 0x15151b, MID = 0x2e2e3b, CYAN = 0x00f0ff;
-    // Klinge (Spitze zeigt nach vorn = -z), Rücken leicht abgesetzt
     box(g, 0.012, 0.062, 0.30, STEEL, 0, 0.0, -0.25, { edge: 0xdde3ee });
     box(g, 0.016, 0.014, 0.28, MID, 0, 0.034, -0.24, { edge: null });
-    const tip = box(g, 0.012, 0.045, 0.07, STEEL, 0, -0.008, -0.43, { rx: 0, ry: 0, edge: 0xdde3ee });
+    const tip = box(g, 0.012, 0.045, 0.07, STEEL, 0, -0.008, -0.43, { edge: 0xdde3ee });
     tip.scale.set(1, 0.45, 1);
     neon(g, 0.004, 0.008, 0.22, CYAN, 0.0085, 0.0, -0.25);
     neon(g, 0.004, 0.008, 0.22, CYAN, -0.0085, 0.0, -0.25);
-    // Parierstange + Griff
+    row(6, (i) => box(g, 0.018, 0.008, 0.012, DARK, 0, 0.044, -0.15 - i * 0.03, { edge: null })); // Rückenzähne
     box(g, 0.05, 0.028, 0.016, DARK, 0, 0.0, -0.095, { edge: 0x4a4a5e });
     box(g, 0.03, 0.044, 0.15, DARK, 0, -0.004, -0.005, { edge: 0x4a4a5e });
+    row(4, (i) => box(g, 0.032, 0.006, 0.01, MID, 0, -0.03, -0.06 + i * 0.035, { edge: null })); // Fingerrillen
     box(g, 0.034, 0.048, 0.02, MID, 0, -0.004, 0.08, { edge: null });
     return [0, 0, -0.45];
 }
+
+function knifeBayonet(g) {
+    const STEEL = 0xc4cbd6, DARK = 0x15151b, MID = 0x2e2e3b, ORG = 0xff7a00;
+    box(g, 0.012, 0.07, 0.30, STEEL, 0, 0.0, -0.26, { edge: 0xdde3ee });
+    const clip = box(g, 0.012, 0.06, 0.12, STEEL, 0, 0.0, -0.46, { edge: 0xdde3ee }); clip.scale.set(1, 0.55, 1);
+    box(g, 0.014, 0.026, 0.13, MID, 0, 0.044, -0.36, { edge: null });
+    row(7, (i) => box(g, 0.016, 0.014, 0.012, DARK, 0, 0.05, -0.12 - i * 0.025, { edge: null })); // Sägezähne
+    neon(g, 0.004, 0.01, 0.16, ORG, 0.008, -0.01, -0.22);
+    neon(g, 0.004, 0.01, 0.16, ORG, -0.008, -0.01, -0.22);
+    box(g, 0.05, 0.03, 0.016, DARK, 0, 0.0, -0.095);
+    torus(g, 0.016, 0.004, MID, 0, -0.025, -0.095, { seg: 14 });                                // Öse
+    box(g, 0.032, 0.046, 0.15, DARK, 0, -0.004, -0.005);
+    row(5, (i) => box(g, 0.034, 0.048, 0.008, MID, 0, -0.004, -0.06 + i * 0.027, { edge: null }));
+    cyl(g, 0.026, 0.03, MID, 0, -0.004, 0.09, 'z');
+    return [0, 0, -0.53];
+}
+
+function knifeKarambit(g) {
+    const STEEL = 0xbfc6d2, DARK = 0x15151b, MID = 0x2e2e3b, MAG = 0xff2bd6;
+    box(g, 0.026, 0.05, 0.12, DARK, 0, 0.0, 0.0);
+    row(4, (i) => box(g, 0.028, 0.052, 0.008, MID, 0, 0.0, -0.04 + i * 0.03, { edge: null }));
+    torus(g, 0.034, 0.008, MID, 0, -0.01, 0.1, { ry: Math.PI / 2, seg: 20 });                   // Fingerring
+    neon(g, 0.004, 0.012, 0.09, MAG, 0.0145, 0.0, 0.0);
+    neon(g, 0.004, 0.012, 0.09, MAG, -0.0145, 0.0, 0.0);
+    // gebogene Sichelklinge: erst nach vorn, dann nach unten
+    const R = 0.19, N = 8;
+    row(N, (i) => {
+        const th = (i + 0.5) / N * 1.55, len = R * 1.55 / N * 1.15;
+        const w = 0.05 * (1 - 0.8 * i / N) + 0.012;
+        box(g, 0.012, w, len, STEEL, 0, -R * (1 - Math.cos(th)), -0.06 - R * Math.sin(th), { rx: -th, edge: 0xdde3ee });
+    });
+    markAccent(box(g, 0.006, 0.01, 0.06, MAG, 0, 0.0, -0.1, { edge: null }), MAG);
+    return [0, -0.17, -0.22];
+}
+
+function knifeButterfly(g) {
+    const STEEL = 0xc4cbd6, DARK = 0x15151b, MID = 0x2e2e3b, YEL = 0xffcc00;
+    for (const sx of [1, -1]) {
+        box(g, 0.012, 0.04, 0.2, DARK, sx * 0.018, 0.0, 0.0);
+        row(3, (i) => box(g, 0.014, 0.026, 0.026, 0x000000, sx * 0.018, 0.0, -0.06 + i * 0.06, { edge: null })); // Lochung
+        neon(g, 0.004, 0.006, 0.18, YEL, sx * 0.0255, 0.012, 0.0);
+    }
+    box(g, 0.05, 0.03, 0.012, MID, 0, 0.0, -0.1);
+    box(g, 0.05, 0.03, 0.012, MID, 0, 0.0, 0.1);
+    cyl(g, 0.005, 0.05, MID, 0, 0.012, -0.1, 'x'); cyl(g, 0.005, 0.05, MID, 0, 0.012, 0.1, 'x');
+    box(g, 0.01, 0.052, 0.26, STEEL, 0, 0.0, -0.24, { edge: 0xdde3ee });
+    const tip = box(g, 0.01, 0.04, 0.07, STEEL, 0, -0.006, -0.405, { edge: 0xdde3ee }); tip.scale.set(1, 0.5, 1);
+    box(g, 0.012, 0.014, 0.1, MID, 0, 0.032, -0.16, { edge: null });
+    return [0, 0, -0.43];
+}
+
+function knifeDagger(g) {
+    const STEEL = 0xd0d6e0, DARK = 0x15151b, MID = 0x2e2e3b, GOLD = 0xd9a521, RED = 0xff3355;
+    box(g, 0.01, 0.05, 0.34, STEEL, 0, 0.0, -0.28, { edge: 0xeef2f8 });
+    box(g, 0.014, 0.012, 0.32, 0xa8b0bd, 0, 0.0, -0.28, { edge: null });                          // Mittelgrat
+    const tip = box(g, 0.01, 0.045, 0.1, STEEL, 0, 0.0, -0.5, { edge: 0xeef2f8 }); tip.scale.set(1, 0.4, 1);
+    markAccent(box(g, 0.004, 0.006, 0.18, RED, 0.007, 0.0, -0.25, { edge: null }), RED);
+    markAccent(box(g, 0.004, 0.006, 0.18, RED, -0.007, 0.0, -0.25, { edge: null }), RED);
+    box(g, 0.1, 0.022, 0.016, GOLD, 0, 0.0, -0.105);                                              // Parierstange
+    box(g, 0.014, 0.034, 0.02, GOLD, 0.056, 0.0, -0.105);
+    box(g, 0.014, 0.034, 0.02, GOLD, -0.056, 0.0, -0.105);
+    box(g, 0.026, 0.034, 0.16, DARK, 0, 0.0, -0.015);
+    row(8, (i) => box(g, 0.028, 0.036, 0.007, MID, 0, 0.0, -0.08 + i * 0.019, { edge: null }));   // Wicklung
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.025, 12, 10), mat(GOLD));
+    knob.position.set(0, 0, 0.09); knob.userData.body = true; knob.userData.baseColor = GOLD; g.add(knob);
+    return [0, 0, -0.55];
+}
+
+function knifeMachete(g) {
+    const STEEL = 0xaab2bf, DARK = 0x15151b, MID = 0x2e2e3b, GRN = 0x39ff14;
+    box(g, 0.014, 0.11, 0.40, STEEL, 0, 0.0, -0.32, { edge: 0xdde3ee });
+    const belly = box(g, 0.014, 0.1, 0.16, STEEL, 0, -0.008, -0.58, { rx: 0.06, edge: 0xdde3ee }); belly.scale.set(1, 0.8, 1);
+    const tip = box(g, 0.012, 0.07, 0.1, STEEL, 0, -0.03, -0.69, { rx: 0.18, edge: 0xdde3ee }); tip.scale.set(1, 0.55, 1);
+    box(g, 0.02, 0.016, 0.52, MID, 0, 0.058, -0.38, { edge: null });                               // dicker Rücken
+    neon(g, 0.004, 0.014, 0.4, GRN, 0.009, 0.01, -0.34);
+    neon(g, 0.004, 0.014, 0.4, GRN, -0.009, 0.01, -0.34);
+    box(g, 0.06, 0.05, 0.016, DARK, 0, -0.01, -0.115);
+    box(g, 0.034, 0.05, 0.19, DARK, 0, -0.005, -0.01);
+    row(3, (i) => markAccent(cyl(g, 0.007, 0.04, GRN, 0, -0.005, -0.06 + i * 0.06, 'x'), GRN));    // Nieten
+    box(g, 0.038, 0.058, 0.02, MID, 0, -0.005, 0.1);
+    torus(g, 0.016, 0.003, MID, 0, -0.005, 0.12, { seg: 12 });
+    return [0, 0, -0.74];
+}
+
+export const KNIFE_TYPES = [
+    { id: 'combat',    name: 'Kampfmesser', build: knifeCombat },
+    { id: 'bayonet',   name: 'Bajonett',    build: knifeBayonet },
+    { id: 'karambit',  name: 'Karambit',    build: knifeKarambit },
+    { id: 'butterfly', name: 'Butterfly',   build: knifeButterfly },
+    { id: 'dagger',    name: 'Dolch',       build: knifeDagger },
+    { id: 'machete',   name: 'Machete',     build: knifeMachete }
+];
+let knifeVariant = 0;
+export const getKnifeVariant = () => knifeVariant;
+// Setzt den Messertyp (für neu gebaute Modelle). Gibt true zurück, wenn er sich geändert hat.
+export function setKnifeVariant(i) {
+    const v = Number.isInteger(i) && i >= 0 && i < KNIFE_TYPES.length ? i : 0;
+    if (v === knifeVariant) return false;
+    knifeVariant = v;
+    return true;
+}
+function buildKnifeModel(g) { return KNIFE_TYPES[knifeVariant].build(g); }
 
 // ---------- Waffentypen ----------
 // automatic  = true: Dauerfeuer bei gehaltener Feuertaste (sonst ein Schuss pro Klick)
@@ -389,6 +591,8 @@ export const KNIFE_INDEX = WEAPON_CONFIGS.length - 1;
 
 // ---------- Einzelne Waffe ----------
 const BASE_POS = new THREE.Vector3(0.3, -0.25, -0.5);
+// Einstellungen für die Ego-Waffe (aus dem Einstellungsmenü): sichtbar, Linkshänder, Verschiebung, Größe
+export const viewSettings = { visible: true, left: false, x: 0, y: 0, z: 0, scale: 1 };
 const _tmpColor = new THREE.Color();
 
 export class Weapon {
@@ -450,8 +654,10 @@ export class Weapon {
         this.aimE = 0;         // 0..1 geglättet (für Position/FOV)
         this.active = false;   // vom WeaponManager gesetzt (aktuell ausgerüstet)
 
+        this.buildModel = config.buildModel;
         this.weaponGroup = new THREE.Group();
         const m = config.buildModel(this.weaponGroup);
+        this._modelParts = this.weaponGroup.children.slice();
         this.weaponGroup.position.copy(BASE_POS);
         this.weaponGroup.visible = false; // WeaponManager blendet die aktive Waffe ein
 
@@ -479,6 +685,27 @@ export class Weapon {
 
         this.camera.add(this.weaponGroup);
         this._notifyAmmoChange();
+    }
+
+    // Modell neu bauen (Messertyp gewechselt): alte Teile entfernen, neues Modell + Mündungspunkt, Skin neu anwenden
+    rebuildModel() {
+        for (const o of this._modelParts) this.weaponGroup.remove(o);
+        const tmp = new THREE.Group();
+        const m = this.buildModel(tmp);
+        this._modelParts = tmp.children.slice();
+        for (const o of this._modelParts) this.weaponGroup.add(o);
+        this.muzzle.position.set(m[0], m[1], m[2]);
+        this.accentMeshes = [];
+        this.weaponGroup.traverse((o) => { if (o.userData && o.userData.accent !== undefined) this.accentMeshes.push(o); });
+        this.bodyMeshes = [];
+        for (const part of this._modelParts) part.traverse((o) => {
+            if (o.isMesh && o.userData && o.userData.body) {
+                o.userData.baseMat = o.material;
+                projectSkinUVs(o);
+                this.bodyMeshes.push(o);
+            }
+        });
+        this.setSkin(this.skin);
     }
 
     // Skin anwenden (Objekt aus skins.js): Muster auf der ganzen Waffe + Akzentfarbe. null/Standard = Originaldesign
@@ -664,16 +891,20 @@ export class Weapon {
 
         // Quadratisch: starker Anfangsimpuls, weicher Auslauf. Beim Zielen halber Rückstoß (Waffe bleibt im Bild).
         const k = this.recoil * this.recoil * (1 - 0.5 * e);
+        // Verschiebung/Spiegelung aus den Einstellungen; beim Zielen (e) zählt nur die Skalierung nicht mehr, damit das Visier mittig bleibt
+        const vs = viewSettings, side = vs.left ? -1 : 1, off = 1 - e;
         this.weaponGroup.position.set(
-            BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e + this.dryNudge * 0.02 + d * 0.14,
-            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e - this.reloadSink * 0.15 - d * 0.40,
-            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + k * this.kick + d * 0.08
+            side * (BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e) + vs.x * off + this.dryNudge * 0.02 + d * 0.14 * side,
+            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e + vs.y * off - this.reloadSink * 0.15 - d * 0.40,
+            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + vs.z * off + k * this.kick + d * 0.08
         );
+        const sc = 1 + (vs.scale - 1) * off;
+        this.weaponGroup.scale.set(sc * side, sc, sc);
         this.weaponGroup.rotation.x = k * this.kickRot + this.reloadSink * 0.35 - d * 0.95;
-        this.weaponGroup.rotation.z = d * 0.45;
+        this.weaponGroup.rotation.z = d * 0.45 * side;
 
         // Zielfernrohr-Ansicht: Waffenmodell ausblenden, sobald fast voll gezoomt (dann zeigt das Overlay das Rohr)
-        if (this.active) this.weaponGroup.visible = !(this.scopeOverlay && this.aimT > 0.9);
+        if (this.active) this.weaponGroup.visible = viewSettings.visible && !(this.scopeOverlay && this.aimT > 0.9);
 
         if (this.flashTimer > 0) {
             this.flashTimer -= delta;
@@ -729,6 +960,7 @@ export class WeaponManager {
     setLevel(level) { this.weapons.forEach(w => { w.unlocked = level >= w.unlockLevel; }); }
     // Skin auf alle Waffen anwenden
     setSkin(skin) { this.weapons.forEach(w => w.setSkin(skin)); }
+    rebuildKnife() { this.weapons[KNIFE_INDEX].rebuildModel(); }
     // Eigener Skin pro Waffe: Array mit einem Skin-Objekt pro Waffenindex
     setSkins(skinList) { this.weapons.forEach((w, i) => w.setSkin(skinList[i] || null)); }
 
