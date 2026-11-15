@@ -191,13 +191,13 @@ function buildPistolModel(g) {
     row(4, (i) => box(g, 0.079, 0.05, 0.007, DARK, 0, 0.05, -0.17 - i * 0.016, { edge: null }));      // Frontrillen
     for (const sx of [1, -1]) {
         box(g, 0.004, 0.03, 0.06, DARK, sx * 0.039, 0.058, -0.05, { edge: null });                    // Auswurffenster
-        box(g, 0.006, 0.012, 0.045, MID, sx * 0.037, 0.0, -0.01);                                     // Schlittenfang
-        row(4, (i) => box(g, 0.004, 0.012, 0.05, MID, sx * 0.035, -0.07 - i * 0.022, 0.075 + i * 0.005, { rx: 0.2, edge: null })); // Griffrillen
+        box(g, 0.006, 0.012, 0.045, SLIDE, sx * 0.037, 0.0, -0.01);                                     // Schlittenfang
+        row(4, (i) => box(g, 0.004, 0.012, 0.05, SLIDE, sx * 0.035, -0.07 - i * 0.022, 0.075 + i * 0.005, { rx: 0.2, edge: null })); // Griffrillen
     }
-    box(g, 0.03, 0.012, 0.1, MID, 0, -0.045, -0.13);                                              // Zubehörschiene
-    box(g, 0.075, 0.012, 0.09, MID, 0, -0.19, 0.105, { rx: 0.2 });                                // Magazinboden
+    box(g, 0.03, 0.012, 0.1, FRAME, 0, -0.045, -0.13);                                            // Zubehörschiene
+    box(g, 0.075, 0.012, 0.09, SLIDE, 0, -0.19, 0.105, { rx: 0.2 });                                // Magazinboden
     box(g, 0.012, 0.012, 0.02, DARK, 0, 0.085, 0.14, { edge: null });                             // Hahn (niedrig, stört das Visier nicht)
-    cyl(g, 0.02, 0.03, MID, 0, 0.045, -0.255);                                                    // Laufbuchse
+    cyl(g, 0.02, 0.03, SLIDE, 0, 0.045, -0.255);                                                 // Laufbuchse
 
     return [0, 0.048, -0.26];
 }
