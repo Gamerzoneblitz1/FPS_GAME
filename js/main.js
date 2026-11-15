@@ -267,6 +267,13 @@ function init() {
 
         document.getElementById('pause-resume').addEventListener('click', () => controls.lock());
         document.getElementById('pause-loadout').addEventListener('click', () => openInventory());
+        // Zurück zum Hauptmenü: Spielstand sichern, Verbindung trennen (andere Spieler sehen dich verschwinden) und Seite neu laden -> Hauptmenü
+        document.getElementById('pause-menu-btn').addEventListener('click', () => {
+            flushProgress();
+            const btn = document.getElementById('pause-menu-btn');
+            btn.disabled = true; btn.textContent = 'LÄDT …';
+            setTimeout(() => { try { socket.disconnect(); } catch (e) { /* ignorieren */ } location.reload(); }, 250);
+        });
         document.getElementById('pause-reset').addEventListener('click', () => {
             socket.emit('requestReset');
             pauseMenu.style.display = 'none';
@@ -1440,9 +1447,10 @@ function renderInvSkins(p) {
     const filter = document.getElementById('inv-filter');
     filter.innerHTML = `<button class="inv-chip${invRarity === 'all' ? ' active' : ''}" data-r="all">ALLE</button>` +
         RARITIES.filter(r => r.odds).map(r => `<button class="inv-chip${invRarity === r.key ? ' active' : ''}" data-r="${r.key}" style="--rc:${r.color}">${r.name}</button>`).join('') +
-        `<span class="inv-sep"></span><button class="inv-chip${invOnly ? ' active' : ''}" data-only="1">NUR ${esc(TARGET_DE(skinTarget).toUpperCase())}</button>`;
+        `<span class="inv-sep"></span><button class="inv-chip${invOnly ? ' active' : ''}" data-only="1">NUR ${esc(TARGET_DE(skinTarget).toUpperCase())}</button>` +
+        `<button class="inv-chip${invOnly ? '' : ' active'}" data-only="0">ALLE SKINS</button>`;
     filter.querySelectorAll('.inv-chip[data-r]').forEach(c => c.addEventListener('click', () => { invRarity = c.dataset.r; renderInvSkins(prog.getProgress()); }));
-    filter.querySelector('[data-only]').addEventListener('click', () => { invOnly = !invOnly; renderInvSkins(prog.getProgress()); });
+    filter.querySelectorAll('[data-only]').forEach(b => b.addEventListener('click', () => { invOnly = b.dataset.only === '1'; renderInvSkins(prog.getProgress()); }));
 
     const viewing = invSkin ?? equippedSkinFor(skinTarget);
     const rank = Object.fromEntries(RARITIES.map((r, i) => [r.key, i]));
