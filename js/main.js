@@ -1328,7 +1328,7 @@ function setPlayerVisible(mesh, on) {
 // Skins werden per Drag & Drop auf die passende Waffe gezogen (oder: Karte anklicken + AUSRÜSTEN). Skins gibt es aus Kisten.
 const INV_TARGETS = ['char', 0, 1, 2, 3, 4, 5, 6];
 const TARGET_DE = (t) => t === 'char' ? 'Soldat' : t === WEAPON_CONFIGS.length - 1 ? 'Messer' : WEAPON_CONFIGS[t].name;
-let invOnly = false;      // nur Skins der gewählten Waffe zeigen
+let invOnly = true;       // nur Skins der gewählten Waffe zeigen (Standard; per Knopf auf alle umschaltbar)
 const STAT_MAX = {
     dmg: Math.max(...WEAPON_CONFIGS.map(c => c.damage * (c.pellets || 1))),
     rpm: Math.max(...WEAPON_CONFIGS.map(c => 60 / c.fireCooldown)),
@@ -2237,6 +2237,8 @@ function animate() {
         const crouching = crouchInput || sliding;
         const targetEyeHeight = crouching ? EYE_HEIGHT_CROUCH : EYE_HEIGHT_STAND;
         currentEyeHeight += (targetEyeHeight - currentEyeHeight) * Math.min(1, 12 * delta);
+        viewSettings.crouch = Math.min(1, Math.max(0, (EYE_HEIGHT_STAND - currentEyeHeight) / (EYE_HEIGHT_STAND - EYE_HEIGHT_CROUCH))); // für die Waffen-Animation
+        viewSettings.slide = sliding ? 1 : 0;
 
         // Sprint/Ducken/Sliden beeinflussen Beschleunigung & Reibung. Beim Sliden kaum Bremsung
         // (Schwung bleibt erhalten) und kaum eigene Beschleunigung (man gleitet, statt zu laufen).
