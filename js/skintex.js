@@ -555,7 +555,83 @@ function steel(colors, rand) {
     return r.d;
 }
 
-const PATTERNS = { carbon, camo, nebula, gold, hyper, circuit, frost, magma,
+// Printstream: weißes Panzer-Finish mit schwarzem Mittelband, feinen Leiterbahnen und leuchtenden Knoten
+function printstream(colors, rand) {
+    const [white, dark, glow] = colors.map(hex);
+    const n = fbm(rand, 4, 2);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const g = 0.93 + (n(x / S, y / S) - 0.5) * 0.12;
+        let c = mix(white, [255, 255, 255], 0.2);
+        c = [c[0] * g, c[1] * g, c[2] * g];
+        // schwarzes Band (periodisch über y), mit hellen Kanten
+        const band = Math.abs(((y + 40) % S) / S - 0.5);              // 0 in der Mitte
+        const inBand = 1 - smooth(0.20, 0.215, band);
+        c = mix(c, dark, inBand);
+        const edge = (1 - smooth(0.0, 0.012, Math.abs(band - 0.208)));
+        c = mix(c, glow, edge * 0.85);
+        // Plattennähte
+        if (x % 64 < 2 || y % 128 < 1) c = mix(c, dark, 0.35);
+        r.set(x, y, c);
+    }
+    // Leiterbahnen im Band
+    for (let i = 0; i < 14; i++) {
+        const y = ((Math.floor(rand() * 20) * 4) + 100) % S, x = Math.floor(rand() * S), l = 20 + Math.floor(rand() * 70);
+        r.line(x, y, x + l, y, 1.1, glow, 0.8);
+        r.line(x + l, y, x + l, y + (rand() < 0.5 ? 6 : -6), 1.1, glow, 0.8);
+        r.line(x + l, y, x + l + 1, y, 3.2, glow, 0.9);
+    }
+    return r.d;
+}
+
+// Asiimov: weiße Platten, orange Blöcke und schwarze Schrägstreifen
+function asiimov(colors, rand) {
+    const [white, orange, black] = colors.map(hex);
+    const n = fbm(rand, 5, 2);
+    const r = new Raster();
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const g = 0.9 + (n(x / S, y / S) - 0.5) * 0.14;
+        let c = [white[0] * g, white[1] * g, white[2] * g];
+        const d = ((x + y) % 128) / 128;                               // Diagonale, nahtlos
+        if (d > 0.62 && d < 0.78) c = mix(c, black, 0.95);
+        if (d > 0.78 && d < 0.81) c = mix(c, orange, 1);
+        if (x >= 24 && x < 104 && y >= 150 && y < 208) c = mix(c, orange, 1);   // orange Block
+        if (x >= 24 && x < 104 && y >= 150 && y < 154) c = mix(c, black, 0.9);
+        if (x >= 160 && x < 232 && y >= 40 && y < 66) c = mix(c, black, 0.9);
+        if ((x + 3) % 64 < 2) c = mix(c, black, 0.3);
+        r.set(x, y, c);
+    }
+    return r.d;
+}
+
+// Neo-Noir: dunkle Skyline, Neonreklame und Regen
+function neonoir(colors, rand) {
+    const [bg, n1, n2] = colors.map(hex);
+    const r = new Raster();
+    const nb = 16, w = S / nb, hs = [];
+    for (let i = 0; i < nb; i++) hs.push(70 + Math.floor(rand() * 120));
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const t = y / S;
+        let c = mix(mul(bg, 0.6), mix(bg, n2, 0.5), t * t);
+        const bi = Math.floor(x / w), top = S - hs[bi];
+        if (y > top) {
+            c = mul(bg, 0.35);
+            if (((x % w) % 5) < 2 && ((y - top) % 7) < 3 && rand() < 0.55) c = mix(c, n1, 0.9); // Fenster
+        }
+        r.set(x, y, c);
+    }
+    for (let i = 0; i < 70; i++) {                                     // Regen
+        const x = rand() * S, y = rand() * S, l = 8 + rand() * 18;
+        r.line(x, y, x - 2, y + l, 0.8, n1, 0.35);
+    }
+    for (let i = 0; i < 4; i++) {                                      // Neonbalken
+        const y = 30 + i * 55, x = rand() * S;
+        r.line(x, y, x + 50, y, 2.2, i & 1 ? n1 : n2, 0.95);
+    }
+    return r.d;
+}
+
+const PATTERNS = { printstream, asiimov, neonoir, carbon, camo, nebula, gold, hyper, circuit, frost, magma,
     hex: honeycomb, hazard, tiger, scales, plasma, marble, checker, topo, sunset, splatter, halftone, lightning, glitch, woodland, fade, wood, steel };
 
 // Reine Pixel-Erzeugung: gibt S*S*4 RGBA-Bytes zurück
