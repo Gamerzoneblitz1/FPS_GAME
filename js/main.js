@@ -1,5 +1,5 @@
 import { fetchManifest, loadMap } from './maps.js';
-import { WeaponManager, WEAPON_CONFIGS } from './weapon.js';
+import { WeaponManager, WEAPON_CONFIGS, KNIFE_INDEX, KNIFE_TYPES, setKnifeVariant, viewSettings } from './weapon.js';
 import * as sfx from './audio.js';
 import { initEffects, createTracer, addBulletHole, spawnImpactSpark, updateEffects } from './effects.js';
 import { createPlayerMesh, updatePlayerAnimations, setPlayerFacing, applySkin } from './player.js';
@@ -14,6 +14,8 @@ let playerName = ''; // wird beim ersten Spielstart abgefragt
 const playerNames = {}; // id -> name, für Nametags + Kill-Feed
 
 let camera, scene, renderer, controls;
+let bloomPassRef = null; // Bloom-Pass (für den Stärke-Regler)
+let fpsEl = null, fpsFrames = 0, fpsLast = 0; // FPS-Anzeige
 let composer = null; // Bloom-Postprocessing (null = Fallback auf normales Rendering)
 
 // Einstellungen: aus localStorage laden (bleiben nach Neuladen erhalten), sonst Standardwerte
@@ -277,8 +279,6 @@ function init() {
     }
 
     // Die Karte wird nach dem Start asynchron aus dem Ordner maps/ geladen (siehe initMaps() unten).
-    weapon = new WeaponManager(camera, scene, updateAmmoUI);
-    weapon.onEvent = handleWeaponEvent;
     // Zuletzt benutzten Namen vorbelegen und dessen lokalen Spielstand laden (Level/Skin sofort sichtbar)
     const lastName = prog.getLastName();
     const savedNameField = document.getElementById('name-input');
@@ -286,6 +286,9 @@ function init() {
         savedNameField.value = lastName;
         prog.setActiveName(lastName);
     }
+    setKnifeVariant(prog.getKnifeType()); // Messertyp vor dem Bauen der Waffen setzen
+    weapon = new WeaponManager(camera, scene, updateAmmoUI);
+    weapon.onEvent = handleWeaponEvent;
     weapon.setLevel(prog.getProgress().level); // Waffen nach gespeichertem Level freischalten
     applyOwnSkin();
     updateXpUI();
@@ -301,12 +304,13 @@ function init() {
             fireHeld = true;
             handleShooting(); // sofortiger erster Schuss (reicht bei halbautomatischen Waffen)
         } else if (e.button === 2) {
-            weapon.setAiming(true); // Rechtsklick halten = Zielen / Zielfernrohr
+            // Rechtsklick halten = Zielen / Zielfernrohr (oder umschalten, wenn in den Einstellungen gewählt)
+            weapon.setAiming(userControls.aimToggle ? !weapon.aimWanted : true);
         }
     });
     document.addEventListener('mouseup', (e) => {
         if (e.button === 0) fireHeld = false;
-        else if (e.button === 2) weapon.setAiming(false);
+        else if (e.button === 2 && !userControls.aimToggle) weapon.setAiming(false);
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault()); // kein Browser-Menü bei Rechtsklick
     window.addEventListener('blur', () => { fireHeld = false; if (weapon) weapon.setAiming(false); });
@@ -436,7 +440,7 @@ function init() {
     // Treffer-Bestätigung (nur für den Schützen: rotes Fadenkreuz-Flash)
     socket.on('hitConfirm', (d) => {
         flashCrosshair();
-        sfx.playHitMarker();
+        if (userControls.hitSound) sfx.playHitMarker();
         awardXp(Math.floor((d?.damage || 0) * prog.XP_PER_DAMAGE)); // kleine XP pro Schaden
     });
 
@@ -1087,6 +1091,7 @@ function flushProgress() {
 }
 
 function applyOwnSkin() {
+    if (setKnifeVariant(prog.getKnifeType())) weapon.rebuildKnife(); // anderer Messertyp gewählt (z. B. nach Namenswechsel)
     // Jede Waffe trägt ihren eigenen Skin (Muster auf der ganzen Waffe + Akzentfarbe)
     weapon.setSkins(WEAPON_CONFIGS.map((_, i) => SKINS[prog.getWeaponSkin(i)] || SKINS[0]));
 }
@@ -1112,6 +1117,7 @@ function updateXpUI() {
 
 // ---- Hauptmenü: 3D-Schaufenster (Soldat / Primär- / Sekundärwaffe mit dem gewählten Skin) ----
 function refreshMenu() {
+    setKnifeVariant(prog.getKnifeType());
     const wrap = document.getElementById('mm-views');
     if (!wrap || hasEntered) return;
     const lo = prog.getLoadout();
@@ -1347,6 +1353,7 @@ function closeInventory() {
 const equippedSkinFor = (t) => t === 'char' ? prog.getSkinId() : prog.getWeaponSkin(t);
 
 function renderLoadout() {
+    setKnifeVariant(prog.getKnifeType());
     const p = prog.getProgress();
     const lvl = document.getElementById('loadout-level');
     if (lvl) lvl.innerHTML = `Level ${p.level} — ${p.xpInLevel} / ${p.need} XP · 🎁 ${prog.getCrates()} Kisten · ${prog.getOwned().length} Skins`;
@@ -1409,10 +1416,14 @@ function renderInvStage(p) {
         `<button class="inv-btn primary" id="inv-equip"${equipped ? ' disabled' : ''}>${equipped ? 'AUSGERÜSTET ✔' : 'SKIN AUSRÜSTEN'}</button>` +
         `<button class="inv-btn" id="inv-default"${equippedId === 0 ? ' disabled' : ''}>STANDARD</button><span class="inv-sep"></span>` +
         `<button class="inv-btn warn" id="inv-crate"${crates > 0 ? '' : ' disabled'}>🎁 KISTE ÖFFNEN (${crates})</button>` +
-        `<div id="loadout-note">${crates > 0 ? 'Du hast ungeöffnete Kisten!' : 'Pro Level-Aufstieg gibt es eine Kiste. Waffen wählst du im Spiel mit B.'}</div>`;
+        `<div id="loadout-note">${crates > 0 ? 'Du hast ungeöffnete Kisten!' : 'Pro Level-Aufstieg gibt es eine Kiste. Waffen wählst du im Spiel mit B.'}</div>` +
+        (skinTarget === KNIFE_INDEX ? `<div class="knife-types"><span class="kt-h">MESSERTYP</span>${KNIFE_TYPES.map((k, i) => `<button class="inv-btn${prog.getKnifeType() === i ? ' on' : ''}" data-kt="${i}">${esc(k.name)}</button>`).join('')}</div>` : '');
     document.getElementById('inv-equip').addEventListener('click', () => equipSkinTo(skinTarget, viewId));
     document.getElementById('inv-default').addEventListener('click', () => equipSkinTo(skinTarget, 0));
     document.getElementById('inv-crate').addEventListener('click', openCrateOverlay);
+    document.querySelectorAll('#inv-actions [data-kt]').forEach(b => b.addEventListener('click', () => {
+        if (prog.setKnifeType(parseInt(b.dataset.kt, 10))) { setKnifeVariant(prog.getKnifeType()); if (weapon) weapon.rebuildKnife(); flushProgress(); applyOwnSkin(); renderLoadout(); refreshMenu(); }
+    }));
 }
 
 function equipSkinTo(target, id) {
@@ -1907,6 +1918,8 @@ function initComposer() {
                 0.4,  // radius
                 0.15  // threshold
             );
+            bloomPass.strength = userControls.bloomStrength;
+            bloomPassRef = bloomPass;
             composer.addPass(bloomPass);
         } else {
             console.warn('Bloom-Postprocessing nicht verfügbar (Scripts nicht geladen) — normales Rendering wird genutzt.');
@@ -1944,6 +1957,38 @@ function setupControlSettings() {
 
     const invert = $('invert-toggle');
     if (invert) invert.addEventListener('change', () => { userControls.invertY = invert.checked; saveSettings(); });
+
+    // --- weitere Einstellungen: Schalter und Regler, alles wirkt sofort ---
+    const applyExtras = () => {
+        viewSettings.visible = userControls.weaponVisible;
+        viewSettings.left = userControls.leftHanded;
+        viewSettings.x = userControls.weaponX; viewSettings.y = userControls.weaponY; viewSettings.z = userControls.weaponZ;
+        viewSettings.scale = userControls.weaponScale;
+        const tv = $('distance-val'), tl = $('distance-label'), kf = $('kill-feed');
+        if (tv) tv.style.display = userControls.showTargetInfo ? '' : 'none';
+        if (tl) tl.style.display = userControls.showTargetInfo ? '' : 'none';
+        if (kf) kf.style.display = userControls.showKillFeed ? '' : 'none';
+        if (userControls.showFps && !fpsEl) {
+            fpsEl = document.createElement('div');
+            fpsEl.style.cssText = 'position:fixed;left:12px;top:10px;z-index:4;font:12px monospace;color:#9fe;background:rgba(0,0,0,.45);padding:2px 7px;border-radius:3px;pointer-events:none';
+            document.body.appendChild(fpsEl); fpsLast = performance.now(); fpsFrames = 0;
+        }
+        if (fpsEl) fpsEl.style.display = userControls.showFps ? 'block' : 'none';
+        if (bloomPassRef) bloomPassRef.strength = userControls.bloomStrength;
+    };
+    const checks = [['aim-toggle', 'aimToggle'], ['fps-toggle', 'showFps'], ['target-toggle', 'showTargetInfo'], ['killfeed-toggle', 'showKillFeed'],
+        ['weapon-visible', 'weaponVisible'], ['left-handed', 'leftHanded'], ['hitsound-toggle', 'hitSound'], ['steps-toggle', 'footsteps']];
+    checks.forEach(([id, key]) => {
+        const el = $(id);
+        if (el) el.addEventListener('change', () => { userControls[key] = el.checked; applyExtras(); saveSettings(); });
+    });
+    refreshers.push(
+        bind('wx-slider', 'wx-val', () => userControls.weaponX, v => { userControls.weaponX = v; applyExtras(); }, v => v.toFixed(2)),
+        bind('wy-slider', 'wy-val', () => userControls.weaponY, v => { userControls.weaponY = v; applyExtras(); }, v => v.toFixed(2)),
+        bind('wz-slider', 'wz-val', () => userControls.weaponZ, v => { userControls.weaponZ = v; applyExtras(); }, v => v.toFixed(2)),
+        bind('wscale-slider', 'wscale-val', () => userControls.weaponScale, v => { userControls.weaponScale = v; applyExtras(); }, v => Math.round(v * 100) + '%'),
+        bind('bloomstr-slider', 'bloomstr-val', () => userControls.bloomStrength, v => { userControls.bloomStrength = v; applyExtras(); }, v => v.toFixed(1))
+    );
     const outline = $('ch-outline');
     if (outline) outline.addEventListener('change', () => { c().outline = outline.checked; redraw(); });
 
@@ -1972,6 +2017,8 @@ function setupControlSettings() {
     const refreshAll = () => {
         refreshers.forEach(f => f());
         if (invert) invert.checked = userControls.invertY;
+        checks.forEach(([id, key]) => { const el = $(id); if (el) el.checked = !!userControls[key]; });
+        applyExtras();
         if (outline) outline.checked = c().outline;
         if (style) style.value = c().style;
         syncSwatches();
@@ -2108,6 +2155,7 @@ function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
+    if (fpsEl) { fpsFrames++; if (time - fpsLast >= 500) { fpsEl.textContent = Math.round(fpsFrames * 1000 / (time - fpsLast)) + ' FPS'; fpsFrames = 0; fpsLast = time; } }
     const delta = (time - prevTime) / 1000;
 
     applyMouseSensitivity(); // vor der Bewegung, damit die Laufrichtung zur korrigierten Blickrichtung passt
@@ -2292,7 +2340,7 @@ function animate() {
             const interval = sprintHeld ? 0.30 : (crouchInput ? 0.52 : 0.38);
             if (stepTimer >= interval) {
                 stepTimer = 0;
-                sfx.playFootstep(crouchInput ? 0.35 : (sprintHeld ? 1 : 0.7));
+                if (userControls.footsteps) sfx.playFootstep(crouchInput ? 0.35 : (sprintHeld ? 1 : 0.7));
             }
         } else if (!canJump) {
             stepTimer = 0.2; // nach der Landung bald ein Schritt
