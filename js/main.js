@@ -143,11 +143,7 @@ let lookLastX = 0, lookLastY = 0;
 const TOUCH_LOOK_SENSITIVITY = 0.0035;
 const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-init();
-initMaps();
-// Nicht direkt animate() aufrufen: animate() nutzt Konstanten (z.B. _lookEuler), die weiter unten im Modul stehen und beim
-// Aufruf an dieser Stelle noch nicht initialisiert wären (ReferenceError, Modul bricht ab). Der Frame-Callback läuft erst danach.
-requestAnimationFrame(animate);
+// Start: steht ganz am Dateiende (init() nutzt Konstanten, die weiter unten im Modul deklariert werden).
 
 function init() {
     scene = new THREE.Scene();
@@ -2320,3 +2316,8 @@ function animate() {
         renderer.render(scene, camera);
     }
 }
+
+// ---- Start (muss NACH allen top-level let/const des Moduls stehen, sonst "can't access lexical declaration ... before initialization") ----
+init();
+initMaps();
+requestAnimationFrame(animate);
