@@ -12,6 +12,7 @@ const LAST_NAME_KEY = 'nv_last_name';
 export const MAX_LEVEL = Infinity; // kein Level-Limit mehr
 export const XP_PER_KILL = 150;
 export const XP_PER_DAMAGE = 0.25; // pro Schadenspunkt, abgerundet
+export const KNIFE_TYPE_COUNT = 6; // = KNIFE_TYPES.length in weapon.js
 export const WEAPON_COUNT = 7;     // Anzahl Waffen inkl. Messer (WEAPON_CONFIGS in weapon.js)
 export const DEFAULT_LOADOUT = [0, 1];
 const MAX_XP = 200_000_000;
@@ -29,7 +30,7 @@ const validSkin = (v) => Number.isInteger(v) && v >= 0 && !!SKINS[v];
 // Wandelt beliebige (auch alte/kaputte) Daten in einen gültigen Stand um.
 // Skins: nur gültige, zur Waffe passende Skins, die man besitzt (alte Spielstände ohne "owned" starten ohne Skins; Kisten gibt es rückwirkend).
 export function sanitize(s) {
-    const out = { xp: 0, skin: 0, wskins: new Array(WEAPON_COUNT).fill(0), loadout: DEFAULT_LOADOUT.slice(), owned: [], opened: 0 };
+    const out = { xp: 0, skin: 0, wskins: new Array(WEAPON_COUNT).fill(0), loadout: DEFAULT_LOADOUT.slice(), owned: [], opened: 0, knife: 0 };
     if (!s) return out;
     if (Number.isFinite(s.xp) && s.xp >= 0) out.xp = Math.min(MAX_XP, Math.floor(s.xp));
     if (Array.isArray(s.owned)) {
@@ -45,6 +46,7 @@ export function sanitize(s) {
         // Messer (letzter Index) ist keine Kaufwaffe
         if (Number.isInteger(a) && Number.isInteger(b) && a !== b && a >= 0 && b >= 0 && a < WEAPON_COUNT - 1 && b < WEAPON_COUNT - 1) out.loadout = [a, b];
     }
+    if (Number.isInteger(s.knife) && s.knife >= 0 && s.knife < KNIFE_TYPE_COUNT) out.knife = s.knife;
     if (Number.isInteger(s.opened) && s.opened >= 0) out.opened = Math.min(s.opened, 1_000_000);
     return out;
 }
@@ -92,7 +94,7 @@ export function setActiveName(name, commit = true) {
 }
 
 export function isPersistent() { return activeKey !== null; }
-export function getState() { return { xp: state.xp, skin: state.skin, wskins: state.wskins.slice(), loadout: state.loadout.slice(), owned: state.owned.slice(), opened: state.opened }; }
+export function getState() { return { xp: state.xp, skin: state.skin, wskins: state.wskins.slice(), loadout: state.loadout.slice(), owned: state.owned.slice(), opened: state.opened, knife: state.knife }; }
 
 // Stand vom Server übernehmen (Server hat das Maximum aus Server- und Client-Stand gebildet)
 export function applyServer(s) {
@@ -104,6 +106,7 @@ export function applyServer(s) {
     // Besitz nie verlieren: Vereinigung aus lokalem und Server-Stand, geöffnete Kisten = Maximum
     state.owned = [...new Set([...state.owned, ...clean.owned])].sort((x, y) => x - y);
     state.opened = Math.max(state.opened, clean.opened);
+    // Messertyp: nur lokal gespeichert (state.knife bleibt unverändert)
     state.wskins = clean.wskins.map((v, i) => v || (state.wskins[i] && state.owned.includes(state.wskins[i]) ? state.wskins[i] : 0));
     save();
 }
@@ -169,4 +172,11 @@ export function setLoadout(pair) {
     const clean = sanitize({ loadout: pair }).loadout;
     if (!(Array.isArray(pair) && pair[0] === clean[0] && pair[1] === clean[1])) return false; // ungültig (gleiche Waffe/außerhalb)
     state.loadout = clean; save(); return true;
+}
+
+// ---------- Messertyp (Aussehen des Messers, nur lokal) ----------
+export const getKnifeType = () => state.knife || 0;
+export function setKnifeType(i) {
+    if (!Number.isInteger(i) || i < 0 || i >= KNIFE_TYPE_COUNT) return false;
+    state.knife = i; save(); return true;
 }
