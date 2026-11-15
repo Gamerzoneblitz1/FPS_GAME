@@ -643,6 +643,8 @@
         .cr-rar { font-size: 12px; letter-spacing: 3px; font-weight: 800; } .cr-name { font-size: 24px; font-weight: 800; margin: 2px 0; } .cr-dupe { color: var(--cs-dim); font-size: 13px; } .cr-btns { margin-top: 10px; }
         .cr-foot { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
         @media (max-width: 700px) { .cr-big { width: 150px; height: 90px; } .cr-name { font-size: 17px; } }
+        .knife-types { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; align-items: center; padding-top: 6px; }
+        .knife-types .kt-h { font-size: 10px; letter-spacing: 2px; font-weight: 700; color: var(--cs-dim); margin-right: 6px; }
     </style>
 </head>
 <body>
@@ -713,6 +715,8 @@
             <nav class="st-tabs" id="st-tabs">
                 <button class="st-tab active" data-pane="mouse">MAUS &amp; SICHT</button>
                 <button class="st-tab" data-pane="crosshair">FADENKREUZ</button>
+                <button class="st-tab" data-pane="game">SPIEL</button>
+                <button class="st-tab" data-pane="weapon">WAFFE &amp; KAMERA</button>
                 <button class="st-tab" data-pane="graphics">GRAFIK</button>
                 <button class="st-tab" data-pane="sound">SOUND</button>
             </nav>
@@ -735,19 +739,38 @@
                     <label class="st-row"><span class="st-name">Deckkraft</span><input type="range" id="ch-opacity" min="30" max="100" step="5" value="100"><span class="val" id="ch-opacity-val">100%</span></label>
                     <label class="st-row st-check"><span class="st-name">Dunkle Umrandung</span><input type="checkbox" class="st-switch" id="ch-outline"></label>
                 </section>
+                <section class="st-pane" data-pane="game">
+                    <h4>SPIEL</h4>
+                    <label class="st-row st-check"><span class="st-name">Zielen umschalten (statt Rechtsklick halten)</span><input type="checkbox" class="st-switch" id="aim-toggle"></label>
+                    <label class="st-row st-check"><span class="st-name">FPS-Anzeige</span><input type="checkbox" class="st-switch" id="fps-toggle"></label>
+                    <label class="st-row st-check"><span class="st-name">„Nearest Target“ anzeigen</span><input type="checkbox" class="st-switch" id="target-toggle"></label>
+                    <label class="st-row st-check"><span class="st-name">Kill-Feed anzeigen</span><input type="checkbox" class="st-switch" id="killfeed-toggle"></label>
+                </section>
+                <section class="st-pane" data-pane="weapon">
+                    <h4>WAFFE &amp; KAMERA</h4>
+                    <label class="st-row st-check"><span class="st-name">Waffe in der Ego-Ansicht anzeigen</span><input type="checkbox" class="st-switch" id="weapon-visible"></label>
+                    <label class="st-row st-check"><span class="st-name">Linkshänder (Waffe links)</span><input type="checkbox" class="st-switch" id="left-handed"></label>
+                    <label class="st-row"><span class="st-name">Waffe seitlich verschieben</span><input type="range" id="wx-slider" min="-0.15" max="0.15" step="0.01" value="0"><span class="val" id="wx-val">0.00</span></label>
+                    <label class="st-row"><span class="st-name">Waffe hoch / runter</span><input type="range" id="wy-slider" min="-0.12" max="0.12" step="0.01" value="0"><span class="val" id="wy-val">0.00</span></label>
+                    <label class="st-row"><span class="st-name">Waffe vor / zurück</span><input type="range" id="wz-slider" min="-0.2" max="0.2" step="0.01" value="0"><span class="val" id="wz-val">0.00</span></label>
+                    <label class="st-row"><span class="st-name">Waffengröße</span><input type="range" id="wscale-slider" min="0.7" max="1.2" step="0.05" value="1"><span class="val" id="wscale-val">100%</span></label>
+                </section>
                 <section class="st-pane" data-pane="graphics">
                     <h4>GRAFIK</h4>
                     <label class="st-row"><span class="st-name">Render-Auflösung</span><input type="range" id="res-slider" min="50" max="100" step="5" value="90"><span class="val" id="res-val">90%</span></label>
                     <label class="st-row st-check"><span class="st-name">Bloom / Glow-Effekt</span><input type="checkbox" class="st-switch" id="bloom-toggle"></label>
+                    <label class="st-row"><span class="st-name">Bloom-Stärke</span><input type="range" id="bloomstr-slider" min="0.2" max="3" step="0.1" value="1.2"><span class="val" id="bloomstr-val">1.2</span></label>
                     <label class="st-row st-check"><span class="st-name">Namensschilder anzeigen</span><input type="checkbox" class="st-switch" id="nametag-toggle"></label>
                 </section>
                 <section class="st-pane" data-pane="sound">
                     <h4>SOUND</h4>
                     <label class="st-row"><span class="st-name">Lautstärke</span><input type="range" id="vol-slider" min="0" max="100" step="5" value="70"><span class="val" id="vol-val">70%</span></label>
+                    <label class="st-row st-check"><span class="st-name">Treffer-Ton</span><input type="checkbox" class="st-switch" id="hitsound-toggle"></label>
+                    <label class="st-row st-check"><span class="st-name">Schrittgeräusche</span><input type="checkbox" class="st-switch" id="steps-toggle"></label>
                     <label class="st-row st-check"><span class="st-name">Stumm</span><input type="checkbox" class="st-switch" id="mute-toggle"></label>
                 </section>
             </div>
-            <div class="st-foot"><button id="settings-reset">MAUS, SICHT &amp; FADENKREUZ ZURÜCKSETZEN</button></div>
+            <div class="st-foot"><button id="settings-reset">STEUERUNG, WAFFE &amp; FADENKREUZ ZURÜCKSETZEN</button></div>
         </div>
     </div>
 
