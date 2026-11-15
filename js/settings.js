@@ -7,11 +7,23 @@ export const DEFAULTS = {
     adsSens: 1,       // zusätzlicher Faktor beim Zielen (die Zoom-Anpassung passiert automatisch obendrauf)
     fov: 75,          // Sichtfeld in Grad (vertikal)
     invertY: false,   // Y-Achse invertieren
+    aimToggle: false,      // Zielen per Rechtsklick umschalten statt halten
+    showFps: false,        // FPS-Anzeige oben links
+    showTargetInfo: true,  // "Nearest Target" unten rechts
+    showKillFeed: true,    // Kill-Feed oben rechts
+    hitSound: true,        // Ton bei Treffern
+    footsteps: true,       // Schrittgeräusche
+    weaponVisible: true,   // Waffe in der Ego-Ansicht anzeigen
+    leftHanded: false,     // Waffe links statt rechts
+    weaponX: 0, weaponY: 0, weaponZ: 0,   // Waffenposition verschieben (Meter)
+    weaponScale: 1,        // Waffengröße
+    bloomStrength: 1.2,    // Stärke des Glow-Effekts (wenn Bloom an)
     crosshair: { style: 'dot', color: '#ffffff', size: 10, thickness: 2, gap: 4, opacity: 100, outline: true }
 };
 
 export const LIMITS = {
     sens: [0.1, 4], adsSens: [0.3, 1.5], fov: [60, 110],
+    weaponX: [-0.15, 0.15], weaponY: [-0.12, 0.12], weaponZ: [-0.2, 0.2], weaponScale: [0.7, 1.2], bloomStrength: [0.2, 3],
     size: [2, 30], thickness: [1, 6], gap: [0, 14], opacity: [30, 100]
 };
 
@@ -33,6 +45,19 @@ export function sanitizeControls(raw) {
         adsSens: num(r.adsSens, LIMITS.adsSens, D.adsSens),
         fov: Math.round(num(r.fov, LIMITS.fov, D.fov)),
         invertY: r.invertY === true,
+        aimToggle: r.aimToggle === true,
+        showFps: r.showFps === true,
+        showTargetInfo: r.showTargetInfo === undefined ? D.showTargetInfo : r.showTargetInfo === true,
+        showKillFeed: r.showKillFeed === undefined ? D.showKillFeed : r.showKillFeed === true,
+        hitSound: r.hitSound === undefined ? D.hitSound : r.hitSound === true,
+        footsteps: r.footsteps === undefined ? D.footsteps : r.footsteps === true,
+        weaponVisible: r.weaponVisible === undefined ? D.weaponVisible : r.weaponVisible === true,
+        leftHanded: r.leftHanded === true,
+        weaponX: num(r.weaponX, LIMITS.weaponX, 0),
+        weaponY: num(r.weaponY, LIMITS.weaponY, 0),
+        weaponZ: num(r.weaponZ, LIMITS.weaponZ, 0),
+        weaponScale: num(r.weaponScale, LIMITS.weaponScale, 1),
+        bloomStrength: num(r.bloomStrength, LIMITS.bloomStrength, D.bloomStrength),
         crosshair: {
             style: CROSSHAIR_STYLES.some(([k]) => k === c.style) ? c.style : DC.style,
             color: /^#[0-9a-fA-F]{6}$/.test(c.color) ? c.color.toLowerCase() : DC.color,
