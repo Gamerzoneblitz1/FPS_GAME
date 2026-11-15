@@ -87,7 +87,50 @@ const DEFS = [
     ['char', 'Circuit Armor',  'r', 'circuit', ['#031a14', '#00ffa6', '#0a6b52'],                   0x00ffa6],
     ['char', 'Nebula Armor',   'c', 'nebula',  ['#0a0420', '#4b1a8a', '#c04dff'],                   0xb04dff],
     ['char', 'Magma Armor',    'v', 'magma',   ['#150806', '#ff4a00', '#ffd23a'],                   0xff7a1a],
-    ['char', 'Golden Armor',   'g', 'gold',    ['#4a3406', '#d9a521', '#fff0a8'],                   0xfff2a0]
+    ['char', 'Golden Armor',   'g', 'gold',    ['#4a3406', '#d9a521', '#fff0a8'],                   0xfff2a0],
+    // ==== Kiste 2: Printstream-Kiste (IDs ab 65 – nur hinten anhängen!) ====
+    [0, 'Ash Print',        'm', 'printstream', ['#cfcfd6', '#2a2a32', '#9a9aa8'],                  0xb0b0c0, { crate: 'print' }],
+    [4, 'Chalk Print',      'm', 'printstream', ['#e8e8ec', '#1a1a22', '#c0c0d0'],                  0xd0d0e0, { crate: 'print' }],
+    [5, 'Paper Print',      'm', 'printstream', ['#f0f0f2', '#22222a', '#a0a0b4'],                  0xc0c0d4, { crate: 'print' }],
+    [6, 'Blank Edge',       'm', 'steel',       ['#9a9aa4', '#c8c8d0', '#f4f4f8'],                  0xf0f0f8, { crate: 'print' }],
+    [2, 'Asiimov',          'r', 'asiimov',     ['#ececf0', '#ff6a00', '#111111'],                  0xff7a1a, { crate: 'print' }],
+    [4, 'Asiimov Blue',     'r', 'asiimov',     ['#ececf0', '#1a8cff', '#111111'],                  0x3aa0ff, { crate: 'print' }],
+    [5, 'Asiimov',          'r', 'asiimov',     ['#e6e6ea', '#ff3a3a', '#141414'],                  0xff4a4a, { crate: 'print' }],
+    ['char', 'Asiimov Armor', 'r', 'asiimov',   ['#ececf0', '#ff6a00', '#111111'],                  0xff7a1a, { crate: 'print' }],
+    [3, 'Printstream',      'c', 'printstream', ['#f2f2f6', '#14101e', '#b04dff'],                  0xb04dff, { crate: 'print' }],
+    [0, 'Asiimov',          'c', 'asiimov',     ['#f2f2f6', '#ff6a00', '#0a0a0a'],                  0xff8a2a, { crate: 'print' }],
+    [6, 'Printstream Edge', 'c', 'printstream', ['#f2f2f6', '#101018', '#00e5ff'],                  0x00e5ff, { crate: 'print' }],
+    [1, 'Printstream',      'v', 'printstream', ['#ffffff', '#0c0c14', '#00f0ff'],                  0x00f0ff, { crate: 'print' }],
+    [0, 'Printstream',      'v', 'printstream', ['#ffffff', '#0c0c14', '#7a5aff'],                  0x7a5aff, { crate: 'print' }],
+    ['char', 'Printstream Armor', 'v', 'printstream', ['#ffffff', '#0c0c14', '#00f0ff'],            0x00f0ff, { crate: 'print' }],
+    [6, 'Printstream Gold', 'g', 'printstream', ['#f5e9b8', '#2a1e04', '#ffd24a'],                  0xffd24a, { crate: 'print' }],
+    // ==== Kiste 3: Phantom-Kiste ====
+    [0, 'Night City',       'm', 'neonoir',     ['#06040f', '#ff2bd6', '#00f0ff'],                  0xff2bd6, { crate: 'phantom' }],
+    [1, 'Back Alley',       'm', 'neonoir',     ['#050a10', '#00f0ff', '#3a7bff'],                  0x00f0ff, { crate: 'phantom' }],
+    [3, 'Shadow',           'm', 'carbon',      ['#050508', '#3a2a5a'],                             0x8a6aff, { crate: 'phantom' }],
+    [2, 'Dusk',             'm', 'sunset',      ['#0a0020', '#7a2aff', '#ff6a9a'],                  0xb06aff, { crate: 'phantom' }],
+    [4, 'Neo-Noir',         'r', 'neonoir',     ['#0a0408', '#ff3355', '#ffb000'],                  0xff3355, { crate: 'phantom' }],
+    [5, 'Void',             'r', 'nebula',      ['#05000f', '#2a0a5a', '#7a2aff'],                  0x9a5aff, { crate: 'phantom' }],
+    [0, 'Wraith',           'r', 'frost',       ['#0a0a14', '#6a6aff', '#d8d8ff'],                  0x8a8aff, { crate: 'phantom' }],
+    ['char', 'Neo-Noir Armor', 'r', 'neonoir',  ['#06040f', '#ff2bd6', '#00f0ff'],                  0xff2bd6, { crate: 'phantom' }],
+    [2, 'Phantom Marble',   'c', 'marble',      ['#050508', '#8a5aff', '#2a2a3a'],                  0x8a5aff, { crate: 'phantom' }],
+    [3, 'Void',             'c', 'nebula',      ['#020008', '#4a0a8a', '#ff2bd6'],                  0xff2bd6, { crate: 'phantom' }],
+    [1, 'Ghost',            'c', 'neonoir',     ['#04060c', '#9be9ff', '#6a6aff'],                  0x9be9ff, { crate: 'phantom' }],
+    [0, 'Neon Reaper',      'v', 'glitch',      ['#050008', '#ff2030', '#00f0ff', '#ff2bd6'],       0xff2030, { crate: 'phantom' }],
+    [6, 'Shadow Doppler',   'v', 'plasma',      ['#05000f', '#3a0a8a', '#b04dff', '#00f0ff'],       0xb04dff, { crate: 'phantom', scroll: [0.02, 0.01] }],
+    ['char', 'Phantom Armor', 'v', 'nebula',    ['#020008', '#4a0a8a', '#ff2bd6'],                  0xff2bd6, { crate: 'phantom' }],
+    [1, 'Black Lotus',      'g', 'marble',      ['#08080c', '#e4ae39', '#2a2a3a'],                  0xe4ae39, { crate: 'phantom' }],
+    // ==== Kiste 4: Messer-Kiste (enthält zusätzlich alle älteren Messer-Skins) ====
+    [6, 'Safari Mesh',      'm', 'woodland',    ['#6a5a3a', '#8a7a4a', '#4a3e26', '#a89a68'],       0xc8b878, { crate: 'knife' }],
+    [6, 'Blue Steel',       'm', 'steel',       ['#10182a', '#34507a', '#8aaede'],                  0x6a9aee, { crate: 'knife' }],
+    [6, 'Scorched',         'm', 'splatter',    ['#14100c', '#5a3a1a', '#8a2a0a', '#2a2a2a'],       0xff7a1a, { crate: 'knife' }],
+    [6, 'Tiger Tooth',      'r', 'tiger',       ['#ffd24a', '#c05a00', '#fff0a8'],                  0xffd24a, { crate: 'knife' }],
+    [6, 'Ultraviolet',      'r', 'frost',       ['#10002a', '#8a4aff', '#e0d0ff'],                  0xa070ff, { crate: 'knife' }],
+    [6, 'Case Hardened',    'c', 'marble',      ['#0a1a3a', '#e8b030', '#3a7bff'],                  0x3a9bff, { crate: 'knife' }],
+    [6, 'Lore',             'c', 'fade',        ['#2a0a4a', '#ff8a3a', '#3affb0', '#2a0a4a'],       0xff8a3a, { crate: 'knife' }],
+    [6, 'Gamma Doppler',    'v', 'plasma',      ['#021a0a', '#0aaa50', '#b8ff3a', '#00ffd0'],       0x3aff8a, { crate: 'knife', scroll: [0.02, 0.01] }],
+    [6, 'Emerald Pearl',    'v', 'hyper',       [],                                                 0xffffff, { crate: 'knife', rainbow: true, scroll: [0.08, 0] }],
+    [6, 'Sapphire Gold',    'g', 'gold',        ['#0a2a6a', '#ffd24a', '#fff6c8'],                  0xffe08a, { crate: 'knife' }]
 ];
 
 // dunkle Variante der ersten Palettenfarbe (Stiefel/Hände des Soldaten)
@@ -132,18 +175,35 @@ export function skinFullName(skin, target = null) {
 // Passt der Skin auf dieses Ziel? (Standard passt überall)
 export const skinFits = (skin, target) => !!skin && (skin.id === 0 || skin.target === target);
 
-// Skins nach Seltenheit (für die Kisten)
-export const SKINS_BY_RARITY = {};
-for (const s of SKINS) if (s.id !== 0) (SKINS_BY_RARITY[s.rarity] = SKINS_BY_RARITY[s.rarity] || []).push(s);
+// ---------- Kisten ----------
+// Es gibt mehrere Kistenarten. Welche Kiste man bekommt, ergibt sich aus der Nummer der Kiste (CRATE_CYCLE) – kein Serverzustand nötig.
+export const CRATES = {
+    neon:    { key: 'neon',    name: 'Neon-Kiste',      color: '#00f0ff', desc: 'Standard-Kiste mit Skins für alle Waffen und den Soldaten', filter: s => !s.crate },
+    print:   { key: 'print',   name: 'Printstream-Kiste', color: '#f0f0f8', desc: 'Printstream, Asiimov und weiße Tech-Designs',            filter: s => s.crate === 'print' },
+    phantom: { key: 'phantom', name: 'Phantom-Kiste',   color: '#b04dff', desc: 'Neo-Noir, Void und Geister-Skins',                        filter: s => s.crate === 'phantom' },
+    knife:   { key: 'knife',   name: 'Messer-Kiste',    color: '#ff7a1a', desc: 'Nur Messer: Tiger Tooth, Doppler, Case Hardened …',        filter: s => s.target === 6 }
+};
+export const CRATE_CYCLE = ['neon', 'neon', 'print', 'neon', 'phantom', 'neon', 'knife', 'print'];
+export const crateTypeAt = (index) => CRATES[CRATE_CYCLE[((index % CRATE_CYCLE.length) + CRATE_CYCLE.length) % CRATE_CYCLE.length]];
 
-// Kiste öffnen: erst Seltenheit nach den Quoten, dann ein zufälliger Skin dieser Stufe (alle Waffen + Soldat)
-export function rollCrate(rng = Math.random) {
+// Skins nach Kistenart und Seltenheit
+export const CRATE_POOLS = {};
+for (const c of Object.values(CRATES)) {
+    const pool = {};
+    for (const s of SKINS) if (s.id !== 0 && c.filter(s)) (pool[s.rarity] = pool[s.rarity] || []).push(s);
+    CRATE_POOLS[c.key] = pool;
+}
+export const SKINS_BY_RARITY = CRATE_POOLS.neon;
+
+// Kiste öffnen: erst Seltenheit nach den Quoten, dann ein zufälliger Skin dieser Stufe aus dem Pool der Kiste
+export function rollCrate(rng = Math.random, crateKey = 'neon') {
+    const pool = CRATE_POOLS[crateKey] || CRATE_POOLS.neon;
     let r = rng() * 100, tier = 'm';
     for (const t of RARITIES) {
         if (!t.odds) continue;
         if (r < t.odds) { tier = t.key; break; }
         r -= t.odds;
     }
-    const list = SKINS_BY_RARITY[tier] || SKINS_BY_RARITY.m;
+    const list = pool[tier] || pool.m;
     return list[Math.floor(rng() * list.length)];
 }
