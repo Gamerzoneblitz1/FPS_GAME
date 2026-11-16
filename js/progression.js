@@ -3,7 +3,7 @@
 // 'saveProgress'), damit der Spielstand auch auf anderen Geräten unter demselben Namen verfügbar ist.
 // Ohne eingegebenen Namen (Gast) wird nichts gespeichert.
 // Hinweis: Die XP werden im Client berechnet (technisch manipulierbar) - für ein Hobby-Spiel ok.
-import { SKINS, skinFits, TARGET_CHAR, rollCrate, crateTypeAt, CRATES } from './skins.js';
+import { SKINS, skinFits, TARGET_CHAR, rollCrate, CRATES, CRATE_POOLS } from './skins.js';
 
 const KEY = 'nv_progress_v3';          // { "name": { xp, skin, wskins, loadout, owned, opened } }  (v3: Skins gehören zu einer Waffe, Kisten)
 const OLD_KEY = 'nv_progress_v2';
@@ -30,13 +30,19 @@ const validSkin = (v) => Number.isInteger(v) && v >= 0 && !!SKINS[v];
 // Wandelt beliebige (auch alte/kaputte) Daten in einen gültigen Stand um.
 // Skins: nur gültige, zur Waffe passende Skins, die man besitzt (alte Spielstände ohne "owned" starten ohne Skins; Kisten gibt es rückwirkend).
 export function sanitize(s) {
-    const out = { xp: 0, skin: 0, wskins: new Array(WEAPON_COUNT).fill(0), loadout: DEFAULT_LOADOUT.slice(), owned: [], opened: 0, knife: 0 };
+    const out = { xp: 0, skin: 0, wskins: new Array(WEAPON_COUNT).fill(0), loadout: DEFAULT_LOADOUT.slice(), owned: [], opened: 0, knife: 0, extra: {} };
     if (!s) return out;
     if (Number.isFinite(s.xp) && s.xp >= 0) out.xp = Math.min(MAX_XP, Math.floor(s.xp));
     if (Array.isArray(s.owned)) {
         const set = new Set();
         for (const id of s.owned) if (validSkin(id) && id !== 0) set.add(id);
         out.owned = [...set].sort((x, y) => x - y);
+    }
+    if (s.extra && typeof s.extra === 'object') {          // Zusatzkopien (Duplikate): Anzahl über die erste Kopie hinaus
+        for (const k of Object.keys(s.extra)) {
+            const id = Number(k), n = Math.floor(Number(s.extra[k]));
+            if (validSkin(id) && id !== 0 && out.owned.includes(id) && n > 0) out.extra[id] = Math.min(n, 9999);
+        }
     }
     const has = (id) => id === 0 || out.owned.includes(id);
     if (validSkin(s.skin) && skinFits(SKINS[s.skin], TARGET_CHAR) && has(s.skin)) out.skin = s.skin;
@@ -102,7 +108,7 @@ export function setActiveName(name, commit = true) {
 }
 
 export function isPersistent() { return activeKey !== null; }
-export function getState() { return { xp: state.xp, skin: state.skin, wskins: state.wskins.slice(), loadout: state.loadout.slice(), owned: state.owned.slice(), opened: state.opened, knife: state.knife }; }
+export function getState() { return { xp: state.xp, skin: state.skin, wskins: state.wskins.slice(), loadout: state.loadout.slice(), owned: state.owned.slice(), opened: state.opened, knife: state.knife, extra: { ...state.extra } }; }
 
 // Stand vom Server übernehmen (Server hat das Maximum aus Server- und Client-Stand gebildet)
 export function applyServer(s) {
@@ -114,6 +120,7 @@ export function applyServer(s) {
     // Besitz nie verlieren: Vereinigung aus lokalem und Server-Stand, geöffnete Kisten = Maximum
     state.owned = [...new Set([...state.owned, ...clean.owned])].sort((x, y) => x - y);
     state.opened = Math.max(state.opened, clean.opened);
+    for (const k of Object.keys(clean.extra)) state.extra[k] = Math.max(state.extra[k] || 0, clean.extra[k]);
     // Messertyp: nur lokal gespeichert (state.knife bleibt unverändert)
     state.wskins = clean.wskins.map((v, i) => v || (state.wskins[i] && state.owned.includes(state.wskins[i]) ? state.wskins[i] : 0));
     grantTesterSkins();
@@ -155,6 +162,43 @@ export function setWeaponSkin(i, id) {
     state.wskins[i] = id; save(); return true;
 }
 
+// ---------- Duplikate & Trade-up ----------
+// Man kann einen Skin mehrfach besitzen. state.owned enthält jede ID einmal, state.extra[id] = weitere Kopien.
+export const getCount = (id) => (id !== 0 && state.owned.includes(id) ? 1 + (state.extra[id] || 0) : 0);
+function addCopy(id) {
+    if (state.owned.includes(id)) state.extra[id] = (state.extra[id] || 0) + 1;
+    else { state.owned.push(id); state.owned.sort((x, y) => x - y); }
+}
+function removeCopy(id) {
+    if (!state.owned.includes(id)) return;
+    if (state.extra[id] > 0) { state.extra[id] -= 1; if (!state.extra[id]) delete state.extra[id]; return; }
+    state.owned = state.owned.filter(x => x !== id);                 // letzte Kopie weg -> Besitz und Ausrüstung entfernen
+    if (state.skin === id) state.skin = 0;
+    state.wskins = state.wskins.map(v => (v === id ? 0 : v));
+}
+export const TRADE_COUNT = 10;
+export const NEXT_RARITY = { m: 'r', r: 'c', c: 'v', v: 'g' };
+// Trade-up-Vertrag: 10 Skins (Liste von IDs, Wiederholung = mehrere Kopien) der gleichen Seltenheit -> 1 Skin der nächsten Stufe.
+// Der Ausgang kommt aus der Kiste (Sammlung) eines zufällig gewählten Eingangs-Skins. Gibt { skin, dupe } oder null zurück.
+export function tradeUp(ids, rng = Math.random) {
+    if (!Array.isArray(ids) || ids.length !== TRADE_COUNT) return null;
+    const need = {};
+    for (const id of ids) { if (!validSkin(id) || id === 0) return null; need[id] = (need[id] || 0) + 1; }
+    const rar = SKINS[ids[0]].rarity;
+    if (!NEXT_RARITY[rar]) return null;
+    for (const id of Object.keys(need)) if (SKINS[id].rarity !== rar || getCount(Number(id)) < need[id]) return null;
+    const src = SKINS[ids[Math.floor(rng() * ids.length)]];
+    const coll = CRATE_POOLS[src.crate || 'neon'] || CRATE_POOLS.neon;
+    const list = coll[NEXT_RARITY[rar]] || CRATE_POOLS.neon[NEXT_RARITY[rar]];
+    if (!list || !list.length) return null;
+    const skin = list[Math.floor(rng() * list.length)];
+    for (const id of ids) removeCopy(id);
+    const dupe = state.owned.includes(skin.id);
+    addCopy(skin.id);
+    save();
+    return { skin, dupe };
+}
+
 // ---------- Kisten ----------
 export const getCrates = () => Math.max(0, cratesEarned(getProgress().level) - state.opened);
 export const getOpened = () => state.opened;
@@ -162,14 +206,9 @@ export const getOpened = () => state.opened;
 export function openCrate(crateKey = 'neon', rng = Math.random) {
     const crate = CRATES[crateKey] || CRATES.neon;
     if (getCrates() <= 0) return null;
-    let skin = null, dupe = false;
-    for (let tries = 0; tries < 40; tries++) {
-        const s = rollCrate(rng, crate.key);
-        if (!state.owned.includes(s.id)) { skin = s; break; }
-        if (!skin) skin = s;
-    }
-    if (state.owned.includes(skin.id)) dupe = true;
-    else { state.owned.push(skin.id); state.owned.sort((x, y) => x - y); }
+    const skin = rollCrate(rng, crate.key);
+    const dupe = state.owned.includes(skin.id);
+    addCopy(skin.id);
     state.opened += 1;
     save();
     return { skin, dupe, crate };
