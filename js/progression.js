@@ -3,7 +3,7 @@
 // 'saveProgress'), damit der Spielstand auch auf anderen Geräten unter demselben Namen verfügbar ist.
 // Ohne eingegebenen Namen (Gast) wird nichts gespeichert.
 // Hinweis: Die XP werden im Client berechnet (technisch manipulierbar) - für ein Hobby-Spiel ok.
-import { SKINS, skinFits, TARGET_CHAR, rollCrate, crateTypeAt } from './skins.js';
+import { SKINS, skinFits, TARGET_CHAR, rollCrate, crateTypeAt, CRATES } from './skins.js';
 
 const KEY = 'nv_progress_v3';          // { "name": { xp, skin, wskins, loadout, owned, opened } }  (v3: Skins gehören zu einer Waffe, Kisten)
 const OLD_KEY = 'nv_progress_v2';
@@ -158,19 +158,18 @@ export function setWeaponSkin(i, id) {
 // ---------- Kisten ----------
 export const getCrates = () => Math.max(0, cratesEarned(getProgress().level) - state.opened);
 export const getOpened = () => state.opened;
-export const nextCrateType = () => crateTypeAt(state.opened);
 // Kiste öffnen: gibt { skin, dupe } zurück oder null (keine Kiste). Bevorzugt Skins, die man noch nicht hat.
-export function openCrate(rng = Math.random) {
+export function openCrate(crateKey = 'neon', rng = Math.random) {
+    const crate = CRATES[crateKey] || CRATES.neon;
     if (getCrates() <= 0) return null;
     let skin = null, dupe = false;
     for (let tries = 0; tries < 40; tries++) {
-        const s = rollCrate(rng, crateTypeAt(state.opened).key);
+        const s = rollCrate(rng, crate.key);
         if (!state.owned.includes(s.id)) { skin = s; break; }
         if (!skin) skin = s;
     }
     if (state.owned.includes(skin.id)) dupe = true;
     else { state.owned.push(skin.id); state.owned.sort((x, y) => x - y); }
-    const crate = crateTypeAt(state.opened);
     state.opened += 1;
     save();
     return { skin, dupe, crate };
