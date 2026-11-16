@@ -639,6 +639,11 @@
         .cr-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
         .cr-head h3 { letter-spacing: 5px; font-size: 18px; font-weight: 800; }
         .cr-count { color: #ffd666; font-weight: 700; }
+        .cr-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+        .cr-type { display: flex; flex-direction: column; gap: 2px; padding: 10px 6px; background: var(--cs-panel2); border: 1px solid var(--cs-line); border-bottom: 3px solid var(--cc); color: #fff; font-family: inherit; cursor: pointer; opacity: 0.6; }
+        .cr-type b { font-size: 12px; letter-spacing: 1px; color: var(--cc); } .cr-type small { font-size: 10px; color: var(--cs-dim); }
+        .cr-type:hover:not(:disabled) { opacity: 1; } .cr-type.sel { opacity: 1; background: rgba(255,255,255,0.08); box-shadow: 0 0 12px -2px var(--cc); } .cr-type:disabled { cursor: default; }
+        @media (max-width: 700px) { .cr-pick { grid-template-columns: repeat(2, 1fr); } }
         .cr-window { position: relative; height: 150px; overflow: hidden; background: #0d0f13; border: 1px solid var(--cs-line); }
         .cr-strip { position: absolute; left: 0; top: 0; height: 100%; display: flex; will-change: transform; }
         .cr-item { flex: none; width: 152px; margin: 8px 4px; height: 134px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-align: center; background: var(--cs-panel2); border-bottom: 4px solid var(--rc); padding: 4px; }
@@ -847,6 +852,7 @@
     <div id="crate-overlay">
         <div class="cr-box">
             <div class="cr-head"><h3>KISTE ÖFFNEN</h3><span class="cr-count"></span></div>
+            <div class="cr-pick"></div>
             <div class="cr-window"><div class="cr-strip"></div><div class="cr-marker"></div></div>
             <div class="cr-odds"></div>
             <div class="cr-result"></div>
