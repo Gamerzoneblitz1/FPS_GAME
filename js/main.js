@@ -1423,11 +1423,13 @@ function renderInvStage(p) {
         `<button class="inv-btn primary" id="inv-equip"${equipped ? ' disabled' : ''}>${equipped ? 'AUSGERÜSTET ✔' : 'SKIN AUSRÜSTEN'}</button>` +
         `<button class="inv-btn" id="inv-default"${equippedId === 0 ? ' disabled' : ''}>STANDARD</button><span class="inv-sep"></span>` +
         `<button class="inv-btn warn" id="inv-crate"${crates > 0 ? '' : ' disabled'}>🎁 KISTE ÖFFNEN (${crates})</button>` +
+        `<button class="inv-btn" id="inv-trade">🔁 TRADE-UP</button>` +
         `<div id="loadout-note">${crates > 0 ? 'Du hast ungeöffnete Kisten!' : 'Pro Level-Aufstieg gibt es eine Kiste. Waffen wählst du im Spiel mit B.'}</div>` +
         (skinTarget === KNIFE_INDEX ? `<div class="knife-types"><span class="kt-h">MESSERTYP</span>${KNIFE_TYPES.map((k, i) => `<button class="inv-btn${prog.getKnifeType() === i ? ' on' : ''}" data-kt="${i}">${esc(k.name)}</button>`).join('')}</div>` : '');
     document.getElementById('inv-equip').addEventListener('click', () => equipSkinTo(skinTarget, viewId));
     document.getElementById('inv-default').addEventListener('click', () => equipSkinTo(skinTarget, 0));
     document.getElementById('inv-crate').addEventListener('click', openCrateOverlay);
+    document.getElementById('inv-trade').addEventListener('click', openTradeUp);
     document.querySelectorAll('#inv-actions [data-kt]').forEach(b => b.addEventListener('click', () => {
         if (prog.setKnifeType(parseInt(b.dataset.kt, 10))) { setKnifeVariant(prog.getKnifeType()); if (weapon) weapon.rebuildKnife(); flushProgress(); applyOwnSkin(); renderLoadout(); refreshMenu(); }
     }));
@@ -1462,7 +1464,7 @@ function renderInvSkins(p) {
     grid.innerHTML = list.length ? list.map(s => {
         const r = rarityOf(s);
         return `<div class="skin-card${s.id === viewing ? ' viewing' : ''}${s.id === equippedSkinFor(s.target) ? ' equipped' : ''}" data-skin="${s.id}" draggable="true" style="--rc:${r.color}">
-            <div class="skin-img" data-t="${s.target}:${s.id}"></div><div class="sc-name">${esc(skinFullName(s))}</div><small style="color:${r.color}">${r.name}</small></div>`;
+            ${prog.getCount(s.id) > 1 ? `<span class="sc-cnt">×${prog.getCount(s.id)}</span>` : ''}<div class="skin-img" data-t="${s.target}:${s.id}"></div><div class="sc-name">${esc(skinFullName(s))}</div><small style="color:${r.color}">${r.name}</small></div>`;
     }).join('') : `<div class="skin-empty">${prog.getOwned().length ? 'Keine Skins in diesem Filter.' : 'Noch keine Skins. Öffne Kisten – du bekommst eine pro Level-Aufstieg!'}</div>`;
     grid.scrollTop = keepScroll;
     grid.querySelectorAll('.skin-card').forEach(card => {
@@ -1520,6 +1522,59 @@ function wireInventoryDnd(panel) {
 }
 
 // ---- Kisten öffnen (wie CS2): Streifen läuft durch, bleibt beim Gewinn stehen ----
+// ---- Trade-up-Vertrag: 10 Skins gleicher Seltenheit -> 1 Skin der nächsten Stufe ----
+let tuRarity = 'm', tuPick = [], tuResult = null;
+const TU_KEYS = ['m', 'r', 'c', 'v'];
+function openTradeUp() {
+    tuPick = []; tuResult = null;
+    document.getElementById('tu-overlay').style.display = 'flex';
+    renderTradeUp();
+}
+function closeTradeUp() {
+    document.getElementById('tu-overlay').style.display = 'none';
+    if (document.getElementById('loadout-panel').style.display === 'block') { renderInvSide(); renderInvSkins(prog.getProgress()); renderInvStage(prog.getProgress()); renderLoadout(); }
+}
+const tuUsed = (id) => tuPick.filter(x => x === id).length;
+function renderTradeUp() {
+    const ov = document.getElementById('tu-overlay');
+    ov.querySelector('#tu-info').textContent = `${tuPick.length} / ${prog.TRADE_COUNT} gewählt`;
+    const next = prog.NEXT_RARITY[tuRarity], nr = RARITIES.find(r => r.key === next);
+    ov.querySelector('#tu-tabs').innerHTML = TU_KEYS.map(k => { const r = RARITIES.find(x => x.key === k); return `<button data-r="${k}" class="${k === tuRarity ? 'sel' : ''}" style="--rc:${r.color}">${r.name}</button>`; }).join('');
+    ov.querySelectorAll('#tu-tabs button').forEach(b => b.addEventListener('click', () => { if (b.dataset.r !== tuRarity) { tuRarity = b.dataset.r; tuPick = []; tuResult = null; } renderTradeUp(); }));
+    const owned = prog.getOwned().map(id => SKINS[id]).filter(s => s && s.rarity === tuRarity).sort((a, b) => (a.target === 'char' ? 99 : a.target) - (b.target === 'char' ? 99 : b.target) || a.id - b.id);
+    const list = ov.querySelector('#tu-list');
+    list.innerHTML = owned.length ? owned.map(s => {
+        const left = prog.getCount(s.id) - tuUsed(s.id), r = rarityOf(s);
+        return `<div class="tu-card${left <= 0 ? ' none' : ''}" data-id="${s.id}" style="--rc:${r.color}"><span class="tu-n">×${left}</span><div class="skin-img" data-t="${s.target}:${s.id}"></div>${esc(skinFullName(s))}</div>`;
+    }).join('') : `<div class="tu-empty">Du hast keine ${esc(RARITIES.find(r => r.key === tuRarity).name)}-Skins.</div>`;
+    list.querySelectorAll('.tu-card').forEach(c => c.addEventListener('click', () => {
+        const id = parseInt(c.dataset.id, 10);
+        if (tuPick.length >= prog.TRADE_COUNT || prog.getCount(id) - tuUsed(id) <= 0) return;
+        tuPick.push(id); tuResult = null; renderTradeUp();
+    }));
+    queueThumbs(list);
+    const slots = ov.querySelector('#tu-slots');
+    slots.innerHTML = Array.from({ length: prog.TRADE_COUNT }, (_, i) => `<div class="tu-slot" data-i="${i}" ${tuPick[i] ? `data-t="${SKINS[tuPick[i]].target}:${tuPick[i]}" style="--rc:${rarityOf(SKINS[tuPick[i]]).color}"` : ''}></div>`).join('');
+    slots.querySelectorAll('.tu-slot').forEach(sl => sl.addEventListener('click', () => { const i = parseInt(sl.dataset.i, 10); if (tuPick[i]) { tuPick.splice(i, 1); renderTradeUp(); } }));
+    queueThumbs(slots);
+    const out = ov.querySelector('#tu-out');
+    if (tuResult) {
+        const s = tuResult.skin, r = rarityOf(s);
+        out.innerHTML = `<div class="cr-big" data-t="${s.target}:${s.id}"></div><b style="color:${r.color}">${r.name.toUpperCase()}</b><div style="color:#fff">${esc(skinFullName(s))}</div><div>${tuResult.dupe ? `Du hattest ihn schon – jetzt ×${prog.getCount(s.id)}` : 'Neu in deinem Inventar!'}</div>`;
+        queueThumbs(out);
+    } else out.innerHTML = `Ergebnis: 1 Skin <b style="color:${nr.color}">${nr.name}</b><br>aus der Sammlung eines der gewählten Skins`;
+    ov.querySelector('#tu-go').disabled = tuPick.length !== prog.TRADE_COUNT;
+}
+function runTradeUp() {
+    if (tuPick.length !== prog.TRADE_COUNT) return;
+    const res = prog.tradeUp(tuPick.slice());
+    if (!res) { showNotice('Vertrag ungültig'); return; }
+    tuPick = []; tuResult = res;
+    flushProgress(); applyOwnSkin();
+    if (['c', 'v', 'g'].includes(res.skin.rarity)) sfx.playLevelUp();
+    renderTradeUp();
+}
+
 let crateBusy = false;
 let selCrate = 'neon';   // gewählte Kistenart
 function openCrateOverlay() {
@@ -1551,7 +1606,7 @@ function renderCrateOverlay(result) {
         res.style.display = 'flex';
         res.style.setProperty('--rc', r.color);
         res.innerHTML = `<div class="cr-big" data-t="${s.target}:${s.id}"></div><div class="cr-info"><div class="cr-rar" style="color:${r.color}">${r.name.toUpperCase()}</div>
-            <div class="cr-name">${esc(skinFullName(s))}</div><div class="cr-dupe">${result.dupe ? 'Doppelt – du hattest ihn schon' : 'Neu in deinem Inventar!'}</div>
+            <div class="cr-name">${esc(skinFullName(s))}</div><div class="cr-dupe">${result.dupe ? `Du hattest ihn schon – jetzt ×${prog.getCount(s.id)} (für Trade-up)` : 'Neu in deinem Inventar!'}</div>
             <div class="cr-btns"><button class="inv-btn primary" id="cr-equip">AUSRÜSTEN</button></div></div>`;
         queueThumbs(res);
         document.getElementById('cr-equip').addEventListener('click', () => { equipSkinTo(s.target, s.id); });
@@ -1599,6 +1654,9 @@ function wireLoadoutUi() {
     document.getElementById('respawn-btn').addEventListener('click', doRespawn);
     document.getElementById('cr-open').addEventListener('click', runCrate);
     document.getElementById('cr-close').addEventListener('click', closeCrateOverlay);
+    document.getElementById('tu-close').addEventListener('click', closeTradeUp);
+    document.getElementById('tu-clear').addEventListener('click', () => { tuPick = []; tuResult = null; renderTradeUp(); });
+    document.getElementById('tu-go').addEventListener('click', runTradeUp);
     document.getElementById('buy-close').addEventListener('click', closeBuyMenu);
 
     // Startbildschirm: Skins & Waffen schon vor dem Spielstart ansehen/wählen
