@@ -312,7 +312,12 @@ function sanitizeCosmetics(src) {
     // Besitz (Skin-IDs aus Kisten) und Anzahl geöffneter Kisten; Kisten selbst ergeben sich aus dem Level (siehe progression.js)
     const owned = Array.isArray(src?.owned) ? [...new Set(src.owned.map(v => intIn(v, 0, MAX_SKIN_ID, 0)).filter(v => v > 0))].sort((x, y) => x - y).slice(0, MAX_SKIN_ID) : [];
     const opened = intIn(src?.opened, 0, 1000000, 0);
-    return { skin, wskins, loadout, owned, opened };
+    const extra = {};                                                       // Duplikate: Zusatzkopien je Skin-ID
+    if (src?.extra && typeof src.extra === 'object') for (const k of Object.keys(src.extra).slice(0, MAX_SKIN_ID)) {
+        const id = intIn(k, 0, MAX_SKIN_ID, 0), n = intIn(src.extra[k], 0, 9999, 0);
+        if (id > 0 && n > 0 && owned.includes(id)) extra[id] = n;
+    }
+    return { skin, wskins, loadout, owned, opened, extra };
 }
 
 // Tod/Respawn: Wer stirbt, wählt seine Waffen neu und bestätigt per 'respawnReady'. Bis dahin (max. DEAD_TIMEOUT_MS)
@@ -528,8 +533,10 @@ io.on('connection', (socket) => {
         // Besitz nie verlieren: Skins beider Seiten vereinigen, geöffnete Kisten = Maximum
         const merged = [...new Set([...(chosen.owned || []), ...clientCosm.owned])].sort((x, y) => x - y);
         const openedMax = Math.max(chosen.opened || 0, clientCosm.opened);
-        if (merged.length !== (chosen.owned || []).length || openedMax !== (chosen.opened || 0)) {
-            chosen = { ...chosen, owned: merged, opened: openedMax, updated: Date.now() };
+        const extraMax = { ...(chosen.extra || {}) };
+        for (const k of Object.keys(clientCosm.extra)) extraMax[k] = Math.max(extraMax[k] || 0, clientCosm.extra[k]);
+        if (merged.length !== (chosen.owned || []).length || openedMax !== (chosen.opened || 0) || JSON.stringify(extraMax) !== JSON.stringify(chosen.extra || {})) {
+            chosen = { ...chosen, owned: merged, opened: openedMax, extra: extraMax, updated: Date.now() };
             queueSave(key, chosen);
         }
         if (isTest && chosen.xp < TEST_XP) { // Test-Account: immer Maximal-Level
