@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Neon Vault Megaplex</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#060810">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Neon Vault">
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { overflow: hidden; font-family: monospace; background: #000; touch-action: none; -webkit-user-select: none; user-select: none; }
@@ -863,6 +870,7 @@
             <button id="nav-inv">Inventar</button>
             <button id="nav-play" class="active">Spielen</button>
             <button id="nav-set">Einstellungen</button>
+            <button id="install-app-btn" style="display:none">⬇ App installieren</button>
             <div class="nav-sp"></div>
             <div class="nav-user"><span id="nav-name">GAST</span><span class="nav-lv" id="nav-lv">LV 1</span></div>
         </div>
@@ -962,5 +970,18 @@
             if (e.code === 'Tab') document.getElementById('leaderboard').style.display = 'none';
         });
     </script>
+<script>
+    if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+    // Installieren-Knopf: erscheint nur, wenn der Browser die Installation anbietet
+    let _installEv = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault(); _installEv = e;
+        const b = document.getElementById('install-app-btn'); if (b) b.style.display = '';
+    });
+    window.addEventListener('appinstalled', () => { const b = document.getElementById('install-app-btn'); if (b) b.style.display = 'none'; });
+    document.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'install-app-btn' && _installEv) { _installEv.prompt(); _installEv = null; }
+    });
+</script>
 </body>
 </html>
