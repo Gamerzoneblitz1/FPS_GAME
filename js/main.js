@@ -7,6 +7,7 @@ import { SKINS, RARITIES, rarityOf, skinFullName, rollCrate, CRATES, CRATE_POOLS
 import { createPreview, createThumbMaker } from './preview.js';
 import { getSkinPreview, isPreviewCached } from './skintex.js';
 import * as prog from './progression.js';
+import { createBotHost } from './bots.js';
 import { DEFAULTS as CONTROL_DEFAULTS, sanitizeControls, renderCrosshairSVG, wrapAngle, CROSSHAIR_STYLES, CROSSHAIR_COLORS } from './settings.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
@@ -41,6 +42,50 @@ let skyboxGroup = null; // Sternenhimmel + Planet, folgt der Kamera-Position (Sk
 let portalRings = []; // rotierende Neon-Ringe an den Gates
 let shootBlockers = []; // Wände/Türme/Kisten/Rampen -> blockieren Schüsse (Gates bewusst nicht)
 const otherPlayers = {};
+// ---- Bots (siehe bots.js): der Bot-Host (erster Spieler) steuert sie, alle anderen sehen sie wie normale Spieler ----
+let botHost = null;
+const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
+function startBotHost() {
+    if (botHost) return;
+    botHost = createBotHost({
+        eye: EYE_HEIGHT_STAND,
+        collidersNear: (x, z) => collidersNear(x, z),
+        groundY: (x, y, z) => {
+            if (!groundMeshes.length) return 0;
+            groundRaycaster.set(new THREE.Vector3(x, y + (colliders.groundStepUp ?? 5), z), new THREE.Vector3(0, -1, 0));
+            const h = groundRaycaster.intersectObjects(groundMeshes, false);
+            return h.length ? h[0].point.y : 0;
+        },
+        spawns: () => colliders.spawnPoints || [],
+        botIds: () => Object.keys(otherPlayers).filter(isBotId),
+        botPos: (id) => { const m = otherPlayers[id]; return m ? { x: m.position.x, y: m.position.y, z: m.position.z, alive: m.visible } : null; },
+        targets: () => {
+            const out = [];
+            if (hasEntered && !isDead) out.push({ id: socket.id, x: camera.position.x, y: feetY, z: camera.position.z });
+            for (const id in otherPlayers) if (!isBotId(id) && otherPlayers[id].visible) { const m = otherPlayers[id]; out.push({ id, x: m.position.x, y: m.position.y, z: m.position.z }); }
+            return out;
+        },
+        emit: (ev, d) => socket.emit(ev, d)
+    });
+    botHost.sync();
+}
+function stopBotHost() { botHost = null; }
+function applyBotMove(m) {
+    const mesh = otherPlayers[m.id];
+    if (!mesh) return;
+    if (!mesh.visible) { setPlayerVisible(mesh, true); mesh.position.set(m.x, m.y, m.z); }
+    mesh.userData.tp = { x: m.x, y: m.y, z: m.z };
+    if (Math.hypot(mesh.position.x - m.x, mesh.position.z - m.z) > 6) mesh.position.set(m.x, m.y, m.z); // Respawn/Teleport: nicht gleiten
+    setPlayerFacing(mesh, m.ry);
+}
+function smoothBots(delta) {
+    const k = 1 - Math.exp(-delta * 16);
+    for (const id in otherPlayers) {
+        const m = otherPlayers[id], tp = m.userData.tp;
+        if (!tp || !m.visible) continue;
+        m.position.x += (tp.x - m.position.x) * k; m.position.y += (tp.y - m.position.y) * k; m.position.z += (tp.z - m.position.z) * k;
+    }
+}
 const playerMeshesList = [];
 
 const EYE_HEIGHT_STAND = 2;   // Abstand Kamera <-> Standfläche im Stehen
@@ -350,6 +395,7 @@ function init() {
         setRoundLeft(d.roundLeftMs);
         hideVote();
         serverMapId = d.id;
+        if (botHost) botHost.resetAll();
         switchMap(d.id);
     });
     socket.on('mapVote', (v) => showVote(v));
@@ -390,6 +436,8 @@ function init() {
     });
 
     socket.on('newPlayer', (data) => addOtherPlayer(data.id, data.position, data.name));
+    socket.on('botHost', (d) => { if (d && d.id === socket.id) startBotHost(); else stopBotHost(); });
+    socket.on('botsMoved', (arr) => { if (Array.isArray(arr)) arr.forEach(applyBotMove); });
 
     // Profil-Update (Skin/Level) eines Spielers
     socket.on('playerProfile', (data) => {
@@ -421,7 +469,8 @@ function init() {
     socket.on('playerKilled', (data) => {
         // Kill-Feed anzeigen (für alle)
         addKillFeedEntry(data.killerName, data.victimName, data.killerId === socket.id, data.victimId === socket.id);
-        if (data.killerId === socket.id && data.victimId !== socket.id) { sfx.playKill(); awardXp(prog.XP_PER_KILL, true); }
+        if (botHost && isBotId(data.victimId)) botHost.onKilled(data.victimId, data.respawnPos);
+        if (data.killerId === socket.id && data.victimId !== socket.id) { sfx.playKill(); awardXp(isBotId(data.victimId) ? Math.round(prog.XP_PER_KILL * 0.3) : prog.XP_PER_KILL, true); }
         if (data.victimId === socket.id) sfx.playDeath();
 
         if (data.victimId === socket.id) {
@@ -2237,6 +2286,8 @@ function animate() {
     const delta = (time - prevTime) / 1000;
 
     applyMouseSensitivity(); // vor der Bewegung, damit die Laufrichtung zur korrigierten Blickrichtung passt
+    smoothBots(delta);
+    if (botHost) { try { botHost.update(delta); } catch (e) { console.error('Bot-Fehler', e); } }
     updatePlayerAnimations(playerMeshesList, delta);
     updateResetHold(time);
     // In try/catch: ein Fehler in Waffen-/Effekt-Code darf nie dazu führen, dass der Frame nicht mehr
