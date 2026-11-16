@@ -1569,7 +1569,10 @@ function runCrate() {
     for (let i = 0; i < N; i++) items.push(i === WIN_IDX ? out.skin : rollCrate(Math.random, out.crate.key));
     strip.style.transition = 'none';
     strip.style.transform = 'translateX(0)';
-    strip.innerHTML = items.map(s => { const r = rarityOf(s); return `<div class="cr-item" style="--rc:${r.color}"><small>${esc(TARGET_DE(s.target))}</small><b>${esc(s.name)}</b></div>`; }).join('');
+    strip.innerHTML = items.map(s => { const r = rarityOf(s); return `<div class="cr-item" style="--rc:${r.color}"><div class="cr-th" data-t="${s.target}:${s.id}"></div><small>${esc(TARGET_DE(s.target))}</small><b>${esc(s.name)}</b></div>`; }).join('');
+    queueThumbs(strip);
+    const winEl = strip.children[WIN_IDX]?.querySelector('.cr-th');   // Gewinn-Bild zuerst erzeugen
+    for (let i = thumbQueue.length - 1; i >= 0; i--) if (thumbQueue[i].el === winEl) thumbQueue.unshift(thumbQueue.splice(i, 1)[0]);
     void strip.offsetWidth;
     const x = WIN_IDX * ITEM_W + ITEM_W / 2 - win.clientWidth / 2 + (Math.random() - 0.5) * ITEM_W * 0.6;
     strip.style.transition = 'transform 6.4s cubic-bezier(0.07, 0.6, 0.08, 1)';
