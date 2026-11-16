@@ -639,6 +639,25 @@
         .cr-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
         .cr-head h3 { letter-spacing: 5px; font-size: 18px; font-weight: 800; }
         .cr-count { color: #ffd666; font-weight: 700; }
+        #tu-overlay { display: none; position: absolute; inset: 0; z-index: 71; align-items: center; justify-content: center; background: rgba(4,5,8,0.9); font-family: var(--cs-font); color: #fff; }
+        .tu-box { width: min(1100px, 96vw); max-height: 94vh; display: flex; flex-direction: column; background: var(--cs-panel); border: 1px solid var(--cs-line); padding: 16px 18px; }
+        .tu-help { font-size: 12px; color: var(--cs-dim); margin-bottom: 8px; }
+        .tu-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+        .tu-tabs button { padding: 7px 14px; background: var(--cs-panel2); border: 1px solid var(--cs-line); border-bottom: 3px solid var(--rc); color: #fff; font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; opacity: 0.6; }
+        .tu-tabs button.sel { opacity: 1; background: rgba(255,255,255,0.08); }
+        .tu-cols { display: grid; grid-template-columns: 1fr 340px; gap: 12px; min-height: 0; flex: 1; }
+        .tu-list { overflow-y: auto; max-height: 52vh; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; align-content: start; padding-right: 4px; }
+        .tu-card { position: relative; background: var(--cs-panel2); border-bottom: 3px solid var(--rc); padding: 4px; cursor: pointer; text-align: center; font-size: 10px; }
+        .tu-card:hover { background: rgba(255,255,255,0.08); } .tu-card.none { opacity: 0.35; cursor: default; }
+        .tu-card .skin-img { height: 52px; background: center / contain no-repeat; }
+        .tu-card .tu-n { position: absolute; right: 4px; top: 3px; font-weight: 800; font-size: 11px; color: #ffd666; }
+        .tu-empty { color: var(--cs-dim); font-size: 12px; padding: 16px; grid-column: 1 / -1; text-align: center; }
+        .tu-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+        .tu-slot { aspect-ratio: 1; background: #0d0f13; border: 1px dashed var(--cs-line); border-bottom: 3px solid var(--rc, var(--cs-line)); cursor: pointer; background-position: center; background-size: contain; background-repeat: no-repeat; }
+        .tu-out { margin-top: 10px; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; font-size: 12px; color: var(--cs-dim); border: 1px solid var(--cs-line); padding: 8px; }
+        .tu-out .cr-big { width: 220px; height: 120px; }
+        @media (max-width: 800px) { .tu-cols { grid-template-columns: 1fr; } .tu-list { max-height: 30vh; } }
+        .skin-card .sc-cnt { position: absolute; right: 6px; top: 4px; font-weight: 800; font-size: 12px; color: #ffd666; text-shadow: 0 0 4px #000; }
         .cr-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
         .cr-type { display: flex; flex-direction: column; gap: 2px; padding: 10px 6px; background: var(--cs-panel2); border: 1px solid var(--cs-line); border-bottom: 3px solid var(--cc); color: #fff; font-family: inherit; cursor: pointer; opacity: 0.6; }
         .cr-type b { font-size: 12px; letter-spacing: 1px; color: var(--cc); } .cr-type small { font-size: 10px; color: var(--cs-dim); }
@@ -857,6 +876,23 @@
             <div class="cr-odds"></div>
             <div class="cr-result"></div>
             <div class="cr-foot"><button class="inv-btn primary" id="cr-open">KISTE ÖFFNEN</button><button class="inv-btn" id="cr-close">SCHLIESSEN</button></div>
+        </div>
+    </div>
+
+    <!-- Trade-up-Vertrag -->
+    <div id="tu-overlay">
+        <div class="tu-box">
+            <div class="cr-head"><h3>TRADE-UP-VERTRAG</h3><span class="cr-count" id="tu-info"></span></div>
+            <div class="tu-help">Wähle 10 Skins <b>derselben Seltenheit</b>. Du bekommst 1 Skin der nächsten Stufe. Skins mit ×2, ×3 … kannst du mehrfach einsetzen.</div>
+            <div class="tu-tabs" id="tu-tabs"></div>
+            <div class="tu-cols">
+                <div class="tu-list" id="tu-list"></div>
+                <div class="tu-side">
+                    <div class="tu-slots" id="tu-slots"></div>
+                    <div class="tu-out" id="tu-out"></div>
+                </div>
+            </div>
+            <div class="cr-foot"><button class="inv-btn primary" id="tu-go" disabled>VERTRAG ABSCHLIESSEN</button><button class="inv-btn" id="tu-clear">LEEREN</button><button class="inv-btn" id="tu-close">SCHLIESSEN</button></div>
         </div>
     </div>
 
