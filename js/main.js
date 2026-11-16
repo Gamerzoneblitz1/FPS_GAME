@@ -1544,7 +1544,7 @@ function renderCrateOverlay(result) {
     ov.querySelector('.cr-count').textContent = `🎁 ${crates} ${crates === 1 ? 'Kiste' : 'Kisten'}`;
     const hd = ov.querySelector('.cr-head h3');
     if (hd) { hd.textContent = ct.name.toUpperCase(); hd.style.color = ct.color; }
-    ov.querySelector('.cr-odds').innerHTML = (`<span style="color:${ct.color}">${ct.desc}</span><br>` : '') + RARITIES.filter(r => r.odds).map(r => `<span style="color:${r.color}">${r.name} ${String(r.odds).replace('.', ',')}%</span>`).join(' · ');
+    ov.querySelector('.cr-odds').innerHTML = `<span style="color:${ct.color}">${ct.desc}</span><br>` + RARITIES.filter(r => r.odds).map(r => `<span style="color:${r.color}">${r.name} ${String(r.odds).replace('.', ',')}%</span>`).join(' · ');
     const res = ov.querySelector('.cr-result');
     if (result) {
         const s = result.skin, r = rarityOf(s);
