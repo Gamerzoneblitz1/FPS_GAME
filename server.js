@@ -217,7 +217,7 @@ function findNearestOtherPlayer(id) {
     if (!me) return null;
     let best = null, bestDist = Infinity;
     for (const [otherId, o] of Object.entries(players)) {
-        if (otherId === id) continue;
+        if (otherId === id || o.isBot) continue;
         const d = Math.hypot(me.x - o.x, me.y - o.y, me.z - o.z);
         if (d < bestDist) { bestDist = d; best = otherId; }
     }
@@ -247,7 +247,7 @@ function killPlayer(victimId, killerId, reason = 'hit') {
     victim.lastDamageTime = 0;
     victim.dead = true;                                   // wartet auf Waffenwahl/Respawn-Bestätigung des Clients
     clearTimeout(victim.deadTimer);
-    victim.deadTimer = setTimeout(() => endDeadState(victimId), DEAD_TIMEOUT_MS); // Sicherung, falls der Client nie bestätigt
+    victim.deadTimer = setTimeout(() => endDeadState(victimId), victim.isBot ? BOT_RESPAWN_MS : DEAD_TIMEOUT_MS); // Sicherung, falls der Client nie bestätigt (Bots: feste Wartezeit)
 
     const respawnPos = getRandomSpawnPoint(victimId);
     if (respawnPos) Object.assign(victim, respawnPos);
@@ -432,20 +432,59 @@ function finishMapVote() {
     mapVote = null;
     roundEndsAt = Date.now() + ROUND_MS;
     console.log('Rotation -> Karte:', currentMapId);
+    resetBots();
     io.emit('mapChanged', mapInfoPayload());
 }
 setInterval(() => {
     if (!rotationOn()) return;
-    if (!Object.keys(players).length) { mapVote = null; roundEndsAt = Date.now() + ROUND_MS; return; }
+    if (!humanIds().length) { mapVote = null; roundEndsAt = Date.now() + ROUND_MS; return; }
     if (mapVote) { if (Date.now() >= mapVote.endsAt) finishMapVote(); }
     else if (Date.now() >= roundEndsAt) startMapVote();
 }, 1000);
+
+
+// ---------- Bots ----------
+// BOT_COUNT Bots (Standard 10, 0 = aus). Sie stehen wie normale Spieler in "players" (Kill-Feed, Leaderboard, Treffer laufen
+// über denselben Weg). Gedacht wird im Browser des "Bot-Hosts" (der erste echte Spieler): nur dort kennt man die Wände der
+// Karte. Der Host meldet Bewegung ('botMoves') und Schüsse ('botShoot'); der Server rechnet Schaden und Tod selbst.
+const BOT_COUNT = Math.max(0, Math.min(20, Number.isFinite(Number(process.env.BOT_COUNT)) && process.env.BOT_COUNT !== '' && process.env.BOT_COUNT !== undefined ? Math.floor(Number(process.env.BOT_COUNT)) : 10));
+const BOT_NAMES = ['Viper', 'Ghost', 'Rogue', 'Blaze', 'Nova', 'Raven', 'Kilo', 'Echo', 'Hawk', 'Zero', 'Dash', 'Onyx', 'Fang', 'Pixel', 'Storm', 'Rex', 'Jinx', 'Volt', 'Mako', 'Spike'];
+const BOT_WEAPONS = [0, 1, 3, 4, 5];          // Rifle, Pistol, SMG, Shotgun, Revolver
+const BOT_DAMAGE_SCALE = 0.5;                 // Bots machen halben Schaden (sonst unfair)
+const BOT_RESPAWN_MS = 3000;
+const BOT_CHAR_SKINS = [0, 57, 58, 59, 60, 61, 62, 63, 64];
+let botHostId = null;
+const isBotId = (id) => !!(players[id] && players[id].isBot);
+const humanIds = () => Object.keys(players).filter(id => !players[id].isBot);
+function spawnBots() {
+    if (!BOT_COUNT || Object.values(players).some(p => p.isBot)) return;
+    for (let i = 0; i < BOT_COUNT; i++) {
+        const id = 'bot_' + (i + 1);
+        const sp = getRandomSpawnPoint(id);
+        players[id] = { ...(sp || { x: 0, y: 0, z: 0 }), health: 100, name: 'Bot ' + BOT_NAMES[i % BOT_NAMES.length], kills: 0, deaths: 0, syringes: 0,
+            level: 5 + Math.floor(Math.random() * 60), skin: BOT_CHAR_SKINS[Math.floor(Math.random() * BOT_CHAR_SKINS.length)], loadout: [], isBot: true, lastBotShot: 0 };
+    }
+    console.log('Bots gestartet:', BOT_COUNT);
+}
+function removeBots() {
+    for (const id of Object.keys(players)) if (players[id].isBot) { clearTimeout(players[id].deadTimer); delete players[id]; }
+    botHostId = null;
+}
+function updateBotHost() {
+    const h = humanIds()[0] || null;
+    if (h !== botHostId) { botHostId = h; io.emit('botHost', { id: h }); }
+}
+// Karte gewechselt: alle Bots wieder voll am Leben (der Host setzt sie auf Spawnpunkte)
+function resetBots() {
+    for (const p of Object.values(players)) if (p.isBot) { p.health = 100; p.dead = false; clearTimeout(p.deadTimer); p.protectUntil = Date.now() + SPAWN_PROTECTION_MS; }
+}
 
 io.on('connection', (socket) => {
     console.log('Verbunden:', socket.id);
     let lastResetTime = 0;
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
+    if (!humanIds().length) spawnBots();   // erster Spieler: Bots starten (stehen dann schon in 'currentPlayers')
     const spawn = getRandomSpawnPoint(socket.id);
     players[socket.id] = { ...(spawn || { x: 0, y: 2, z: 0 }), health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [] };   // Start nur mit Messer, Waffen per Kaufmenü (B)
     resetCombatState(players[socket.id]);
@@ -453,6 +492,8 @@ io.on('connection', (socket) => {
     socket.emit('mapInfo', mapInfoPayload());
     if (mapVote) socket.emit('mapVote', votePayload());
     socket.emit('currentPlayers', players);
+    updateBotHost();
+    socket.emit('botHost', { id: botHostId });
     socket.broadcast.emit('newPlayer', { id: socket.id, position: players[socket.id], name: players[socket.id].name });
     broadcastLeaderboard();
 
@@ -461,10 +502,11 @@ io.on('connection', (socket) => {
         const entry = MANIFEST.maps.find(m => m.id === id);
         if (!entry) return;
         if (entry.id === currentMapId) { socket.emit('mapInfo', mapInfoPayload()); return; }
-        if (Object.keys(players).length > 1) { socket.emit('mapDenied', { id: currentMapId, reason: 'players' }); return; }
+        if (humanIds().length > 1) { socket.emit('mapDenied', { id: currentMapId, reason: 'players' }); return; }
         currentMapId = entry.id;
         roundEndsAt = Date.now() + ROUND_MS;
         console.log('Karte gewechselt:', currentMapId);
+        resetBots();
         io.emit('mapChanged', mapInfoPayload());
     });
     socket.on('mapVoteCast', (id) => {
@@ -558,6 +600,44 @@ io.on('connection', (socket) => {
         xp = Math.min(xp, (me.progressXp || 0) + MAX_XP_PER_SAVE);       // und wachsen nur plausibel
         me.progressXp = xp;
         queueSave(me.persistKey, { name: me.name, xp, ...sanitizeCosmetics(d), updated: Date.now() });
+    });
+
+    // ---- Bot-Host meldet Bewegung und Schüsse der Bots ----
+    socket.on('botMoves', (arr) => {
+        if (socket.id !== botHostId || !Array.isArray(arr) || !rateOk(players[socket.id], 'botmove', 40)) return;
+        const out = [];
+        for (const m of arr.slice(0, 30)) {
+            const b = players[m && m.id];
+            if (!b || !b.isBot || b.dead) continue;
+            const x = Number(m.x), y = Number(m.y), z = Number(m.z), ry = Number(m.ry);
+            if (![x, y, z].every(Number.isFinite)) continue;
+            b.x = x; b.y = y; b.z = z;
+            out.push({ id: m.id, x, y, z, ry: Number.isFinite(ry) ? ry : 0 });
+        }
+        if (out.length) io.emit('botsMoved', out);
+    });
+    socket.on('botShoot', (d) => {
+        if (socket.id !== botHostId || !d || !rateOk(players[socket.id], 'botshoot', 80)) return;
+        const bot = players[d.id];
+        if (!bot || !bot.isBot || bot.dead) return;
+        const w = Number.isInteger(d.w) && BOT_WEAPONS.includes(d.w) && WEAPONS[d.w] ? d.w : -1;
+        if (w < 0) return;
+        const cfg = WEAPONS[w], now = Date.now();
+        if (now - bot.lastBotShot < cfg.fireCooldown * 1000 * 0.7) return;     // Feuerrate
+        bot.lastBotShot = now;
+        const start = toVec(d.start), end = toVec(d.end);
+        if (!start || !end) return;
+        const target = d.targetId ? players[d.targetId] : null;
+        const n = Math.min(cfg.pellets, Math.max(0, Math.floor(Number(d.n)) || 0));
+        const hit = !!(target && n > 0 && d.targetId !== d.id);
+        io.emit('playerShot', { id: d.id, start, end, w, c: null, n: null, hitPlayer: hit, silent: false });
+        if (!hit || target.dead || (target.protectUntil || 0) > now) return;
+        if (Math.hypot(bot.x - target.x, bot.z - target.z) > 90) return;
+        target.health -= Math.max(1, Math.round(cfg.damage * n * BOT_DAMAGE_SCALE));
+        target.lastAttacker = d.id;
+        target.lastDamageTime = now;
+        if (target.health <= 0) killPlayer(d.targetId, d.id, 'hit');
+        else io.emit('playerHealthUpdate', { id: d.targetId, health: target.health });
     });
 
     socket.on('playerMove', (data) => {
@@ -708,6 +788,7 @@ io.on('connection', (socket) => {
         console.log('Getrennt:', socket.id);
         if (players[socket.id]) clearTimeout(players[socket.id].deadTimer);
         delete players[socket.id];
+        if (!humanIds().length) removeBots(); else updateBotHost();
         if (mapVote) { delete mapVote.votes[socket.id]; io.emit('mapVoteUpdate', votePayload()); }
         io.emit('playerDisconnected', socket.id);
         broadcastLeaderboard();
