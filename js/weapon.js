@@ -400,79 +400,163 @@ function buildRevolverModel(g) {
 }
 
 // ---------- Messer: 6 Typen (Auswahl im Inventar). Spitze zeigt nach vorn (-z), Griff liegt um z = 0 ----------
+// Klingen sind jetzt echte Profile (THREE.Shape -> ExtrudeGeometry) statt Boxen: so gibt es echte Krümmung, Bauch, Spitzen und Löcher.
+// Profil-Koordinaten: x = Länge nach vorn, y = oben. Mit ry = +PI/2 wird x zu -z (nach vorn), die Dicke läuft entlang x.
+function extrudeShape(g, shape, depth, color, x, y, z, { ry = Math.PI / 2, rx = 0, rz = 0, bevel = 0.0012, edge = 0xdde3ee, accent = false } = {}) {
+    const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel * 0.8, bevelSegments: 1, curveSegments: 20 });
+    geo.translate(0, 0, -depth / 2);
+    const m = new THREE.Mesh(geo, mat(color));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    m.userData.body = true;
+    m.userData.baseColor = color;
+    if (edge !== null) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 32), edgeMat(edge)));
+    g.add(m);
+    return accent ? markAccent(m, color) : m;
+}
+// Punkt auf einer kubischen Bézierkurve (für Zähne/Kerben entlang einer Klingenkante)
+function bez(p0, p1, p2, p3, t) {
+    const u = 1 - t;
+    return [u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+            u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]];
+}
+function bezTan(p0, p1, p2, p3, t) {
+    const u = 1 - t;
+    return [3 * u * u * (p1[0] - p0[0]) + 6 * u * t * (p2[0] - p1[0]) + 3 * t * t * (p3[0] - p2[0]),
+            3 * u * u * (p1[1] - p0[1]) + 6 * u * t * (p2[1] - p1[1]) + 3 * t * t * (p3[1] - p2[1])];
+}
+
 function knifeCombat(g) {
     const STEEL = 0xb9c0cc, DARK = 0x15151b, MID = 0x2e2e3b, CYAN = 0x00f0ff;
-    box(g, 0.012, 0.062, 0.30, STEEL, 0, 0.0, -0.25, { edge: 0xdde3ee });
-    box(g, 0.016, 0.014, 0.28, MID, 0, 0.034, -0.24, { edge: null });
-    const tip = box(g, 0.012, 0.045, 0.07, STEEL, 0, -0.008, -0.43, { edge: 0xdde3ee });
-    tip.scale.set(1, 0.45, 1);
-    neon(g, 0.004, 0.008, 0.22, CYAN, 0.0085, 0.0, -0.25);
-    neon(g, 0.004, 0.008, 0.22, CYAN, -0.0085, 0.0, -0.25);
-    row(6, (i) => box(g, 0.018, 0.008, 0.012, DARK, 0, 0.044, -0.15 - i * 0.03, { edge: null })); // Rückenzähne
-    box(g, 0.05, 0.028, 0.016, DARK, 0, 0.0, -0.095, { edge: 0x4a4a5e });
+    const s = new THREE.Shape();                                              // Drop-Point: gerader Rücken, runder Bauch
+    s.moveTo(0, 0.032); s.lineTo(0.27, 0.032);
+    s.bezierCurveTo(0.34, 0.032, 0.39, 0.016, 0.415, -0.006);
+    s.bezierCurveTo(0.37, -0.034, 0.30, -0.036, 0.2, -0.032);
+    s.lineTo(0, -0.03); s.closePath();
+    extrudeShape(g, s, 0.011, STEEL, 0, 0.0, -0.095);
+    const f = new THREE.Shape();                                              // Hohlschliff (Neon-Einlage)
+    f.moveTo(0.03, 0.012); f.bezierCurveTo(0.14, 0.014, 0.26, 0.012, 0.34, 0.0); f.bezierCurveTo(0.24, -0.012, 0.12, -0.014, 0.03, -0.012); f.closePath();
+    extrudeShape(g, f, 0.0135, CYAN, 0, 0.0, -0.095, { edge: null, bevel: 0, accent: true });
+    box(g, 0.016, 0.012, 0.25, MID, 0, 0.036, -0.225, { edge: null });        // Rücken
+    row(7, (i) => box(g, 0.018, 0.008, 0.012, DARK, 0, 0.0405, -0.14 - i * 0.03, { edge: null })); // Rückenzähne
+    box(g, 0.05, 0.03, 0.016, DARK, 0, 0.0, -0.095, { edge: 0x4a4a5e });
     box(g, 0.03, 0.044, 0.15, DARK, 0, -0.004, -0.005, { edge: 0x4a4a5e });
     row(4, (i) => box(g, 0.032, 0.006, 0.01, MID, 0, -0.03, -0.06 + i * 0.035, { edge: null })); // Fingerrillen
     box(g, 0.034, 0.048, 0.02, MID, 0, -0.004, 0.08, { edge: null });
-    return [0, 0, -0.45];
+    return [0, 0, -0.5];
 }
 
 function knifeBayonet(g) {
     const STEEL = 0xc4cbd6, DARK = 0x15151b, MID = 0x2e2e3b, ORG = 0xff7a00;
-    box(g, 0.012, 0.07, 0.30, STEEL, 0, 0.0, -0.26, { edge: 0xdde3ee });
-    const clip = box(g, 0.012, 0.06, 0.12, STEEL, 0, 0.0, -0.46, { edge: 0xdde3ee }); clip.scale.set(1, 0.55, 1);
-    box(g, 0.014, 0.026, 0.13, MID, 0, 0.044, -0.36, { edge: null });
-    row(7, (i) => box(g, 0.016, 0.014, 0.012, DARK, 0, 0.05, -0.12 - i * 0.025, { edge: null })); // Sägezähne
-    neon(g, 0.004, 0.01, 0.16, ORG, 0.008, -0.01, -0.22);
-    neon(g, 0.004, 0.01, 0.16, ORG, -0.008, -0.01, -0.22);
+    const s = new THREE.Shape();                                              // Clip-Point mit abfallender Spitze
+    s.moveTo(0, 0.036); s.lineTo(0.27, 0.036);
+    s.bezierCurveTo(0.35, 0.036, 0.41, 0.02, 0.45, -0.012);
+    s.bezierCurveTo(0.39, -0.034, 0.30, -0.038, 0.2, -0.036);
+    s.lineTo(0, -0.034); s.closePath();
+    extrudeShape(g, s, 0.012, STEEL, 0, 0.0, -0.095);
+    const f = new THREE.Shape();
+    f.moveTo(0.03, 0.006); f.bezierCurveTo(0.14, 0.01, 0.26, 0.008, 0.36, -0.01); f.bezierCurveTo(0.26, -0.016, 0.14, -0.014, 0.03, -0.01); f.closePath();
+    extrudeShape(g, f, 0.0145, ORG, 0, 0.0, -0.095, { edge: null, bevel: 0, accent: true });
+    box(g, 0.014, 0.022, 0.14, MID, 0, 0.044, -0.36, { edge: null });
+    row(8, (i) => box(g, 0.016, 0.014, 0.012, DARK, 0, 0.05, -0.12 - i * 0.025, { edge: null })); // Sägezähne
     box(g, 0.05, 0.03, 0.016, DARK, 0, 0.0, -0.095);
     torus(g, 0.016, 0.004, MID, 0, -0.025, -0.095, { seg: 14 });                                // Öse
     box(g, 0.032, 0.046, 0.15, DARK, 0, -0.004, -0.005);
     row(5, (i) => box(g, 0.034, 0.048, 0.008, MID, 0, -0.004, -0.06 + i * 0.027, { edge: null }));
     cyl(g, 0.026, 0.03, MID, 0, -0.004, 0.09, 'z');
-    return [0, 0, -0.53];
+    return [0, 0, -0.545];
 }
 
+// Karambit: echte Sichelklinge (Rücken außen, Schneide innen), Fingerring, Wicklung. Der ganze Körper hängt an einem Drehpunkt
+// im Fingerring (userData.spin) - die Inspect-Animation wirbelt das Messer um den Ring.
 function knifeKarambit(g) {
     const STEEL = 0xbfc6d2, DARK = 0x15151b, MID = 0x2e2e3b, MAG = 0xff2bd6;
-    box(g, 0.026, 0.05, 0.12, DARK, 0, 0.0, 0.0);
-    row(4, (i) => box(g, 0.028, 0.052, 0.008, MID, 0, 0.0, -0.04 + i * 0.03, { edge: null }));
-    torus(g, 0.034, 0.008, MID, 0, -0.01, 0.1, { ry: Math.PI / 2, seg: 20 });                   // Fingerring
-    neon(g, 0.004, 0.012, 0.09, MAG, 0.0145, 0.0, 0.0);
-    neon(g, 0.004, 0.012, 0.09, MAG, -0.0145, 0.0, 0.0);
-    // gebogene Sichelklinge: erst nach vorn, dann nach unten
-    const R = 0.19, N = 8;
-    row(N, (i) => {
-        const th = (i + 0.5) / N * 1.55, len = R * 1.55 / N * 1.15;
-        const w = 0.05 * (1 - 0.8 * i / N) + 0.012;
-        box(g, 0.012, w, len, STEEL, 0, -R * (1 - Math.cos(th)), -0.06 - R * Math.sin(th), { rx: -th, edge: 0xdde3ee });
+    const RING = [0, -0.014, 0.12];
+    const spin = new THREE.Group(); spin.position.set(RING[0], RING[1], RING[2]); spin.userData.spin = true;
+    const h = new THREE.Group(); h.position.set(-RING[0], -RING[1], -RING[2]); spin.add(h); g.add(spin);
+
+    // Klinge: P0 -> Spitze entlang des Rückens, zurück entlang der Schneide
+    const S0 = [0, 0.03], S1 = [0.10, 0.034], S2 = [0.22, -0.02], S3 = [0.22, -0.17];
+    const s = new THREE.Shape();
+    s.moveTo(S0[0], S0[1]);
+    s.bezierCurveTo(S1[0], S1[1], S2[0], S2[1], S3[0], S3[1]);
+    s.lineTo(0.175, -0.245);                                                         // nadelfeine Spitze, nach hinten gebogen
+    s.bezierCurveTo(0.17, -0.13, 0.11, -0.01, 0.0, -0.014);
+    s.closePath();
+    extrudeShape(h, s, 0.011, STEEL, 0, 0, -0.065, { bevel: 0.0013 });
+    const f = new THREE.Shape();                                                      // Einlage entlang der Krümmung
+    f.moveTo(0.02, 0.018); f.bezierCurveTo(0.10, 0.022, 0.205, -0.02, 0.205, -0.15);
+    f.bezierCurveTo(0.185, -0.05, 0.10, 0.0, 0.02, 0.004); f.closePath();
+    extrudeShape(h, f, 0.0135, MAG, 0, 0, -0.065, { edge: null, bevel: 0, accent: true });
+    // Kerben auf dem Rücken
+    row(5, (i) => {
+        const t = 0.12 + i * 0.1, p = bez(S0, S1, S2, S3, t), tg = bezTan(S0, S1, S2, S3, t);
+        box(h, 0.014, 0.01, 0.012, DARK, 0, p[1] + 0.003, -0.065 - p[0], { rx: Math.atan2(tg[1], tg[0]), edge: null });
     });
-    markAccent(box(g, 0.006, 0.01, 0.06, MAG, 0, 0.0, -0.1, { edge: null }), MAG);
-    return [0, -0.17, -0.22];
+    // Griff (leicht gekrümmt nach hinten-unten) + Wicklung + Ring
+    box(h, 0.028, 0.052, 0.13, DARK, 0, -0.002, 0.0);
+    box(h, 0.026, 0.05, 0.05, DARK, 0, -0.012, 0.085, { rx: -0.35 });
+    row(5, (i) => box(h, 0.03, 0.054, 0.007, MID, 0, -0.002, -0.045 + i * 0.026, { edge: null }));
+    box(h, 0.034, 0.06, 0.016, MID, 0, 0.0, -0.062);                                // Zwinge
+    torus(h, 0.036, 0.0075, MID, 0, -0.014, 0.12, { ry: Math.PI / 2, seg: 24 });      // Fingerring
+    torus(h, 0.036, 0.0035, 0xbfc6d2, 0, -0.014, 0.12, { ry: Math.PI / 2, seg: 24 });
+    neon(h, 0.004, 0.012, 0.09, MAG, 0.0145, 0.0, 0.0);
+    neon(h, 0.004, 0.012, 0.09, MAG, -0.0145, 0.0, 0.0);
+    return [0, -0.245, -0.24];
 }
 
+// Butterfly (Balisong): Klinge + zwei Griffhälften mit Lochung, die sich um den Drehpunkt klappen lassen.
+// Die Griffhälften sind eigene Gruppen (userData.flip = 'A' / 'B'), die Inspect-Animation klappt sie auf.
 function knifeButterfly(g) {
     const STEEL = 0xc4cbd6, DARK = 0x15151b, MID = 0x2e2e3b, YEL = 0xffcc00;
-    for (const sx of [1, -1]) {
-        box(g, 0.012, 0.04, 0.2, DARK, sx * 0.018, 0.0, 0.0);
-        row(3, (i) => box(g, 0.014, 0.026, 0.026, 0x000000, sx * 0.018, 0.0, -0.06 + i * 0.06, { edge: null })); // Lochung
-        neon(g, 0.004, 0.006, 0.18, YEL, sx * 0.0255, 0.012, 0.0);
+    const PZ = -0.05;                                                                // Drehpunkt (z)
+    // Klinge (steht fest): Clip-Point mit Bauch, Daumenloch und Einlage
+    const b = new THREE.Shape();
+    b.moveTo(0, 0.02); b.lineTo(0.07, 0.027);
+    b.bezierCurveTo(0.2, 0.036, 0.3, 0.022, 0.345, -0.014);
+    b.bezierCurveTo(0.29, -0.034, 0.2, -0.032, 0.07, -0.027);
+    b.lineTo(0, -0.02); b.closePath();
+    const hole = new THREE.Path(); hole.absarc(0.085, 0.0, 0.0075, 0, Math.PI * 2, true); b.holes.push(hole);
+    extrudeShape(g, b, 0.0095, STEEL, 0, 0, PZ, { bevel: 0.0011 });
+    const f = new THREE.Shape();
+    f.moveTo(0.12, 0.005); f.bezierCurveTo(0.2, 0.012, 0.28, 0.004, 0.32, -0.012); f.bezierCurveTo(0.26, -0.014, 0.19, -0.012, 0.12, -0.004); f.closePath();
+    extrudeShape(g, f, 0.0118, YEL, 0, 0, PZ, { edge: null, bevel: 0, accent: true });
+    box(g, 0.012, 0.014, 0.1, MID, 0, 0.03, PZ - 0.12, { edge: null });              // Rücken-Verstärkung
+    cyl(g, 0.0065, 0.075, MID, 0, 0.0, PZ, 'x');                                     // Drehpunkt-Bolzen
+    cyl(g, 0.0045, 0.082, 0xd8dee8, 0, 0.0, PZ, 'x');
+    // Griffhälften
+    for (const side of [1, -1]) {
+        const grp = new THREE.Group(); grp.position.set(0, 0, PZ); grp.userData.flip = side > 0 ? 'A' : 'B'; g.add(grp);
+        const p = new THREE.Shape();                                                 // Länge 0.215, abgerundete Enden, leicht taillierte Form
+        p.moveTo(0.0, 0.016); p.lineTo(0.01, 0.0215);
+        p.bezierCurveTo(0.08, 0.026, 0.15, 0.022, 0.2, 0.02);
+        p.quadraticCurveTo(0.222, 0.018, 0.222, 0.0); p.quadraticCurveTo(0.222, -0.018, 0.2, -0.02);
+        p.bezierCurveTo(0.15, -0.022, 0.08, -0.026, 0.01, -0.0215); p.lineTo(0.0, -0.016); p.closePath();
+        for (const cx of [0.05, 0.1, 0.15]) {                                        // Lochung (Skeletonized)
+            const o = new THREE.Path();
+            o.absellipse(cx, 0, 0.0185, 0.0085, 0, Math.PI * 2, true); p.holes.push(o);
+        }
+        extrudeShape(grp, p, 0.0105, 0x20202a, side * 0.0165, 0, 0, { ry: -Math.PI / 2, bevel: 0.001, edge: 0x4a4a5e });
+        neon(grp, 0.004, 0.005, 0.2, YEL, side * 0.0225, 0.0215, 0.11);
+        row(4, (i) => box(grp, 0.014, 0.034, 0.006, MID, side * 0.0165, 0.0, 0.17 + i * 0.012, { edge: null }));
+        box(grp, 0.012, 0.03, 0.016, MID, side * 0.0165, 0.0, 0.01);                // Verschluss am Drehpunkt
+        cyl(grp, 0.0055, 0.014, 0xd8dee8, side * 0.0165, 0.0, 0.215, 'x');          // Endbolzen
     }
-    box(g, 0.05, 0.03, 0.012, MID, 0, 0.0, -0.1);
-    box(g, 0.05, 0.03, 0.012, MID, 0, 0.0, 0.1);
-    cyl(g, 0.005, 0.05, MID, 0, 0.012, -0.1, 'x'); cyl(g, 0.005, 0.05, MID, 0, 0.012, 0.1, 'x');
-    box(g, 0.01, 0.052, 0.26, STEEL, 0, 0.0, -0.24, { edge: 0xdde3ee });
-    const tip = box(g, 0.01, 0.04, 0.07, STEEL, 0, -0.006, -0.405, { edge: 0xdde3ee }); tip.scale.set(1, 0.5, 1);
-    box(g, 0.012, 0.014, 0.1, MID, 0, 0.032, -0.16, { edge: null });
-    return [0, 0, -0.43];
+    return [0, 0, PZ - 0.345];
 }
 
 function knifeDagger(g) {
     const STEEL = 0xd0d6e0, DARK = 0x15151b, MID = 0x2e2e3b, GOLD = 0xd9a521, RED = 0xff3355;
-    box(g, 0.01, 0.05, 0.34, STEEL, 0, 0.0, -0.28, { edge: 0xeef2f8 });
-    box(g, 0.014, 0.012, 0.32, 0xa8b0bd, 0, 0.0, -0.28, { edge: null });                          // Mittelgrat
-    const tip = box(g, 0.01, 0.045, 0.1, STEEL, 0, 0.0, -0.5, { edge: 0xeef2f8 }); tip.scale.set(1, 0.4, 1);
-    markAccent(box(g, 0.004, 0.006, 0.18, RED, 0.007, 0.0, -0.25, { edge: null }), RED);
-    markAccent(box(g, 0.004, 0.006, 0.18, RED, -0.007, 0.0, -0.25, { edge: null }), RED);
+    const s = new THREE.Shape();                                              // beidseitig geschliffen, schlanke Spitze
+    s.moveTo(0, 0.027);
+    s.bezierCurveTo(0.12, 0.027, 0.27, 0.017, 0.41, 0.0);
+    s.bezierCurveTo(0.27, -0.017, 0.12, -0.027, 0, -0.027); s.closePath();
+    extrudeShape(g, s, 0.011, STEEL, 0, 0, -0.105);
+    box(g, 0.0135, 0.008, 0.34, 0xa8b0bd, 0, 0.0, -0.275, { edge: null });     // Mittelgrat
+    markAccent(box(g, 0.004, 0.006, 0.2, RED, 0.007, 0.011, -0.25, { edge: null }), RED);
+    markAccent(box(g, 0.004, 0.006, 0.2, RED, -0.007, 0.011, -0.25, { edge: null }), RED);
+    markAccent(box(g, 0.004, 0.006, 0.2, RED, 0.007, -0.011, -0.25, { edge: null }), RED);
+    markAccent(box(g, 0.004, 0.006, 0.2, RED, -0.007, -0.011, -0.25, { edge: null }), RED);
     box(g, 0.1, 0.022, 0.016, GOLD, 0, 0.0, -0.105);                                              // Parierstange
     box(g, 0.014, 0.034, 0.02, GOLD, 0.056, 0.0, -0.105);
     box(g, 0.014, 0.034, 0.02, GOLD, -0.056, 0.0, -0.105);
@@ -480,23 +564,27 @@ function knifeDagger(g) {
     row(8, (i) => box(g, 0.028, 0.036, 0.007, MID, 0, 0.0, -0.08 + i * 0.019, { edge: null }));   // Wicklung
     const knob = new THREE.Mesh(new THREE.SphereGeometry(0.025, 12, 10), mat(GOLD));
     knob.position.set(0, 0, 0.09); knob.userData.body = true; knob.userData.baseColor = GOLD; g.add(knob);
-    return [0, 0, -0.55];
+    return [0, 0, -0.515];
 }
 
 function knifeMachete(g) {
     const STEEL = 0xaab2bf, DARK = 0x15151b, MID = 0x2e2e3b, GRN = 0x39ff14;
-    box(g, 0.014, 0.11, 0.40, STEEL, 0, 0.0, -0.32, { edge: 0xdde3ee });
-    const belly = box(g, 0.014, 0.1, 0.16, STEEL, 0, -0.008, -0.58, { rx: 0.06, edge: 0xdde3ee }); belly.scale.set(1, 0.8, 1);
-    const tip = box(g, 0.012, 0.07, 0.1, STEEL, 0, -0.03, -0.69, { rx: 0.18, edge: 0xdde3ee }); tip.scale.set(1, 0.55, 1);
-    box(g, 0.02, 0.016, 0.52, MID, 0, 0.058, -0.38, { edge: null });                               // dicker Rücken
-    neon(g, 0.004, 0.014, 0.4, GRN, 0.009, 0.01, -0.34);
-    neon(g, 0.004, 0.014, 0.4, GRN, -0.009, 0.01, -0.34);
+    const s = new THREE.Shape();                                              // breite Klinge mit Bauch und abfallender Spitze
+    s.moveTo(0, 0.045); s.lineTo(0.4, 0.045);
+    s.bezierCurveTo(0.54, 0.05, 0.645, 0.024, 0.695, -0.038);
+    s.bezierCurveTo(0.6, -0.086, 0.5, -0.07, 0.4, -0.06);
+    s.lineTo(0, -0.055); s.closePath();
+    extrudeShape(g, s, 0.012, STEEL, 0, 0.0, -0.115);
+    const f = new THREE.Shape();
+    f.moveTo(0.04, 0.012); f.lineTo(0.42, 0.012); f.bezierCurveTo(0.52, 0.012, 0.58, -0.004, 0.62, -0.03); f.bezierCurveTo(0.5, -0.03, 0.42, -0.026, 0.04, -0.024); f.closePath();
+    extrudeShape(g, f, 0.0145, GRN, 0, 0.0, -0.115, { edge: null, bevel: 0, accent: true });
+    box(g, 0.02, 0.016, 0.45, MID, 0, 0.05, -0.34, { edge: null });                               // dicker Rücken
     box(g, 0.06, 0.05, 0.016, DARK, 0, -0.01, -0.115);
     box(g, 0.034, 0.05, 0.19, DARK, 0, -0.005, -0.01);
     row(3, (i) => markAccent(cyl(g, 0.007, 0.04, GRN, 0, -0.005, -0.06 + i * 0.06, 'x'), GRN));    // Nieten
     box(g, 0.038, 0.058, 0.02, MID, 0, -0.005, 0.1);
     torus(g, 0.016, 0.003, MID, 0, -0.005, 0.12, { seg: 12 });
-    return [0, 0, -0.74];
+    return [0, -0.03, -0.81];
 }
 
 export const KNIFE_TYPES = [
@@ -640,6 +728,7 @@ export class Weapon {
         this.recoil = 0;       // 0..1
         this.dryNudge = 0;     // "Klick" bei leerem Magazin
         this.reloadSink = 0;   // 0..1, Waffe wird beim Nachladen abgesenkt
+        this._inspectT = -1; this._inspectDur = 3; this._spinNode = null; this._flipA = null; this._flipB = null;
         this._reloadStart = 0; this._crouchPrev = 0; this._crouchVel = 0; this._slideBlend = 0;
         this.flashTimer = 0;
 
@@ -759,7 +848,23 @@ export class Weapon {
     }
 
     // Zieh-Animation neu starten (Waffenwechsel, Respawn, Spielstart)
+    // Waffe in Ruhe betrachten (Taste F): nicht beim Zielen, Nachladen, Ziehen oder direkt nach einem Schuss
+    inspect() {
+        if (this._inspectT >= 0 || this.isReloading || this.aimT > 0.05 || this.drawT < 1 || this.recoil > 0.05) return false;
+        this._spinNode = this._flipA = this._flipB = null;
+        this.weaponGroup.traverse((o) => {
+            if (!o.userData) return;
+            if (o.userData.spin) this._spinNode = o;
+            if (o.userData.flip === 'A') this._flipA = o;
+            if (o.userData.flip === 'B') this._flipB = o;
+        });
+        const id = this.melee ? KNIFE_TYPES[knifeVariant].id : '';
+        this._inspectDur = id === 'butterfly' ? 4.4 : id === 'karambit' ? 3.8 : this.melee ? 3.4 : 3.2;
+        this._inspectT = 0;
+        return true;
+    }
     startDraw() {
+        this._inspectT = -1;
         this.drawT = 0;
         this.recoil = 0;
         this.flash.visible = false;
@@ -927,16 +1032,58 @@ export class Weapon {
         const cRZ = 0.1 * cr * cw * side + 0.42 * sl * side;
         const cRY = -0.25 * sl * side;
 
+        // --- Inspect-Animation (Taste F): Waffe wird zur Mitte gehoben und von allen Seiten gezeigt. Abbruch bei Schuss/Zielen/Nachladen.
+        let iX = 0, iY = 0, iZ = 0, iRX = 0, iRY = 0, iRZ = 0, spinA = 0, flipA = 0, flipB = 0;
+        if (this._inspectT >= 0) {
+            if (this.isReloading || this.aimT > 0.05 || this.drawT < 1 || this.recoil > 0.05) this._inspectT = -1;
+            else {
+                this._inspectT += delta / this._inspectDur;
+                if (this._inspectT >= 1) this._inspectT = -1;
+            }
+        }
+        if (this._inspectT >= 0) {
+            const p = this._inspectT, q = Math.min(1, Math.max(0, (p - 0.1) / 0.8));
+            const env = smooth01(p / 0.14) * (1 - smooth01((p - 0.88) / 0.12));
+            const id = this.melee ? KNIFE_TYPES[knifeVariant].id : '';
+            const sw = (a, b) => smooth01((p - a) / (b - a));            // weicher Übergang 0->1 zwischen p=a und p=b
+            if (!this.melee) {
+                iX = -0.1 * env * side; iY = 0.06 * env; iZ = 0.05 * env;
+                iRY = -1.15 * env * side * Math.sin(q * Math.PI * 2);
+                iRZ = 0.38 * env * side * Math.sin(q * Math.PI * 2 + 1.1);
+                iRX = 0.26 * env * Math.sin(q * Math.PI * 4);
+            } else if (id === 'karambit') {
+                iX = -0.12 * env * side; iY = 0.08 * env; iZ = 0.12 * env;
+                iRY = -0.5 * env * side; iRX = -0.25 * env; iRZ = 0.2 * env * side;
+                spinA = Math.PI * 4 * sw(0.18, 0.66) * -1;                // zwei volle Umdrehungen um den Fingerring
+                iRY += 0.5 * env * side * Math.sin(sw(0.66, 0.92) * Math.PI);
+            } else if (id === 'butterfly') {
+                iX = -0.1 * env * side; iY = 0.07 * env; iZ = 0.1 * env;
+                iRX = -0.35 * env; iRY = -0.4 * env * side; iRZ = 0.25 * env * side;
+                flipA = Math.PI * 2 * sw(0.16, 0.42) + Math.PI * 2 * sw(0.62, 0.8);     // Griffhälften schwingen herum
+                flipB = -Math.PI * 2 * sw(0.28, 0.54) - Math.PI * 2 * sw(0.62, 0.8);
+                iRZ += 2 * Math.PI * side * sw(0.74, 0.94) * 0.5;
+                iRY += 0.5 * env * side * Math.sin(sw(0.5, 0.95) * Math.PI);
+            } else {
+                iX = -0.1 * env * side; iY = 0.07 * env; iZ = 0.1 * env;
+                iRX = 0.55 * env; iRY = -0.55 * env * side;
+                iRZ = side * Math.PI * 2 * sw(0.2, 0.62) + 0.3 * env * side * Math.sin(q * Math.PI * 2);   // Klinge um die eigene Achse drehen
+                iRY += 0.7 * env * side * Math.sin(sw(0.55, 0.95) * Math.PI);
+            }
+        }
+        if (this._spinNode) this._spinNode.rotation.x = spinA;
+        if (this._flipA) this._flipA.rotation.x = flipA;
+        if (this._flipB) this._flipB.rotation.x = flipB;
+
         this.weaponGroup.position.set(
-            side * (BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e) + vs.x * off + this.dryNudge * 0.02 + d * 0.14 * side + rX + cX,
-            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e + vs.y * off + rY + cY - d * 0.40,
-            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + vs.z * off + k * this.kick + d * 0.08 + rZ
+            side * (BASE_POS.x + (this.aimPos.x - BASE_POS.x) * e) + vs.x * off + this.dryNudge * 0.02 + d * 0.14 * side + rX + cX + iX,
+            BASE_POS.y + (this.aimPos.y - BASE_POS.y) * e + vs.y * off + rY + cY + iY - d * 0.40,
+            BASE_POS.z + (this.aimPos.z - BASE_POS.z) * e + vs.z * off + k * this.kick + d * 0.08 + rZ + iZ
         );
         const sc = 1 + (vs.scale - 1) * off;
         this.weaponGroup.scale.set(sc * side, sc, sc);
-        this.weaponGroup.rotation.x = k * this.kickRot + rRX + cRX - d * 0.95;
-        this.weaponGroup.rotation.y = rRY + cRY;
-        this.weaponGroup.rotation.z = d * 0.45 * side + rRZ + cRZ;
+        this.weaponGroup.rotation.x = k * this.kickRot + rRX + cRX + iRX - d * 0.95;
+        this.weaponGroup.rotation.y = rRY + cRY + iRY;
+        this.weaponGroup.rotation.z = d * 0.45 * side + rRZ + cRZ + iRZ;
 
         // Zielfernrohr-Ansicht: Waffenmodell ausblenden, sobald fast voll gezoomt (dann zeigt das Overlay das Rohr)
         if (this.active) this.weaponGroup.visible = viewSettings.visible && !(this.scopeOverlay && this.aimT > 0.9);
@@ -1042,6 +1189,7 @@ export class WeaponManager {
 
     shoot() { return this.current.shoot(); }
     reload() { this.current.reload(); }
+    inspect() { return this.current.inspect(); }
     refillAll() {
         this.weapons.forEach(w => w.refill());
         this.current.startDraw(); // nach dem Respawn: Waffe wieder ziehen
