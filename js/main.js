@@ -43,7 +43,8 @@ let portalRings = []; // rotierende Neon-Ringe an den Gates
 let shootBlockers = []; // Wände/Türme/Kisten/Rampen -> blockieren Schüsse (Gates bewusst nicht)
 const otherPlayers = {};
 // ---- Bots (siehe bots.js): der Bot-Host (erster Spieler) steuert sie, alle anderen sehen sie wie normale Spieler ----
-let botHost = null;
+let botHost = null, botBoundsTop = 100, botBoundsH = 200;
+const _botN = new THREE.Vector3();
 const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
 function startBotHost() {
     if (botHost) return;
@@ -57,8 +58,33 @@ function startBotHost() {
             return h.length ? h[0].point.y : 0;
         },
         spawns: () => colliders.spawnPoints || [],
+        mapKey: () => (mapHandle && !mapLoading && groundMeshes.length ? mapHandle : null),
+        bounds: () => {
+            if (!groundMeshes.length) return null;
+            const box = new THREE.Box3();
+            for (const m of groundMeshes) box.expandByObject(m);
+            if (!isFinite(box.min.x) || box.max.x - box.min.x > 3000 || box.max.z - box.min.z > 3000) return null;
+            botBoundsTop = box.max.y + 2; botBoundsH = box.max.y - box.min.y + 6;
+            return { minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z };
+        },
+        // alle begehbaren Flächen (Normale zeigt nach oben) an dieser Stelle, von oben nach unten, mind. 1 m auseinander
+        floorsAt: (x, z) => {
+            groundRaycaster.set(new THREE.Vector3(x, botBoundsTop, z), new THREE.Vector3(0, -1, 0));
+            groundRaycaster.far = botBoundsH;
+            const hits = groundRaycaster.intersectObjects(groundMeshes, false);
+            groundRaycaster.far = Infinity;
+            const ys = [];
+            for (const h of hits) {
+                if (!h.face) continue;
+                _botN.copy(h.face.normal).transformDirection(h.object.matrixWorld);
+                if (_botN.y < 0.75) continue;
+                if (ys.length && ys[ys.length - 1] - h.point.y < 1) continue;
+                ys.push(h.point.y);
+            }
+            return ys;
+        },
         botIds: () => Object.keys(otherPlayers).filter(isBotId),
-        botPos: (id) => { const m = otherPlayers[id]; return m ? { x: m.position.x, y: m.position.y, z: m.position.z, alive: m.visible } : null; },
+        botPos: (id) => { const m = otherPlayers[id]; return m ? { x: m.position.x, y: m.position.y, z: m.position.z, alive: m.visible, moved: !!m.userData.tp } : null; },
         targets: () => {
             const out = [];
             if (hasEntered && !isDead) out.push({ id: socket.id, x: camera.position.x, y: feetY, z: camera.position.z });
@@ -454,11 +480,13 @@ function init() {
     });
 
     socket.on('playerShot', (data) => {
+        if (botHost && !isBotId(data.id) && data.start) botHost.hear(data.id, data.start.x, data.start.z);
         playShotEffects(data.start, data.end, data.w, data.n, data.hitPlayer, data.c);
         if (!data.silent) sfx.playShotRemote(data.w, data.start, camera); // Schuss anderer Spieler: nach Entfernung/Richtung
     });
 
     socket.on('playerHealthUpdate', (data) => {
+        if (botHost && isBotId(data.id)) botHost.onHealth(data.id, data.health);
         if (data.id === socket.id) {
             if (data.health < health) sfx.playHurt(); // Schaden bekommen
             health = data.health;
@@ -672,6 +700,7 @@ function addOtherPlayer(id, position, name = '') {
     otherPlayers[id] = pMesh;
     playerMeshesList.push(pMesh);
     scene.add(pMesh);
+    if (isBotId(id)) setPlayerVisible(pMesh, false);   // Bots erscheinen erst, wenn der Host sie platziert hat (nicht am Server-Spawn)
 }
 
 // Unsichtbar = nicht gerendert UND auf Layer 1 (der Raycast für Treffer prüft nur Layer 0, ein verstecktes
