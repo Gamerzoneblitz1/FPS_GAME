@@ -967,6 +967,9 @@ function onKeyChange(keyCode, isPressed) {
         case 82: // R
             if (isPressed) weapon.reload();
             break;
+        case 70: // F = Waffe ansehen (Inspect)
+            if (isPressed && !isDead && hasEntered && (controls.isLocked || touchActive) && !buyOpen) weapon.inspect();
+            break;
         case 49: case 50: case 51: case 52: case 53: case 54: // 1-6
             if (!isPressed || isDead) break;
             if (buyOpen) buyPick(keyCode - 49);                       // Kaufmenü offen: Taste = Waffe wählen
