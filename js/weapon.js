@@ -1077,7 +1077,7 @@ export class Weapon {
                 k = sampleKeys([[0, 0, 0, 0, 0, 0, 0], [0.16, -0.1, 0.05, 0.07, 0.2, -0.6, 0.45], [0.42, -0.12, 0.07, 0.09, 0.28, -1.0 * big, 0.3],
                     [0.58, -0.09, 0.05, 0.06, 0.15, 0.5, -0.45], [0.8, -0.1, 0.06, 0.08, 0.3, 0.85 * big, -0.3], [1, 0, 0, 0, 0, 0, 0]], p);
             }
-            iX = k[0] * side; iY = k[1] + hover; iZ = k[2]; iRX = k[3] + hover * 2; iRY = k[4] * side; iRZ = k[5] * side;
+            iX = k[0] * 2.5 * side; iY = k[1] * 1.7 + hover; iZ = k[2] * 1.2;   // Waffe liegt rechts im Bild: hier in die Bildmitte holen iRX = k[3] + hover * 2; iRY = k[4] * side; iRZ = k[5] * side;
         }
         if (this._spinNode) this._spinNode.rotation.x = spinA;
         if (this._flipA) this._flipA.rotation.x = flipA;
