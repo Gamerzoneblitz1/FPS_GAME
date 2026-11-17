@@ -685,6 +685,14 @@ export const viewSettings = { visible: true, left: false, x: 0, y: 0, z: 0, scal
 const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 const bump = (p, c, w) => Math.exp(-(((p - c) / w) ** 2)); // glockenförmiger Impuls um c
 const _tmpColor = new THREE.Color();
+// Posen-Folge auswerten: keys = [[p, x, y, z, rx, ry, rz], ...], dazwischen weich (smoothstep) -> Pose wird "gehalten", dann schwungvoll gewechselt
+function sampleKeys(keys, p) {
+    let i = 0;
+    while (i < keys.length - 2 && p > keys[i + 1][0]) i++;
+    const a = keys[i], b = keys[i + 1];
+    const t = smooth01((p - a[0]) / (b[0] - a[0]));
+    return [1, 2, 3, 4, 5, 6].map((j) => a[j] + (b[j] - a[j]) * t);
+}
 
 export class Weapon {
     constructor(camera, scene, config, onAmmoChange = null) {
@@ -859,7 +867,7 @@ export class Weapon {
             if (o.userData.flip === 'B') this._flipB = o;
         });
         const id = this.melee ? KNIFE_TYPES[knifeVariant].id : '';
-        this._inspectDur = id === 'butterfly' ? 4.4 : id === 'karambit' ? 3.8 : this.melee ? 3.4 : 3.2;
+        this._inspectDur = id === 'butterfly' ? 4.8 : id === 'karambit' ? 4.4 : this.melee ? 4.0 : 3.8;
         this._inspectT = 0;
         return true;
     }
@@ -1042,33 +1050,34 @@ export class Weapon {
             }
         }
         if (this._inspectT >= 0) {
-            const p = this._inspectT, q = Math.min(1, Math.max(0, (p - 0.1) / 0.8));
-            const env = smooth01(p / 0.14) * (1 - smooth01((p - 0.88) / 0.12));
+            // CS-Stil: Waffe wird zur Bildmitte gehoben und in Posen gezeigt (Pose halten, weich zur nächsten schwingen), dann zurück.
+            // Jede Pose: [p, x, y, z, rx, ry, rz] - x/ry/rz werden für Linkshänder gespiegelt.
+            const p = this._inspectT;
             const id = this.melee ? KNIFE_TYPES[knifeVariant].id : '';
-            const sw = (a, b) => smooth01((p - a) / (b - a));            // weicher Übergang 0->1 zwischen p=a und p=b
-            if (!this.melee) {
-                iX = -0.1 * env * side; iY = 0.06 * env; iZ = 0.05 * env;
-                iRY = -1.15 * env * side * Math.sin(q * Math.PI * 2);
-                iRZ = 0.38 * env * side * Math.sin(q * Math.PI * 2 + 1.1);
-                iRX = 0.26 * env * Math.sin(q * Math.PI * 4);
-            } else if (id === 'karambit') {
-                iX = -0.12 * env * side; iY = 0.08 * env; iZ = 0.12 * env;
-                iRY = -0.5 * env * side; iRX = -0.25 * env; iRZ = 0.2 * env * side;
-                spinA = Math.PI * 4 * sw(0.18, 0.66) * -1;                // zwei volle Umdrehungen um den Fingerring
-                iRY += 0.5 * env * side * Math.sin(sw(0.66, 0.92) * Math.PI);
+            const sw = (a, b) => smooth01((p - a) / (b - a));
+            const hover = Math.sin(p * 31) * 0.006 * Math.min(1, p * 8) * Math.min(1, (1 - p) * 8); // leichtes Zittern der Hand
+            let k;
+            if (id === 'karambit') {
+                k = sampleKeys([[0, 0, 0, 0, 0, 0, 0], [0.14, -0.13, 0.07, 0.12, -0.2, -0.45, 0.35], [0.3, -0.13, 0.07, 0.14, -0.3, -0.35, 0.2],
+                    [0.7, -0.13, 0.08, 0.14, -0.3, -0.35, 0.2], [0.82, -0.12, 0.06, 0.12, -0.15, -0.8, 0.5], [0.92, -0.08, 0.04, 0.06, 0.05, -0.55, 0.3], [1, 0, 0, 0, 0, 0, 0]], p);
+                spinA = -Math.PI * 4 * sw(0.28, 0.66);                         // zwei Umdrehungen um den Fingerring
             } else if (id === 'butterfly') {
-                iX = -0.1 * env * side; iY = 0.07 * env; iZ = 0.1 * env;
-                iRX = -0.35 * env; iRY = -0.4 * env * side; iRZ = 0.25 * env * side;
-                flipA = Math.PI * 2 * sw(0.16, 0.42) + Math.PI * 2 * sw(0.62, 0.8);     // Griffhälften schwingen herum
-                flipB = -Math.PI * 2 * sw(0.28, 0.54) - Math.PI * 2 * sw(0.62, 0.8);
-                iRZ += 2 * Math.PI * side * sw(0.74, 0.94) * 0.5;
-                iRY += 0.5 * env * side * Math.sin(sw(0.5, 0.95) * Math.PI);
+                k = sampleKeys([[0, 0, 0, 0, 0, 0, 0], [0.12, -0.1, 0.07, 0.1, -0.3, -0.5, 0.3], [0.2, -0.1, 0.07, 0.1, -0.3, -0.5, 0.3],
+                    [0.76, -0.11, 0.08, 0.12, -0.35, -0.4, 0.25], [0.88, -0.1, 0.07, 0.1, -0.2, -0.9, 0.6], [0.95, -0.05, 0.03, 0.05, 0, -0.5, 0.3], [1, 0, 0, 0, 0, 0, 0]], p);
+                flipA = Math.PI * 2 * sw(0.2, 0.42) + Math.PI * 2 * sw(0.52, 0.72);       // Griffhälften klappen auf und zu
+                flipB = -Math.PI * 2 * sw(0.28, 0.5) - Math.PI * 2 * sw(0.52, 0.72);
+            } else if (this.melee) {
+                k = sampleKeys([[0, 0, 0, 0, 0, 0, 0], [0.14, -0.1, 0.06, 0.1, 0.4, -0.75, 0.8], [0.36, -0.12, 0.07, 0.12, 0.45, -0.95, 0.8],
+                    [0.62, -0.1, 0.06, 0.1, 0.35, -0.7, 0.8 + Math.PI], [0.82, -0.12, 0.07, 0.12, 0.4, -0.95, 0.8 + Math.PI], [1, 0, 0, 0, 0, 0, Math.PI * 2]], p);
+            } else if (this.name === 'Pistol' || this.name === 'Revolver') {
+                k = sampleKeys([[0, 0, 0, 0, 0, 0, 0], [0.15, -0.12, 0.08, 0.1, 0.3, -0.7, 0.55], [0.4, -0.13, 0.09, 0.12, 0.35, -1.05, 0.9],
+                    [0.58, -0.1, 0.08, 0.1, 0.2, 0.45, -0.55], [0.8, -0.11, 0.09, 0.11, 0.3, 0.9, -0.8], [1, 0, 0, 0, 0, 0, 0]], p);
             } else {
-                iX = -0.1 * env * side; iY = 0.07 * env; iZ = 0.1 * env;
-                iRX = 0.55 * env; iRY = -0.55 * env * side;
-                iRZ = side * Math.PI * 2 * sw(0.2, 0.62) + 0.3 * env * side * Math.sin(q * Math.PI * 2);   // Klinge um die eigene Achse drehen
-                iRY += 0.7 * env * side * Math.sin(sw(0.55, 0.95) * Math.PI);
+                const big = this.name === 'Sniper' || this.name === 'Shotgun' ? 0.85 : 1;                    // lange Waffen: etwas weniger Ausschlag
+                k = sampleKeys([[0, 0, 0, 0, 0, 0, 0], [0.16, -0.1, 0.05, 0.07, 0.2, -0.6, 0.45], [0.42, -0.12, 0.07, 0.09, 0.28, -1.0 * big, 0.3],
+                    [0.58, -0.09, 0.05, 0.06, 0.15, 0.5, -0.45], [0.8, -0.1, 0.06, 0.08, 0.3, 0.85 * big, -0.3], [1, 0, 0, 0, 0, 0, 0]], p);
             }
+            iX = k[0] * side; iY = k[1] + hover; iZ = k[2]; iRX = k[3] + hover * 2; iRY = k[4] * side; iRZ = k[5] * side;
         }
         if (this._spinNode) this._spinNode.rotation.x = spinA;
         if (this._flipA) this._flipA.rotation.x = flipA;
