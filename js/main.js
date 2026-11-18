@@ -8,6 +8,7 @@ import { createPreview, createThumbMaker } from './preview.js';
 import { getSkinPreview, isPreviewCached } from './skintex.js';
 import * as prog from './progression.js';
 import { createBotHost } from './bots.js';
+import { createModes, TEAM_COLORS } from './modes.js';
 import { DEFAULTS as CONTROL_DEFAULTS, sanitizeControls, renderCrosshairSVG, wrapAngle, CROSSHAIR_STYLES, CROSSHAIR_COLORS } from './settings.js';
 
 const socket = io("https://fps-game-e18y.onrender.com");
@@ -46,9 +47,31 @@ const otherPlayers = {};
 let botHost = null, botBoundsTop = 100, botBoundsH = 200;
 const _botN = new THREE.Vector3();
 const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
+// ---- Spielmodi (Deathmatch / Bombe / Rettung), Zustand kommt vom Server, Anzeige in modes.js ----
+let modes = null, modeLayoutSent = false, respawnBlocked = false, curModeId = 'dm';
+const playerTeams = {};
+function ensureModes() {
+    if (modes) return modes;
+    modes = createModes({
+        scene,
+        getMe: () => ({ x: camera.position.x, z: camera.position.z }),
+        getMyId: () => socket.id,
+        sendHold: (on) => socket.emit('useHold', { on }),
+        notice: (t) => { if (t) showNotice(t); }
+    });
+    return modes;
+}
 function startBotHost() {
     if (botHost) return;
     botHost = createBotHost({
+        teamOf: (id) => playerTeams[id],
+        objective: () => {
+            const m = modes; if (!m || !m.active || !m.layout) return null;
+            const s = m.state;
+            return { mode: s.mode, phase: s.phase, layout: m.layout, bomb: s.bomb, hostages: s.hostages, noRespawn: !!s.noRespawn };
+        },
+        needLayout: () => !!modes && modes.state.mode !== 'dm' && !modes.layout,
+        mapId: () => serverMapId,
         eye: EYE_HEIGHT_STAND,
         collidersNear: (x, z) => collidersNear(x, z),
         groundY: (x, y, z) => {
@@ -421,8 +444,49 @@ function init() {
         setRoundLeft(d.roundLeftMs);
         hideVote();
         serverMapId = d.id;
+        curModeId = d.mode || 'dm';
+        ensureModes().setLayout(null);
+        modeLayoutSent = false; respawnBlocked = false;
+        if (d.modeName) showNotice('Modus: ' + d.modeName);
         if (botHost) botHost.resetAll();
         switchMap(d.id);
+    });
+    socket.on('layout', (p) => { ensureModes().setLayout(p && p.layout ? p : null); });
+    socket.on('teams', (m) => {
+        const old = Object.assign({}, playerTeams);
+        for (const k in playerTeams) delete playerTeams[k];
+        Object.assign(playerTeams, m || {});
+        ensureModes().setTeams(playerTeams);
+        for (const id in otherPlayers) if (old[id] !== playerTeams[id]) updateNameTag(id, playerNames[id] || id.slice(0, 6));
+    });
+    socket.on('modeState', (s) => {
+        ensureModes().setState(s);
+        curModeId = s && s.mode || 'dm';
+        if (s && s.phase !== 'live' && s.phase !== 'end') respawnBlocked = false;
+    });
+    socket.on('respawnBlocked', () => { respawnBlocked = true; showNotice('Bombe liegt – du spielst ab der nächsten Runde wieder mit'); });
+    socket.on('modeNotice', (d) => { if (d && d.text) showNotice(d.text); });
+    socket.on('roundStart', (d) => {
+        if (!d) return;
+        respawnBlocked = false;
+        ensureModes().setState(d.state);
+        const pos = d.pos || {};
+        if (botHost) botHost.placeAll(pos);
+        for (const id in otherPlayers) {
+            if (isBotId(id) || !pos[id]) continue;
+            otherPlayers[id].position.set(pos[id].x, pos[id].y, pos[id].z);
+            setPlayerVisible(otherPlayers[id], true);
+        }
+        const me = pos[socket.id];
+        if (me) {
+            currentEyeHeight = EYE_HEIGHT_STAND;
+            camera.position.set(me.x, me.y + EYE_HEIGHT_STAND, me.z);
+            feetY = me.y;
+            velocity.set(0, 0, 0);
+            canJump = true;
+            health = 100; updateHealthUI();
+            if (isDead) doRespawn();
+        }
     });
     socket.on('mapVote', (v) => showVote(v));
     socket.on('mapVoteUpdate', (v) => showVote(v));
@@ -506,7 +570,9 @@ function init() {
             health = 100;
             updateHealthUI();
             currentEyeHeight = EYE_HEIGHT_STAND;
-            if (data.respawnPos && !(mapHandle && mapHandle.entry.type === 'glb')) {
+            if (modes) modes.setHold(false);
+            const teamSpawn = !!(modes && modes.active && modes.layout);   // Teambasis kommt vom Server (auch auf .glb-Karten, Layout ist in Client-Koordinaten)
+            if (data.respawnPos && (teamSpawn || !(mapHandle && mapHandle.entry.type === 'glb'))) {
                 camera.position.set(data.respawnPos.x, data.respawnPos.y, data.respawnPos.z);
                 feetY = data.respawnPos.y - currentEyeHeight;
                 velocity.set(0, 0, 0);
@@ -692,7 +758,7 @@ function addOtherPlayer(id, position, name = '') {
     pMesh.position.set(position.x || 0, position.y || 2, position.z || 0);
 
     // Nametag als Sprite über dem Spieler
-    const tag = makeNameSprite(playerNames[id]);
+    const tag = makeNameSprite(playerNames[id], TEAM_COLORS[playerTeams[id]] || '#00f0ff');
     tag.position.set(0, 3.2, 0); // über dem Kopf (relativ zur Gruppe)
     tag.name = 'nametag';
     pMesh.add(tag);
@@ -710,7 +776,7 @@ function setNametagVisible(tag, on) {
     tag.layers.set(on ? 0 : 1);
 }
 
-function makeNameSprite(name) {
+function makeNameSprite(name, color = '#00f0ff') {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 64;
     const ctx = canvas.getContext('2d');
@@ -718,7 +784,7 @@ function makeNameSprite(name) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.roundRect(4, 4, 248, 56, 10); ctx.fill();
-    ctx.fillStyle = '#00f0ff';
+    ctx.fillStyle = color;
     ctx.fillText(name.slice(0, 16), 128, 34);
     const tex = new THREE.CanvasTexture(canvas);
     const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
@@ -734,8 +800,9 @@ function updateNameTag(id, name) {
     if (!mesh) return;
     const old = mesh.getObjectByName('nametag');
     if (old) { old.material.map.dispose(); old.material.dispose(); mesh.remove(old); }
-    const tag = makeNameSprite(name);
+    const tag = makeNameSprite(name, TEAM_COLORS[playerTeams[id]] || '#00f0ff');
     tag.position.set(0, 3.2, 0); tag.name = 'nametag';
+    if (!mesh.visible) setNametagVisible(tag, false);
     mesh.add(tag);
 }
 
@@ -966,6 +1033,10 @@ function onKeyChange(keyCode, isPressed) {
             break;
         case 82: // R
             if (isPressed) weapon.reload();
+            break;
+        case 69: // E halten = Bombe legen/entschärfen, Geisel befreien (Server prüft Nähe + Team)
+            if (modes && modes.active && hasEntered && !isDead) modes.setHold(isPressed);
+            else if (modes && !isPressed) modes.setHold(false);
             break;
         case 70: // F = Waffe ansehen (Inspect)
             if (isPressed && !isDead && hasEntered && (controls.isLocked || touchActive) && !buyOpen) weapon.inspect();
@@ -1388,8 +1459,16 @@ function enterDeadState(killerName) {
     if (controls.isLocked) controls.unlock(); // Maus frei für die Waffenwahl
 }
 
+const respawnLocked = () => respawnBlocked || !!(modes && modes.active && modes.state.noRespawn && modes.state.phase === 'live');
 function doRespawn() {
     if (!isDead) return;
+    if (respawnLocked()) {                // Bombenmodus: nach dem Legen gibt es bis zur nächsten Runde keinen Respawn
+        const c = document.getElementById('respawn-count');
+        if (c) c.textContent = '–';
+        clearInterval(respawnTimerId);
+        respawnTimerId = setInterval(() => { if (!respawnLocked()) doRespawn(); }, 500);
+        return;
+    }
     clearInterval(respawnTimerId);
     respawnTimerId = null;
     isDead = false;
@@ -1840,7 +1919,7 @@ function updateRoundUi() {
     const u = ensureRoundUi();
     if (voteState) {
         const left = Math.max(0, Math.ceil((voteState.endAt - performance.now()) / 1000));
-        const head = u.v.querySelector('.vh'); if (head) head.textContent = 'NÄCHSTE KARTE WÄHLEN · ' + left + 's';
+        const head = u.v.querySelector('.vh'); if (head) head.textContent = (voteState.modeName ? 'NÄCHSTER MODUS: ' + voteState.modeName.toUpperCase() + ' · ' : '') + 'KARTE WÄHLEN · ' + left + 's';
     }
     if (roundEndAt === null || voteState) { u.t.style.display = 'none'; return; }
     const s = Math.max(0, Math.ceil((roundEndAt - performance.now()) / 1000));
@@ -1851,7 +1930,7 @@ function showVote(v) {
     if (!v || !Array.isArray(v.options)) return;
     const u = ensureRoundUi();
     const keep = voteState && voteState.myVote;
-    voteState = { endAt: performance.now() + (v.leftMs || 0), options: v.options, myVote: keep };
+    voteState = { endAt: performance.now() + (v.leftMs || 0), options: v.options, myVote: keep, modeName: v.nextModeName || '' };
     u.v.style.display = 'block';
     u.v.innerHTML = '<div class="vh" style="color:#0ff;margin-bottom:8px;font-weight:bold"></div>' + v.options.map((o, i) =>
         '<div data-id="' + esc(o.id) + '" style="padding:6px 8px;margin:4px 0;border-radius:6px;cursor:pointer;background:' + (voteState.myVote === o.id ? 'rgba(0,255,153,.25)' : 'rgba(255,255,255,.07)') + '">' +
@@ -2319,6 +2398,7 @@ function animate() {
 
     applyMouseSensitivity(); // vor der Bewegung, damit die Laufrichtung zur korrigierten Blickrichtung passt
     smoothBots(delta);
+    if (modes) { try { modes.update(delta); } catch (e) { if (!window.__modeErr) { window.__modeErr = 1; console.error('Modus-Fehler', e); } } }
     if (botHost) { try { botHost.update(delta); } catch (e) { console.error('Bot-Fehler', e); } }
     updatePlayerAnimations(playerMeshesList, delta);
     updateResetHold(time);
@@ -2532,3 +2612,4 @@ function animate() {
 init();
 initMaps();
 requestAnimationFrame(animate);
+    
