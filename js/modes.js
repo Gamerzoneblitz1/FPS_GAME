@@ -147,7 +147,12 @@ export function createModes({ scene, getMe, getMyId, sendHold, notice }) {
 
     function updateHud() {
         const mode = state.mode;
-        if (mode === 'dm' || !layout && state.phase !== 'nolayout') { bar.style.display = 'none'; prompt.style.display = 'none'; banner.style.display = 'none'; return; }
+        if (mode === 'dm') {   // Deathmatch: nur der Modusname, damit man immer sieht, was gespielt wird
+            bar.style.display = 'block';
+            bar.innerHTML = '<div class="mb-sub" style="font-size:13px;font-weight:700;color:#0ff">' + (state.name || 'DEATHMATCH').toUpperCase() + '</div>';
+            prompt.style.display = 'none'; banner.style.display = 'none'; return;
+        }
+        if (!layout && state.phase !== 'nolayout') { bar.style.display = 'none'; prompt.style.display = 'none'; banner.style.display = 'none'; return; }
         const team = myTeam();
         bar.style.display = 'block';
         const phase = state.phase;
@@ -209,7 +214,7 @@ export function createModes({ scene, getMe, getMyId, sendHold, notice }) {
         get layout() { return layout; },
         get active() { return state.mode !== 'dm'; },
         update(dt) {
-            if (state.mode === 'dm') { if (bar.style.display !== 'none') updateHud(); return; }
+            if (state.mode === 'dm') { updateHud(); return; }
             const k = 1 - Math.exp(-dt * 10);
             hostages.forEach(h => { if (!h.g.visible) return; h.g.position.x += (h.tx - h.g.position.x) * k; h.g.position.y += (h.ty - h.g.position.y) * k; h.g.position.z += (h.tz - h.g.position.z) * k; });
             if (bombMesh && bombMesh.visible) {
