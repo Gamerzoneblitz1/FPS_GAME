@@ -14,6 +14,8 @@
 //   bounds() -> {minX,maxX,minZ,maxZ} | null      mapKey() -> Objekt, das sich bei jeder neuen Karte ändert (null = lädt noch)
 //   spawns() -> [{x,y,z}] (y = Augenhöhe)         eye -> Augenhöhe über dem Boden
 //   targets() -> [{id,x,y,z}] lebende Ziele (ohne Bots)       botIds()      botPos(id)      emit(event, data)
+//   teamOf(id) -> 'T' | 'CT' | undefined        objective() -> Modus-Zustand (mode, phase, layout, bomb, hostages, noRespawn) oder null
+//   needLayout() -> true, solange der Server für diese Karte noch kein Modus-Layout hat       mapId() -> ID der aktuellen Karte
 
 const RADIUS = 0.45;
 const TICK = 1 / 15;           // KI-/Bewegungstakt (15 Hz)
@@ -35,7 +37,7 @@ const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI;
 export function createBotHost(api) {
     const bots = new Map();
     let acc = 0;
-    let pathBudget = 0;
+    let pathBudget = 0, layoutTry = 0;
     const tprev = new Map();   // Ziel-ID -> letzte Position (für Vorhalten)
 
     // ---------- Kollision ----------
@@ -183,6 +185,33 @@ export function createBotHost(api) {
         return null;
     }
     function randomNode() { return nav.nodes[Math.floor(Math.random() * nav.nodes.length)]; }
+    function nodeNear(x, z, r) {
+        for (let i = 0; i < 40; i++) { const n = randomNode(); if (n && Math.hypot(n.x - x, n.z - z) <= r) return n; }
+        return nearestNode(x, 0, z) || randomNode();
+    }
+    // Kartenvermessung für Bombplant/Rettung: T-Basis und CT-Basis weit auseinander, 2 Plätze dazwischen, 2 Geiseln bei T
+    function computeLayout() {
+        if (!nav.ready) return null;
+        let pair = null, bd = 0;
+        for (let i = 0; i < 120; i++) { const a = randomNode(), c = randomNode(); const d = Math.hypot(a.x - c.x, a.z - c.z); if (d > bd) { bd = d; pair = [a, c]; } }
+        if (!pair || bd < 30) return null;
+        const [t, ct] = pair, D = bd, hyp = (a, c) => Math.hypot(a.x - c.x, a.z - c.z);
+        let cand = nav.nodes.filter(n => Math.abs(hyp(n, t) - hyp(n, ct)) <= 0.2 * D && Math.min(hyp(n, t), hyp(n, ct)) >= 0.2 * D);
+        if (cand.length < 2) cand = nav.nodes.filter(n => Math.min(hyp(n, t), hyp(n, ct)) >= 0.15 * D);
+        if (!cand.length) return null;
+        const A = cand[Math.floor(Math.random() * cand.length)];
+        const far = cand.filter(n => hyp(n, A) >= 0.25 * D);
+        const B = far.length ? far[Math.floor(Math.random() * far.length)] : nav.nodes.filter(n => hyp(n, A) >= 0.2 * D && Math.min(hyp(n, t), hyp(n, ct)) >= 0.1 * D)[0];
+        if (!B) return null;
+        const hs = [];
+        for (let i = 0; i < 80 && hs.length < 2; i++) {
+            const n = nodeNear(t.x, t.z, 16);
+            if (n && hyp(n, t) >= 4 && hs.every(h => hyp(h, n) >= 4)) hs.push(n);
+        }
+        if (hs.length < 2) hs.push(t);
+        const pt = (n) => ({ x: +n.x.toFixed(2), y: +n.y.toFixed(2), z: +n.z.toFixed(2) });
+        return { t: pt(t), ct: pt(ct), sites: [pt(A), pt(B)], hostages: hs.map(pt) };
+    }
 
     // Punkt, der weit weg von allen anderen (Bots, Spieler) liegt: Bestes aus mehreren Zufallskandidaten
     function spreadNode(selfId, list, tries = 10, minHuman = 0) {
@@ -209,15 +238,25 @@ export function createBotHost(api) {
         const known = api.botPos(id);
         const b = { id, gun, skill: rnd(0.75, 1.25), x: 0, y: 0, z: 0, ry: rnd(-3, 3), alive: false, respawnAt: 0, hp: 100, target: null, seenAt: 0, nextShot: 0,
             path: null, pi: 0, dest: null, repathAt: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: 0, stuckT: 0, lx: 0, lz: 0, losAt: 0, losOk: false, aim: 0,
-            mode: 'patrol', modeUntil: 0, hunt: null, hold: 0 };
+            mode: 'patrol', modeUntil: 0, hunt: null, hold: 0, holdWanted: false, holdSent: false, siteIdx: Math.floor(Math.random() * 2) };
         if (known && known.alive && known.moved) { b.x = known.x; b.y = known.y; b.z = known.z; b.alive = true; b.lx = b.x; b.lz = b.z; }
         else b.respawnAt = performance.now() + rnd(300, 2500);
         return b;
     }
 
+    function teamBase(b) {
+        const o = api.objective(), team = api.teamOf(b.id);
+        if (!o || o.mode === 'dm' || !o.layout || !team) return null;
+        const base = team === 'T' ? o.layout.t : o.layout.ct;
+        for (let i = 0; i < 6; i++) {
+            const x = base.x + rnd(-1.8, 1.8), z = base.z + rnd(-1.8, 1.8);
+            if (!blockedAt(x, base.y, z)) return { x, y: base.y, z };
+        }
+        return { x: base.x, y: base.y, z: base.z };
+    }
     function respawn(b, list) {
-        let p = null;
-        if (nav.ready) {
+        let p = teamBase(b);
+        if (!p && nav.ready) {
             const n = spreadNode(b.id, list, 14, 35);
             if (n) p = { x: n.x, y: n.y, z: n.z };
         }
@@ -230,7 +269,7 @@ export function createBotHost(api) {
             p = { x: s.x, y: s.y - api.eye, z: s.z };
         }
         b.x = p.x; b.y = p.y; b.z = p.z; b.lx = b.x; b.lz = b.z;
-        b.alive = true; b.hp = 100; b.target = null; b.path = null; b.dest = null; b.mode = 'patrol'; b.hunt = null; b.stuckT = 0;
+        b.alive = true; b.hp = 100; b.target = null; b.path = null; b.dest = null; b.mode = 'patrol'; b.hunt = null; b.stuckT = 0; b.siteIdx = Math.floor(Math.random() * 2); b.holdWanted = false;
         b.ry = rnd(-Math.PI, Math.PI);
     }
 
@@ -284,6 +323,8 @@ export function createBotHost(api) {
         let best = null, bestScore = Infinity;
         for (const t of list) {
             if (t.id === b.id) continue;
+            const mt = api.teamOf(b.id);
+            if (mt && api.teamOf(t.id) === mt) continue;             // keine Teamkameraden
             const d = Math.hypot(t.x - b.x, t.z - b.z);
             if (d > SIGHT) continue;
             const score = d * (t.bot ? 1.6 : 1);           // echte Spieler bevorzugen
@@ -299,11 +340,43 @@ export function createBotHost(api) {
         return b.losOk ? best : null;
     }
 
+    // Ziel für Bots im Bombplant-/Rettungsmodus; null = normal patrouillieren
+    function objGoal(b) {
+        const o = api.objective(), team = api.teamOf(b.id);
+        if (!o || o.mode === 'dm' || !o.layout || o.phase !== 'live' || !team) return null;
+        const L = o.layout, site = L.sites[b.siteIdx % L.sites.length];
+        if (o.mode === 'bomb' && o.bomb) {
+            const bm = o.bomb;
+            if (team === 'T') {
+                if (bm.state === 'carried' && bm.carrier === b.id) return { x: site.x, y: site.y, z: site.z, hold: true, stop: 1.8 };
+                if (bm.state === 'dropped') return { x: bm.x, y: bm.y, z: bm.z, stop: 1 };
+                if (bm.state === 'planted') return { x: bm.x, y: bm.y, z: bm.z, guard: 9 };
+                return { x: site.x, y: site.y, z: site.z, guard: 12 };                // Träger begleiten: zum Platz
+            }
+            if (bm.state === 'planted') return { x: bm.x, y: bm.y, z: bm.z, hold: true, stop: 1.6 };
+            return { x: site.x, y: site.y, z: site.z, guard: 14 };                    // Platz verteidigen
+        }
+        if (o.mode === 'rescue' && o.hostages) {
+            if (team === 'CT') {
+                const mine = o.hostages.find(h => h.carrier === b.id);
+                if (mine) return { x: L.ct.x, y: L.ct.y, z: L.ct.z, stop: 3 };
+                let best = null, bd = Infinity;
+                o.hostages.forEach((h) => { if (h.rescued || h.carrier) return; const d = Math.hypot(h.x - b.x, h.z - b.z); if (d < bd) { bd = d; best = h; } });
+                if (best) return { x: best.x, y: best.y, z: best.z, hold: true, stop: 1.8 };
+                return { x: L.ct.x, y: L.ct.y, z: L.ct.z, guard: 12 };
+            }
+            const h = L.hostages[b.siteIdx % L.hostages.length];
+            return { x: h.x, y: h.y, z: h.z, guard: 11 };                              // T bewachen die Geiseln
+        }
+        return null;
+    }
+
     function think(b, now, dt, list) {
         const found = pickTarget(b, now, list);
         let dirX = 0, dirZ = 0, speed = SPEED, turn = 7 * b.skill;
         if (found) {
             const { t, d } = found;
+            b.holdWanted = false;                                        // Feind in Sicht: E loslassen, kämpfen
             if (b.mode !== 'fight') { b.seenAt = now; b.mode = 'fight'; b.path = null; }
             b.target = t; b.hunt = { x: t.x, y: t.y, z: t.z, until: now + 9000 };
             // Zielposition mit Vorhalten (Bewegung des Ziels seit dem letzten Tick)
@@ -336,7 +409,29 @@ export function createBotHost(api) {
                 if (!b.hunt || b.hunt.until < now || (Math.hypot(b.hunt.x - b.x, b.hunt.z - b.z) < 3 && !b.path)) { b.mode = 'patrol'; b.path = null; }
                 else if ((!b.path || now > b.repathAt)) goTo(b, b.hunt.x, b.hunt.y, b.hunt.z, now);
             }
-            if (b.mode === 'patrol') {
+            const og = b.mode === 'patrol' ? objGoal(b) : null;
+            if (og) {
+                const dist = Math.hypot(og.x - b.x, og.z - b.z);
+                if (og.hold && dist <= og.stop + 1.2) { b.holdWanted = true; b.path = null; dirX = 0; dirZ = 0; }     // am Ziel: E halten
+                else if (!og.guard && dist < 9 && segClear(b.x, b.y, b.z, og.x, og.y, og.z)) { b.path = null; dirX = og.x - b.x; dirZ = og.z - b.z; }
+                else if (og.guard && dist <= og.guard) {                                                              // verteidigen: im Umkreis patrouillieren
+                    if (!b.path || now > b.repathAt + 6000) { const n = nodeNear(og.x, og.z, og.guard); if (n) goTo(b, n.x, n.y, n.z, now); }
+                } else if (!b.path || now > b.repathAt) goTo(b, og.x, og.y, og.z, now);
+                if (!b.holdWanted || !og.hold) { /* weiter unten: Pfad folgen */ }
+                if (!(og.hold && dist <= og.stop + 1.2) && !(dirX || dirZ)) {
+                    const dir0 = followPath(b);
+                    if (dir0) { dirX = dir0.x; dirZ = dir0.z; }
+                }
+                if (dirX || dirZ) {
+                    const want = Math.atan2(-dirX, -dirZ);
+                    b.ry += Math.max(-turn * 0.9 * dt, Math.min(turn * 0.9 * dt, angDiff(b.ry, want)));
+                    if (Math.abs(angDiff(b.ry, want)) > 1.4) { dirX *= 0.2; dirZ *= 0.2; }
+                } else if (b.holdWanted) {
+                    const want = Math.atan2(-(og.x - b.x), -(og.z - b.z));
+                    b.ry += Math.max(-3 * dt, Math.min(3 * dt, angDiff(b.ry, want)));
+                }
+                if (!og.hold) b.holdWanted = false;
+            } else if (b.mode === 'patrol') {
                 if (!b.path || now > b.repathAt + 8000) {
                     const n = spreadNode(b.id, list, 8, 0);
                     if (n) goTo(b, n.x, n.y, n.z, now);
@@ -347,13 +442,14 @@ export function createBotHost(api) {
                     }
                 }
             }
-            const dir = followPath(b);
+            const dir = og ? null : followPath(b);
             if (dir) {
                 dirX = dir.x; dirZ = dir.z;
                 const want = Math.atan2(-dir.x, -dir.z);
                 b.ry += Math.max(-turn * 0.9 * dt, Math.min(turn * 0.9 * dt, angDiff(b.ry, want)));
                 if (Math.abs(angDiff(b.ry, want)) > 1.4) { dirX *= 0.2; dirZ *= 0.2; }          // erst drehen, dann laufen
-            } else if (!nav.ready) { dirX = -Math.sin(b.ry); dirZ = -Math.cos(b.ry); }
+            } else if (og) { /* Ziel-Verhalten hat Richtung schon gesetzt */ }
+            else if (!nav.ready) { dirX = -Math.sin(b.ry); dirZ = -Math.cos(b.ry); }
             else if (b.mode === 'patrol') b.path = null;
         }
         if (found) tprev.set(found.t.id, { x: found.t.x, z: found.t.z });
@@ -389,8 +485,17 @@ export function createBotHost(api) {
         onKilled(id, respawnPos) {
             const b = bots.get(id);
             if (!b) return;
-            b.alive = false; b.path = null;
+            b.alive = false; b.path = null; b.holdWanted = false;
             b.respawnAt = performance.now() + 3300;
+        },
+        // Neue Runde (Server 'roundStart'): alle Bots stehen wieder an der Basis ihres Teams, voll am Leben
+        placeAll(pos) {
+            for (const b of bots.values()) {
+                const p = pos && pos[b.id];
+                if (!p) continue;
+                b.x = p.x; b.y = p.y; b.z = p.z; b.lx = b.x; b.lz = b.z; b.alive = true; b.hp = 100; b.target = null; b.path = null; b.dest = null;
+                b.mode = 'patrol'; b.hunt = null; b.holdWanted = false; b.siteIdx = Math.floor(Math.random() * 2); b.ry = rnd(-Math.PI, Math.PI);
+            }
         },
         onHealth(id, hp) { const b = bots.get(id); if (b) b.hp = hp; },
         // Schuss gehört (Position der Mündung): freie Bots in der Nähe schauen nach
@@ -407,20 +512,34 @@ export function createBotHost(api) {
         },
         update(dt) {
             navStep();
-            if (!bots.size) return;
             const now = performance.now();
+            // Modus-Layout melden, wenn der Server noch keins hat (nur der Host kennt das Wegenetz - auch ohne Bots)
+            if (nav.ready && api.needLayout() && now - layoutTry > 6000) {
+                layoutTry = now;
+                const L = computeLayout();
+                if (L) api.emit('modeLayout', Object.assign({ mapId: api.mapId() }, L));
+            }
+            if (!bots.size) return;
             acc += dt;
             if (acc < TICK) return;
             const step = Math.min(acc, 0.1); acc = 0;
             pathBudget = 3;
+            const obj = api.objective();
             const list = api.targets().concat([...bots.values()].filter(o => o.alive).map(o => ({ id: o.id, x: o.x, y: o.y, z: o.z, bot: true })));
             for (const b of bots.values()) {
                 if (!b.alive) {
-                    if (now >= b.respawnAt) respawn(b, list);
+                    if (now >= b.respawnAt) { if (obj && obj.noRespawn) b.respawnAt = now + 1000; else respawn(b, list); }   // Bombe liegt: erst nächste Runde
                     continue;
                 }
+                if (obj && obj.mode !== 'dm' && obj.phase === 'end') { b.holdWanted = false; continue; }                  // Rundenende: stehen bleiben
                 think(b, now, step, list);
             }
+            const holds = [];                                                            // E-Taste der Bots (Bombe legen/entschärfen, Geisel)
+            for (const b of bots.values()) {
+                const want = b.alive && b.holdWanted;
+                if (want !== b.holdSent) { b.holdSent = want; holds.push({ id: b.id, on: want }); }
+            }
+            if (holds.length) api.emit('botHold', holds);
             const live = [];
             for (const b of bots.values()) if (b.alive) live.push({ id: b.id, x: +b.x.toFixed(2), y: +b.y.toFixed(2), z: +b.z.toFixed(2), ry: +b.ry.toFixed(2) });
             if (live.length) api.emit('botMoves', live);
