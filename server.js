@@ -87,12 +87,12 @@ function activeSpawnPoints() {
 // Läuft nur, wenn mindestens 2 Karten in maps/index.json stehen. Umgebungsvariable ROUND_MINUTES=0 schaltet es ab.
 const ROUND_MS = (process.env.ROUND_MINUTES !== undefined ? Number(process.env.ROUND_MINUTES) : 5) * 60000;
 const VOTE_MS = 15000;
-const rotationOn = () => MANIFEST.maps.length > 1 && ROUND_MS > 0;
+const rotationOn = () => ROUND_MS > 0;   // Modus wechselt immer, Karte nur bei 2+ Karten wählbar
 let roundEndsAt = Date.now() + ROUND_MS;
 let mapVote = null; // { options: [id], votes: { socketId: mapId }, endsAt }
 function mapInfoPayload() {
     return {
-        id: currentMapId, maps: MANIFEST.maps.map(m => ({ id: m.id, name: m.name })),
+        id: currentMapId, maps: MANIFEST.maps.map(m => ({ id: m.id, name: m.name })), mode: currentMode, modeName: MODE_NAMES[currentMode],
         roundLeftMs: rotationOn() && !mapVote ? Math.max(0, roundEndsAt - Date.now()) : null
     };
 }
@@ -100,6 +100,7 @@ function votePayload() {
     const counts = {};
     if (mapVote) for (const id of Object.values(mapVote.votes)) counts[id] = (counts[id] || 0) + 1;
     return mapVote && {
+        nextMode: mapVote.nextMode, nextModeName: MODE_NAMES[mapVote.nextMode],
         options: mapVote.options.map(id => ({ id, name: (MANIFEST.maps.find(m => m.id === id) || {}).name || id })),
         leftMs: Math.max(0, mapVote.endsAt - Date.now()), counts
     };
@@ -249,8 +250,11 @@ function killPlayer(victimId, killerId, reason = 'hit') {
     clearTimeout(victim.deadTimer);
     victim.deadTimer = setTimeout(() => endDeadState(victimId), victim.isBot ? BOT_RESPAWN_MS : DEAD_TIMEOUT_MS); // Sicherung, falls der Client nie bestätigt (Bots: feste Wartezeit)
 
-    const respawnPos = getRandomSpawnPoint(victimId);
+    victim.hold = false;
+    const tsp = isTeamMode() && curLayout() ? teamSpawnPos(victim) : null;
+    const respawnPos = tsp ? { x: tsp.x, y: tsp.y + 2, z: tsp.z } : getRandomSpawnPoint(victimId);
     if (respawnPos) Object.assign(victim, respawnPos);
+    objectiveOnKill(victim);
 
     io.emit('playerKilled', {
         killerId: killer ? killerId : null,
@@ -403,6 +407,7 @@ process.on('SIGTERM', async () => { await flushSaves(); process.exit(0); });
 function endDeadState(id) {
     const p = players[id];
     if (!p || !p.dead) return;
+    if (p.noRespawn) { io.to(id).emit('respawnBlocked'); return; }   // Bombe liegt: erst nächste Runde
     clearTimeout(p.deadTimer);
     p.dead = false;
     p.protectUntil = Date.now() + SPAWN_PROTECTION_MS;
@@ -418,9 +423,10 @@ function broadcastLeaderboard() {
 }
 
 function startMapVote() {
-    const others = MANIFEST.maps.filter(m => m.id !== currentMapId).map(m => m.id);
-    for (let i = others.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [others[i], others[j]] = [others[j], others[i]]; }
-    mapVote = { options: others.slice(0, 3), votes: {}, endsAt: Date.now() + VOTE_MS };
+    const all = MANIFEST.maps.map(m => m.id);
+    for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+    const nextMode = MODES[(MODES.indexOf(currentMode) + 1) % MODES.length];
+    mapVote = { options: all.slice(0, 2), votes: {}, endsAt: Date.now() + VOTE_MS, nextMode };   // 2 Karten zur Auswahl
     io.emit('mapVote', votePayload());
 }
 function finishMapVote() {
@@ -429,10 +435,12 @@ function finishMapVote() {
     const best = Math.max(0, ...mapVote.options.map(id => tally[id] || 0));
     const top = mapVote.options.filter(id => (tally[id] || 0) === best);
     currentMapId = top[Math.floor(Math.random() * top.length)];
+    const nextMode = mapVote.nextMode;
     mapVote = null;
     roundEndsAt = Date.now() + ROUND_MS;
-    console.log('Rotation -> Karte:', currentMapId);
+    console.log('Rotation -> Karte:', currentMapId, '| Modus:', nextMode);
     resetBots();
+    startMode(nextMode);
     io.emit('mapChanged', mapInfoPayload());
 }
 setInterval(() => {
@@ -479,17 +487,216 @@ function resetBots() {
     for (const p of Object.values(players)) if (p.isBot) { p.health = 100; p.dead = false; clearTimeout(p.deadTimer); p.protectUntil = Date.now() + SPAWN_PROTECTION_MS; }
 }
 
+
+// ---------- Spielmodi ----------
+// dm = Deathmatch (jeder gegen jeden), bomb = Bombplant (T legen die Bombe, CT entschärfen), rescue = Rettungsmission (CT bringen Geiseln zur Basis).
+// Alle ROUND_MINUTES wechselt der Modus (dm -> bomb -> rescue -> ...) und die Spieler wählen dabei eine von 2 Karten.
+// Die Karte kennt nur der Browser des Bot-Hosts: er legt aus dem Wegenetz T-/CT-Spawn, 2 Bombenplätze und 2 Geiseln fest ('modeLayout').
+const MODES = ['dm', 'bomb', 'rescue'];
+const MODE_NAMES = { dm: 'Deathmatch', bomb: 'Bombplant', rescue: 'Rettungsmission' };
+const MODE_ROUND_SEC = { bomb: 120, rescue: 150 };
+const PLANT_SEC = 3, DEFUSE_SEC = 5, BOMB_FUSE_SEC = 40, RESCUE_HOLD_SEC = 1.5, ROUND_END_MS = 6000, USE_RANGE = 3.2, RESCUE_ZONE = 9;
+let currentMode = 'dm';
+const layouts = {};                     // mapId -> { t, ct, sites:[{x,y,z,name}], hostages:[{x,y,z}] } (Füße-Höhe)
+const isTeamMode = () => currentMode !== 'dm';
+const obj = { phase: 'idle', roundNo: 0, scoreT: 0, scoreCT: 0, liveEnds: 0, nextAt: 0, winner: null, reason: '', noRespawn: false, waitSince: 0,
+    bomb: null, hostages: [], prog: null };
+const curLayout = () => layouts[currentMapId] || null;
+const objectiveActive = () => isTeamMode() && !!curLayout() && obj.phase !== 'idle' && obj.phase !== 'nolayout';
+const jitter = (r) => (Math.random() * 2 - 1) * r;
+
+function assignTeams(force = false) {
+    if (!isTeamMode()) { for (const p of Object.values(players)) delete p.team; io.emit('teams', {}); return; }
+    const ids = Object.keys(players);
+    if (!force && ids.every(id => players[id].team)) return;
+    const humans = ids.filter(id => !players[id].isBot).sort(() => Math.random() - 0.5);
+    const bots = ids.filter(id => players[id].isBot).sort(() => Math.random() - 0.5);
+    const n = { T: 0, CT: 0 };
+    const put = (id, t) => { players[id].team = t; n[t]++; };
+    if (force) for (const id of ids) delete players[id].team;
+    for (const id of ids) if (players[id].team) n[players[id].team]++;
+    humans.filter(id => !players[id].team).forEach((id, i) => put(id, n.T <= n.CT ? 'T' : 'CT'));
+    bots.filter(id => !players[id].team).forEach(id => put(id, n.T <= n.CT ? 'T' : 'CT'));
+    broadcastTeams();
+}
+function broadcastTeams() {
+    const m = {};
+    for (const [id, p] of Object.entries(players)) if (p.team) m[id] = p.team;
+    io.emit('teams', m);
+}
+function teamSpawnPos(p) {                       // Füße-Position an der Basis des Teams
+    const lay = curLayout();
+    if (!lay || !p || !p.team) return null;
+    const b = p.team === 'T' ? lay.t : lay.ct;
+    return { x: b.x + jitter(1.6), y: b.y, z: b.z + jitter(1.6) };
+}
+const alive = (p) => p && !p.dead;
+const teamAlive = (team) => Object.values(players).filter(p => p.team === team && alive(p));
+const near = (p, q, r) => Math.hypot(p.x - q.x, p.z - q.z) <= r && Math.abs(p.y - q.y) < 3;
+
+function modeStatePayload() {
+    const now = Date.now();
+    const lay = curLayout();
+    const p = {
+        mode: currentMode, name: MODE_NAMES[currentMode], phase: obj.phase, roundNo: obj.roundNo, scoreT: obj.scoreT, scoreCT: obj.scoreCT,
+        leftMs: obj.phase === 'live' ? Math.max(0, obj.liveEnds - now) : (obj.phase === 'end' ? Math.max(0, obj.nextAt - now) : 0),
+        winner: obj.winner, reason: obj.reason, noRespawn: obj.noRespawn, hasLayout: !!lay
+    };
+    if (currentMode === 'bomb' && obj.bomb) {
+        const b = obj.bomb;
+        p.bomb = { state: b.state, carrier: b.carrier, x: b.x, y: b.y, z: b.z, site: b.site, fuseMs: b.state === 'planted' ? Math.max(0, b.explodeAt - now) : 0 };
+    }
+    if (currentMode === 'rescue') p.hostages = obj.hostages.map(h => ({ x: h.x, y: h.y, z: h.z, carrier: h.carrier, rescued: h.rescued }));
+    if (obj.prog) p.prog = obj.prog;
+    return p;
+}
+const layoutPayload = () => ({ mapId: currentMapId, layout: curLayout() });
+function broadcastMode() { io.emit('modeState', modeStatePayload()); }
+
+function resetPlayerForRound(p, pos) {
+    p.health = 100; p.dead = false; p.noRespawn = false; p.hold = false; p.lastAttacker = null; p.lastDamageTime = 0;
+    clearTimeout(p.deadTimer);
+    p.protectUntil = Date.now() + SPAWN_PROTECTION_MS;
+    resetCombatState(p);
+    if (pos) { p.x = pos.x; p.y = pos.y; p.z = pos.z; }
+}
+function startRound() {
+    const lay = curLayout();
+    if (!lay) return;
+    obj.roundNo++; obj.winner = null; obj.reason = ''; obj.noRespawn = false; obj.prog = null;
+    obj.phase = 'live';
+    obj.liveEnds = Date.now() + MODE_ROUND_SEC[currentMode] * 1000;
+    const pos = {};
+    for (const [id, p] of Object.entries(players)) { if (!p.team) continue; const sp = teamSpawnPos(p); resetPlayerForRound(p, sp); if (sp) pos[id] = sp; }
+    if (currentMode === 'bomb') {
+        const ts = Object.entries(players).filter(([, p]) => p.team === 'T');
+        const humansFirst = ts.filter(([, p]) => !p.isBot);
+        const pool = humansFirst.length && Math.random() < 0.6 ? humansFirst : ts;
+        const carrier = pool.length ? pool[Math.floor(Math.random() * pool.length)][0] : null;
+        obj.bomb = { state: carrier ? 'carried' : 'dropped', carrier, x: lay.t.x, y: lay.t.y, z: lay.t.z, site: -1, explodeAt: 0, plantP: 0, defP: 0 };
+    } else if (currentMode === 'rescue') {
+        obj.hostages = lay.hostages.map(h => ({ x: h.x, y: h.y, z: h.z, home: { x: h.x, y: h.y, z: h.z }, carrier: null, rescued: false, prog: 0 }));
+    }
+    io.emit('roundStart', { pos, state: modeStatePayload() });
+    broadcastLeaderboard();
+}
+function endRound(winner, reason) {
+    if (obj.phase !== 'live') return;
+    obj.phase = 'end'; obj.winner = winner; obj.reason = reason; obj.nextAt = Date.now() + ROUND_END_MS; obj.prog = null;
+    if (winner === 'T') obj.scoreT++; else obj.scoreCT++;
+    for (const p of Object.values(players)) p.hold = false;
+    broadcastMode();
+}
+function startMode(mode) {
+    currentMode = mode;
+    obj.phase = mode === 'dm' ? 'idle' : 'nolayout'; obj.roundNo = 0; obj.scoreT = 0; obj.scoreCT = 0; obj.winner = null; obj.noRespawn = false; obj.bomb = null; obj.hostages = []; obj.prog = null;
+    obj.waitSince = Date.now();
+    for (const p of Object.values(players)) { p.hold = false; p.noRespawn = false; }
+    assignTeams(true);
+    console.log('Modus:', mode, '| Karte:', currentMapId);
+    io.emit('layout', layoutPayload());
+    broadcastMode();
+}
+// Spieler stirbt: im Teammodus nach Platzierung der Bombe kein Respawn mehr bis zur nächsten Runde
+function objectiveOnKill(victim) {
+    if (!objectiveActive()) return;
+    if (obj.bomb && obj.bomb.carrier && players[obj.bomb.carrier] === victim) { /* Bombe wird im Tick fallen gelassen */ }
+    if (obj.noRespawn) victim.noRespawn = true;
+}
+
+function modeTick(dt) {
+    if (!isTeamMode() || !humanIds().length) return;
+    const now = Date.now(), lay = curLayout();
+    if (!lay) {                                           // noch keine Kartenvermessung vom Host
+        if (obj.phase !== 'nolayout') obj.phase = 'nolayout';
+        if (now - obj.waitSince > 40000) { console.log('Kein Layout für', currentMapId, '- zurück zu Deathmatch'); io.emit('modeNotice', { text: 'Karte konnte nicht für den Modus vorbereitet werden – Deathmatch' }); startMode('dm'); }
+        return;
+    }
+    if (obj.phase === 'nolayout' || obj.phase === 'idle') { assignTeams(); startRound(); return; }
+    if (obj.phase === 'end') { if (now >= obj.nextAt) { assignTeams(); startRound(); } return; }
+    if (obj.phase !== 'live') return;
+    const list = Object.entries(players);
+    obj.prog = null;
+
+    if (currentMode === 'bomb') {
+        const b = obj.bomb;
+        if (!b) return;
+        // Träger weg/tot -> Bombe fällt
+        if (b.state === 'carried') {
+            const c = players[b.carrier];
+            if (!c || c.dead || c.team !== 'T') { b.state = 'dropped'; b.carrier = null; if (c) { b.x = c.x; b.y = c.y; b.z = c.z; } b.plantP = 0; }
+            else { b.x = c.x; b.y = c.y; b.z = c.z; }
+        }
+        if (b.state === 'dropped') {                      // jeder lebende T in der Nähe hebt sie auf
+            for (const [id, p] of list) if (p.team === 'T' && alive(p) && near(p, b, 1.8)) { b.state = 'carried'; b.carrier = id; break; }
+        }
+        if (b.state === 'carried') {
+            const c = players[b.carrier];
+            const site = lay.sites.findIndex(s => near(c, s, 3.4));
+            if (c.hold && site >= 0) {
+                b.plantP += dt;
+                obj.prog = { kind: 'plant', owner: b.carrier, p: Math.min(1, b.plantP / PLANT_SEC) };
+                if (b.plantP >= PLANT_SEC) {
+                    b.state = 'planted'; b.site = site; b.x = c.x; b.y = c.y; b.z = c.z; b.explodeAt = now + BOMB_FUSE_SEC * 1000; b.defP = 0; b.carrier = null;
+                    obj.noRespawn = true;
+                    io.emit('modeNotice', { text: 'Die Bombe wurde bei ' + lay.sites[site].name + ' platziert!' });
+                }
+            } else b.plantP = 0;
+        }
+        if (b.state === 'planted') {
+            let defuser = null;
+            for (const [id, p] of list) if (p.team === 'CT' && alive(p) && p.hold && near(p, b, USE_RANGE)) { defuser = id; break; }
+            if (defuser) { b.defP += dt; obj.prog = { kind: 'defuse', owner: defuser, p: Math.min(1, b.defP / DEFUSE_SEC) }; }
+            else b.defP = 0;
+            if (b.defP >= DEFUSE_SEC) { b.state = 'defused'; endRound('CT', 'Die Bombe wurde entschärft'); return; }
+            if (now >= b.explodeAt) { b.state = 'exploded'; endRound('T', 'Die Bombe ist explodiert'); return; }
+            if (!teamAlive('CT').length) { endRound('T', 'Alle Anti-Terror-Einheiten sind ausgeschaltet'); return; }
+        } else if (now >= obj.liveEnds) { endRound('CT', 'Zeit abgelaufen – keine Bombe gelegt'); return; }
+    } else if (currentMode === 'rescue') {
+        for (const h of obj.hostages) {
+            if (h.rescued) continue;
+            if (h.carrier) {
+                const c = players[h.carrier];
+                if (!c || c.dead) { h.carrier = null; continue; }
+                h.x = c.x + 0.8; h.y = c.y; h.z = c.z + 0.8;
+                if (near(c, lay.ct, RESCUE_ZONE)) { h.rescued = true; h.carrier = null; io.emit('modeNotice', { text: 'Eine Geisel wurde gerettet!' }); }
+                continue;
+            }
+            let holder = null;
+            for (const [id, p] of list) if (p.team === 'CT' && alive(p) && p.hold && near(p, h, USE_RANGE) && !obj.hostages.some(o => o.carrier === id)) { holder = id; break; }
+            if (holder) { h.prog += dt; obj.prog = { kind: 'rescue', owner: holder, p: Math.min(1, h.prog / RESCUE_HOLD_SEC) }; if (h.prog >= RESCUE_HOLD_SEC) { h.carrier = holder; h.prog = 0; } }
+            else h.prog = 0;
+        }
+        if (obj.hostages.every(h => h.rescued)) { endRound('CT', 'Alle Geiseln gerettet'); return; }
+        if (now >= obj.liveEnds) { endRound('T', 'Zeit abgelaufen – Geiseln nicht gerettet'); return; }
+    }
+}
+let _lastModeTick = Date.now();
+setInterval(() => {
+    const now = Date.now(), dt = Math.min(0.5, (now - _lastModeTick) / 1000); _lastModeTick = now;
+    try { modeTick(dt); } catch (e) { console.error('modeTick', e); }
+    if (isTeamMode() && humanIds().length) broadcastMode();
+}, 200);
+
 io.on('connection', (socket) => {
     console.log('Verbunden:', socket.id);
     let lastResetTime = 0;
 
     // Spieler registrieren (Name kommt kurz danach via 'setName')
-    if (!humanIds().length) spawnBots();   // erster Spieler: Bots starten (stehen dann schon in 'currentPlayers')
+    if (!humanIds().length) { spawnBots(); startMode(currentMode); }   // erster Spieler: Bots starten (stehen dann schon in 'currentPlayers'), Modus frisch beginnen
     const spawn = getRandomSpawnPoint(socket.id);
     players[socket.id] = { ...(spawn || { x: 0, y: 2, z: 0 }), health: 100, name: 'Player', kills: 0, deaths: 0, syringes: 0, level: 1, skin: 0, loadout: [] };   // Start nur mit Messer, Waffen per Kaufmenü (B)
     resetCombatState(players[socket.id]);
+    if (isTeamMode()) {
+        assignTeams();
+        const sp = teamSpawnPos(players[socket.id]);
+        if (sp) Object.assign(players[socket.id], { x: sp.x, y: sp.y + 2, z: sp.z });
+    }
 
     socket.emit('mapInfo', mapInfoPayload());
+    socket.emit('layout', layoutPayload());
+    socket.emit('modeState', modeStatePayload());
+    { const tm = {}; for (const [id, p] of Object.entries(players)) if (p.team) tm[id] = p.team; socket.emit('teams', tm); }
     if (mapVote) socket.emit('mapVote', votePayload());
     socket.emit('currentPlayers', players);
     updateBotHost();
@@ -507,6 +714,7 @@ io.on('connection', (socket) => {
         roundEndsAt = Date.now() + ROUND_MS;
         console.log('Karte gewechselt:', currentMapId);
         resetBots();
+        startMode(currentMode);
         io.emit('mapChanged', mapInfoPayload());
     });
     socket.on('mapVoteCast', (id) => {
@@ -602,6 +810,25 @@ io.on('connection', (socket) => {
         queueSave(me.persistKey, { name: me.name, xp, ...sanitizeCosmetics(d), updated: Date.now() });
     });
 
+    // ---- Ziel-Interaktion (Taste E gehalten: Bombe legen/entschärfen, Geisel befreien) ----
+    socket.on('useHold', (d) => { const p = players[socket.id]; if (p) p.hold = !!(d && d.on) && !p.dead; });
+    socket.on('botHold', (arr) => {
+        if (socket.id !== botHostId || !Array.isArray(arr)) return;
+        for (const m of arr.slice(0, 30)) { const b = players[m && m.id]; if (b && b.isBot) b.hold = !!m.on && !b.dead; }
+    });
+    // Der Bot-Host hat die Karte vermessen: Spawns, Bombenplätze, Geiseln
+    socket.on('modeLayout', (d) => {
+        if (socket.id !== botHostId || !d || d.mapId !== currentMapId || layouts[currentMapId]) return;
+        const pt = (a) => finitePoint(a) ? { x: Number(a.x), y: Number(a.y), z: Number(a.z) } : null;
+        const t = pt(d.t), ct = pt(d.ct);
+        const sites = Array.isArray(d.sites) ? d.sites.slice(0, 2).map(pt) : [];
+        const hostages = Array.isArray(d.hostages) ? d.hostages.slice(0, 2).map(pt) : [];
+        if (!t || !ct || sites.length < 2 || sites.some(x => !x) || hostages.length < 1 || hostages.some(x => !x)) return;
+        layouts[currentMapId] = { t, ct, sites: sites.map((s, i) => ({ ...s, name: i ? 'B' : 'A' })), hostages };
+        console.log('Modus-Layout für', currentMapId, 'vom Host erhalten');
+        io.emit('layout', layoutPayload());
+    });
+
     // ---- Bot-Host meldet Bewegung und Schüsse der Bots ----
     socket.on('botMoves', (arr) => {
         if (socket.id !== botHostId || !Array.isArray(arr) || !rateOk(players[socket.id], 'botmove', 40)) return;
@@ -629,7 +856,7 @@ io.on('connection', (socket) => {
         if (!start || !end) return;
         const target = d.targetId ? players[d.targetId] : null;
         const n = Math.min(cfg.pellets, Math.max(0, Math.floor(Number(d.n)) || 0));
-        const hit = !!(target && n > 0 && d.targetId !== d.id);
+        const hit = !!(target && n > 0 && d.targetId !== d.id && !(isTeamMode() && bot.team && bot.team === target.team));
         io.emit('playerShot', { id: d.id, start, end, w, c: null, n: null, hitPlayer: hit, silent: false });
         if (!hit || target.dead || (target.protectUntil || 0) > now) return;
         if (Math.hypot(bot.x - target.x, bot.z - target.z) > 90) return;
@@ -734,6 +961,7 @@ io.on('connection', (socket) => {
         const targetId = data && typeof data === 'object' ? data.targetId : null;
         const target = players[targetId];
         if (!target || targetId === socket.id) return;
+        if (isTeamMode() && shooter.team && shooter.team === target.team) return;   // kein Friendly Fire
         if (target.dead || (target.protectUntil || 0) > Date.now()) return; // wartet auf Respawn / Spawn-Schutz
 
         const now = Date.now();
