@@ -92,7 +92,7 @@ let roundEndsAt = Date.now() + ROUND_MS;
 let mapVote = null; // { options: [id], votes: { socketId: mapId }, endsAt }
 function mapInfoPayload() {
     return {
-        id: currentMapId, maps: MANIFEST.maps.map(m => ({ id: m.id, name: m.name })), mode: currentMode, modeName: MODE_NAMES[currentMode],
+        id: currentMapId, maps: MANIFEST.maps.map(m => ({ id: m.id, name: m.name, modes: mapModes(m.id) })), mode: currentMode, modeName: MODE_NAMES[currentMode],
         roundLeftMs: rotationOn() && !mapVote ? Math.max(0, roundEndsAt - Date.now()) : null
     };
 }
@@ -423,10 +423,11 @@ function broadcastLeaderboard() {
 }
 
 function startMapVote() {
-    const all = MANIFEST.maps.map(m => m.id);
+    let nextMode = MODES[(MODES.indexOf(currentMode) + 1) % MODES.length];
+    let all = MANIFEST.maps.map(m => m.id).filter(id => mapModes(id).includes(nextMode));
+    if (!all.length) { nextMode = 'dm'; all = MANIFEST.maps.map(m => m.id); }
     for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
-    const nextMode = MODES[(MODES.indexOf(currentMode) + 1) % MODES.length];
-    mapVote = { options: all.slice(0, 2), votes: {}, endsAt: Date.now() + VOTE_MS, nextMode };   // 2 Karten zur Auswahl
+    mapVote = { options: all.slice(0, 2), votes: {}, endsAt: Date.now() + VOTE_MS, nextMode };   // 2 Karten zur Auswahl (nur Karten, die den Modus können)
     io.emit('mapVote', votePayload());
 }
 function finishMapVote() {
@@ -494,6 +495,8 @@ function resetBots() {
 // Die Karte kennt nur der Browser des Bot-Hosts: er legt aus dem Wegenetz T-/CT-Spawn, 2 Bombenplätze und 2 Geiseln fest ('modeLayout').
 const MODES = ['dm', 'bomb', 'rescue'];
 const MODE_NAMES = { dm: 'Deathmatch', bomb: 'Bombplant', rescue: 'Rettungsmission' };
+// welche Modi eine Karte unterstützt (maps/index.json: "modes"; ohne Eintrag: alle)
+const mapModes = (id) => { const e = MANIFEST.maps.find(m => m.id === id); return e && Array.isArray(e.modes) && e.modes.length ? e.modes.filter(m => MODES.includes(m)) : MODES; };
 const MODE_ROUND_SEC = { bomb: 120, rescue: 150 };
 const PLANT_SEC = 3, DEFUSE_SEC = 5, BOMB_FUSE_SEC = 40, RESCUE_HOLD_SEC = 1.5, ROUND_END_MS = 6000, USE_RANGE = 3.2, RESCUE_ZONE = 9;
 let currentMode = 'dm';
@@ -705,16 +708,19 @@ io.on('connection', (socket) => {
     broadcastLeaderboard();
 
     // Karte wählen: nur wenn man allein auf dem Server ist (sonst würden Spieler in verschiedenen Welten stehen)
-    socket.on('selectMap', (id) => {
+    socket.on('selectMap', (d) => {
+        const id = typeof d === 'string' ? d : d && d.id;
+        const mode = d && typeof d === 'object' && MODES.includes(d.mode) ? d.mode : currentMode;
         const entry = MANIFEST.maps.find(m => m.id === id);
         if (!entry) return;
-        if (entry.id === currentMapId) { socket.emit('mapInfo', mapInfoPayload()); return; }
+        if (!mapModes(entry.id).includes(mode)) { socket.emit('mapDenied', { id: currentMapId, reason: 'mode' }); return; }
+        if (entry.id === currentMapId && mode === currentMode) { socket.emit('mapInfo', mapInfoPayload()); return; }
         if (humanIds().length > 1) { socket.emit('mapDenied', { id: currentMapId, reason: 'players' }); return; }
         currentMapId = entry.id;
         roundEndsAt = Date.now() + ROUND_MS;
-        console.log('Karte gewechselt:', currentMapId);
+        console.log('Karte gewechselt:', currentMapId, '| Modus:', mode);
         resetBots();
-        startMode(currentMode);
+        startMode(mode);
         io.emit('mapChanged', mapInfoPayload());
     });
     socket.on('mapVoteCast', (id) => {
