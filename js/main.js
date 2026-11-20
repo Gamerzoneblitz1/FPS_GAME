@@ -461,7 +461,9 @@ function init() {
     });
     socket.on('modeState', (s) => {
         ensureModes().setState(s);
+        const pm = curModeId;
         curModeId = s && s.mode || 'dm';
+        if (pm !== curModeId && mapManifest) syncMapSelect();
         if (s && s.phase !== 'live' && s.phase !== 'end') respawnBlocked = false;
     });
     socket.on('respawnBlocked', () => { respawnBlocked = true; showNotice('Bombe liegt – du spielst ab der nächsten Runde wieder mit'); });
@@ -490,8 +492,8 @@ function init() {
     });
     socket.on('mapVote', (v) => showVote(v));
     socket.on('mapVoteUpdate', (v) => showVote(v));
-    socket.on('mapDenied', () => {
-        showNotice('Kartenwechsel nur möglich, wenn du allein auf dem Server bist');
+    socket.on('mapDenied', (d) => {
+        showNotice(d && d.reason === 'mode' ? 'Dieser Modus ist auf der Karte nicht verfügbar' : 'Kartenwechsel nur möglich, wenn du allein auf dem Server bist');
         syncMapSelect();
     });
 
@@ -1994,8 +1996,19 @@ function setPlayEnabled(on) {
     b.disabled = !on;
     b.textContent = on ? '▶ SPIELEN' : 'KARTE LÄDT …';
 }
-function syncMapSelect() {
+const MODE_LIST = [['dm', 'Deathmatch'], ['bomb', 'Bombplant'], ['rescue', 'Rettungsmission']];
+const mapSupports = (e, mode) => !Array.isArray(e.modes) || !e.modes.length || e.modes.includes(mode);
+function fillMapSelect(mode, keep) {
     const sel = document.getElementById('map-select');
+    if (!sel || !mapManifest) return;
+    const list = mapManifest.maps.filter(e => mapSupports(e, mode));
+    sel.innerHTML = list.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+    if (keep && list.some(e => e.id === keep)) sel.value = keep;
+}
+function syncMapSelect() {
+    const ms = document.getElementById('mode-select'), sel = document.getElementById('map-select');
+    if (ms && curModeId) ms.value = curModeId;
+    if (sel && mapManifest) fillMapSelect(curModeId || 'dm', currentMapId);
     if (sel && currentMapId) sel.value = currentMapId;
 }
 function reportMapSpawns() {
@@ -2007,13 +2020,19 @@ function reportMapSpawns() {
 
 async function initMaps() {
     mapManifest = await fetchManifest();
-    const sel = document.getElementById('map-select');
+    const sel = document.getElementById('map-select'), msel = document.getElementById('mode-select');
     if (sel) {
-        sel.innerHTML = mapManifest.maps.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
-        sel.addEventListener('change', () => {
+        if (msel) {
+            msel.innerHTML = MODE_LIST.map(([id, n]) => `<option value="${id}">${esc(n)}</option>`).join('');
+            msel.value = curModeId || 'dm';
+        }
+        fillMapSelect(msel ? msel.value : 'dm', serverMapId);
+        const choose = () => {
             // Mit Server: er entscheidet (nur allein möglich) und meldet 'mapChanged'/'mapDenied'. Ohne Server: lokal wechseln.
-            if (socket.connected) socket.emit('selectMap', sel.value); else switchMap(sel.value);
-        });
+            if (socket.connected) socket.emit('selectMap', { id: sel.value, mode: msel ? msel.value : 'dm' }); else switchMap(sel.value);
+        };
+        sel.addEventListener('change', choose);
+        if (msel) msel.addEventListener('change', () => { fillMapSelect(msel.value, sel.value); choose(); });   // Modus ändert die Kartenliste (z.B. Bombe nur Mirage)
     }
     let id = serverMapId;
     if (!id) { try { id = localStorage.getItem('nv_map'); } catch (e) { /* ignorieren */ } }
@@ -2612,4 +2631,3 @@ function animate() {
 init();
 initMaps();
 requestAnimationFrame(animate);
-    
